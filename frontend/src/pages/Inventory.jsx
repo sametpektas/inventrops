@@ -122,14 +122,15 @@ export default function Inventory() {
         if (modelId) url += `&model=${modelId}`;
       }
       
-      const response = await api.get(url, { responseType: 'blob' });
-      const blobURL = window.URL.createObjectURL(new Blob([response]));
+      const response = await api.getBlob(url);
+      const blobURL = window.URL.createObjectURL(response);
       const link = document.createElement('a');
       link.href = blobURL;
       link.setAttribute('download', `inventory_${scope}_${new Date().toISOString().split('T')[0]}.xlsx`);
       document.body.appendChild(link);
       link.click();
       link.remove();
+      window.URL.revokeObjectURL(blobURL);
     } catch (err) {
       console.error('Export failed:', err);
     }
@@ -145,9 +146,7 @@ export default function Inventory() {
     formData.append('file', file);
 
     try {
-      const res = await api.post('/inventory/import', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
+      const res = await api.postMultipart('/inventory/import', formData);
       setImportReport(res);
       fetchItems();
     } catch (err) {

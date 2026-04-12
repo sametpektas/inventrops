@@ -1,3 +1,4 @@
+import { Router } from 'express';
 import { getItems, getItemDetail, getModels, getVendors, createItem, getAnalytics, updateItem, setStatus, createVendor, createModel, deleteVendor, deleteModel, exportInventory, importInventory } from '../controllers/inventory.controller';
 import { authMiddleware, requireRole } from '../middleware/auth.middleware';
 import multer from 'multer';
