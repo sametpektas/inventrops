@@ -78,11 +78,16 @@ export const getRackDetail = async (req: Request, res: Response) => {
 export const createDatacenter = async (req: Request, res: Response) => {
   const { name, location, address, team } = req.body;
   try {
-    // If no team specified, pick the first one as default to avoid null constraint
     let teamId = team ? parseInt(team) : null;
     if (!teamId) {
-      const firstTeam = await prisma.team.findFirst();
-      if (firstTeam) teamId = firstTeam.id;
+      let firstTeam = await prisma.team.findFirst();
+      if (!firstTeam) {
+        // Auto-create a default team for fresh databases
+        firstTeam = await prisma.team.create({
+          data: { name: 'Default Team', description: 'System generated default team' }
+        });
+      }
+      teamId = firstTeam.id;
     }
 
     const dc = await prisma.datacenter.create({
@@ -90,12 +95,16 @@ export const createDatacenter = async (req: Request, res: Response) => {
         name, 
         location, 
         address,
-        team_id: teamId || 1 // Fallback to 1 if no teams exist at all
+        team_id: teamId
       }
     });
     res.status(201).json(dc);
-  } catch (err) {
-    res.status(400).json({ error: 'Datacenter name must be unique' });
+  } catch (err: any) {
+    console.error('Error creating datacenter:', err);
+    if (err.code === 'P2002') {
+      return res.status(400).json({ error: 'Datacenter name must be unique' });
+    }
+    res.status(500).json({ error: 'Failed to create datacenter' });
   }
 };
 
