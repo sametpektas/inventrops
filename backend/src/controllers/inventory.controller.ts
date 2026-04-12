@@ -285,7 +285,7 @@ export const updateItem = async (req: Request, res: Response) => {
   const { team_id, role } = (req as any).user || {};
 
   try {
-    const item = await prisma.inventoryItem.findUnique({ where: { id: parseInt(id) } });
+    const item = await prisma.inventoryItem.findUnique({ where: { id: parseInt(id as string) } });
     if (!item) return res.status(404).json({ error: 'Item not found' });
 
     if (role !== 'admin' && item.team_id !== team_id) {
@@ -320,7 +320,7 @@ export const setStatus = async (req: Request, res: Response) => {
   const { team_id, role } = (req as any).user || {};
 
   try {
-    const item = await prisma.inventoryItem.findUnique({ where: { id: parseInt(id) } });
+    const item = await prisma.inventoryItem.findUnique({ where: { id: parseInt(id as string) } });
     if (!item) return res.status(404).json({ error: 'Item not found' });
 
     if (role !== 'admin' && item.team_id !== team_id) {

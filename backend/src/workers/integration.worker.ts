@@ -28,7 +28,7 @@ async function getOrCreateModel(device: DiscoveredDevice, vendorId: number) {
       data: {
         vendor_id: vendorId,
         name: device.model_name || 'Unknown',
-        device_type: device.device_type,
+        device_type: device.device_type as any,
         rack_units: 1
       }
     });
