@@ -18,12 +18,21 @@ export class XormonAdapter {
 
   /**
    * Authenticate with Xormon to get an API Key
-   * Typically: POST /api/public/v1/auth
+   * Priority: 
+   * 1. Use static API Key if provided in config
+   * 2. Use existing session apiKey if already fetched
+   * 3. Perform Login with Username/Password
    */
   private async authenticate(): Promise<string> {
+    // 1. Check if a permanent API Key is already in the config
+    if (this.config.api_key) return this.config.api_key;
+    
+    // 2. Already have a session key?
     if (this.apiKey) return this.apiKey;
 
+    // 3. Fallback to Username/Password login
     try {
+      console.log(`[Xormon] No static key found. Attempting login for ${this.config.username}...`);
       const response = await this.client.post('/api/public/v1/auth', {
         username: this.config.username,
         password: this.config.password
