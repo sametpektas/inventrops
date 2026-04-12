@@ -232,8 +232,8 @@ export const getItemDetail = async (req: Request, res: Response) => {
        room_name: item.rack?.room?.name,
        datacenter_name: item.rack?.room?.datacenter?.name,
        team_name: item.team?.name,
-       created_at: item.created_at.toISOString().split('T')[0],
-       updated_at: item.updated_at.toISOString().split('T')[0],
+       created_at: item.created_at?.toISOString().split('T')[0],
+       updated_at: item.updated_at?.toISOString().split('T')[0],
        purchase_date: item.purchase_date?.toISOString().split('T')[0],
        warranty_expiry: item.warranty_expiry?.toISOString().split('T')[0],
        location_display: item.rack 
