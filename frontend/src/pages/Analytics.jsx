@@ -95,8 +95,15 @@ export default function Analytics() {
   if (loading) return <div className="loading"><div className="spinner" /></div>;
 
   const vendorChartData = (data?.vendor_distribution || []).map(v => ({
+    id: v.vendor_id,
     name: v.vendor_name,
     value: v.count,
+  }));
+
+  const modelChartData = (data?.model_distribution || []).map(m => ({
+    id: m.model_id,
+    name: m.model_name,
+    value: m.count,
   }));
 
   const deviceChartData = (data?.device_type_distribution || []).map(d => ({
@@ -178,7 +185,7 @@ export default function Analytics() {
                     dataKey="value"
                     stroke="var(--bg-surface)"
                     strokeWidth={2}
-                    onClick={(entry) => navigate(`/inventory?search=${encodeURIComponent(entry.name)}`)}
+                    onClick={(entry) => navigate(`/inventory?vendor=${entry.id}`)}
                     style={{ cursor: 'pointer' }}
                   >
                     {vendorChartData.map((_, i) => (
@@ -188,7 +195,10 @@ export default function Analytics() {
                   <Tooltip content={<CustomTooltip />} />
                   <Legend
                     wrapperStyle={{ fontSize: '0.75rem', color: 'var(--text-secondary)', cursor: 'pointer' }}
-                    onClick={(e) => navigate(`/inventory?search=${encodeURIComponent(e.value)}`)}
+                    onClick={(e) => {
+                       const v = vendorChartData.find(v => v.name === e.value);
+                       if (v) navigate(`/inventory?vendor=${v.id}`);
+                    }}
                     iconSize={10}
                   />
                 </PieChart>
@@ -200,6 +210,50 @@ export default function Analytics() {
         </div>
 
         <div className="panel" style={{ animationDelay: '160ms' }}>
+          <div className="panel__header">
+            <h2 className="panel__title">Top 10 Hardware Models</h2>
+          </div>
+          <div className="chart-container">
+            {modelChartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={280}>
+                <PieChart>
+                  <Pie
+                    data={modelChartData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={100}
+                    paddingAngle={2}
+                    dataKey="value"
+                    stroke="var(--bg-surface)"
+                    strokeWidth={2}
+                    onClick={(entry) => navigate(`/inventory?model=${entry.id}`)}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    {modelChartData.map((_, i) => (
+                      <Cell key={i} fill={COLORS[(i + 4) % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip content={<CustomTooltip />} />
+                  <Legend
+                    wrapperStyle={{ fontSize: '0.75rem', color: 'var(--text-secondary)', cursor: 'pointer' }}
+                    onClick={(e) => {
+                       const m = modelChartData.find(m => m.name === e.value);
+                       if (m) navigate(`/inventory?model=${m.id}`);
+                    }}
+                    iconSize={10}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="empty-state"><div className="empty-state__text">No data</div></div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid-2" style={{ marginBottom: 24 }}>
+        <div className="panel" style={{ animationDelay: '200ms' }}>
           <div className="panel__header">
             <h2 className="panel__title">Device Type Distribution</h2>
           </div>

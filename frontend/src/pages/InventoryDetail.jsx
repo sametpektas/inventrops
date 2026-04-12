@@ -357,11 +357,11 @@ export default function InventoryDetail() {
                 </div>
                 <div className="detail-field">
                   <div className="detail-field__label">Purchase Date</div>
-                  <div className="detail-field__value">{item.purchase_date || '—'}</div>
+                  <div className="detail-field__value">{item.purchase_date ? item.purchase_date.split('T')[0] : '—'}</div>
                 </div>
                 <div className="detail-field">
                   <div className="detail-field__label">Warranty Expiry</div>
-                  <div className="detail-field__value">{item.warranty_expiry || '—'}</div>
+                  <div className="detail-field__value">{item.warranty_expiry ? item.warranty_expiry.split('T')[0] : '—'}</div>
                 </div>
                 <div className="detail-field">
                   <div className="detail-field__label">Location</div>

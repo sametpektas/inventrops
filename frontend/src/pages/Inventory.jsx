@@ -27,6 +27,8 @@ export default function Inventory() {
 
   const search = searchParams.get('search') || '';
   const deviceType = searchParams.get('device_type') || '';
+  const vendorId = searchParams.get('vendor') || '';
+  const modelId = searchParams.get('model') || '';
   const warrantyBefore = searchParams.get('warranty_before') || '';
   const warrantyAfter = searchParams.get('warranty_after') || '';
   const page = parseInt(searchParams.get('page') || '1');
@@ -39,6 +41,8 @@ export default function Inventory() {
       let url = `/inventory/items?page=${page}&ordering=-created_at&status=active`;
       if (search) url += `&search=${encodeURIComponent(search)}`;
       if (deviceType) url += `&device_type=${encodeURIComponent(deviceType)}`;
+      if (vendorId) url += `&vendor=${vendorId}`;
+      if (modelId) url += `&model=${modelId}`;
       if (warrantyBefore) url += `&warranty_before=${encodeURIComponent(warrantyBefore)}`;
       if (warrantyAfter) url += `&warranty_after=${encodeURIComponent(warrantyAfter)}`;
       const data = await api.get(url);
@@ -49,7 +53,7 @@ export default function Inventory() {
     } finally {
       setLoading(false);
     }
-  }, [page, search, deviceType, warrantyBefore, warrantyAfter]);
+  }, [page, search, deviceType, vendorId, modelId, warrantyBefore, warrantyAfter]);
 
   useEffect(() => {
     fetchItems();

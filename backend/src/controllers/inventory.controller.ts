@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 
 export const getItems = async (req: Request, res: Response) => {
-  const { rack, search, device_type, status = 'active', page = '1' } = req.query;
+  const { rack, search, device_type, vendor, model, status = 'active', page = '1' } = req.query;
   const skip = (parseInt(page as string) - 1) * 25;
   const { team_id, role } = (req as any).user || {};
 
@@ -18,6 +18,9 @@ export const getItems = async (req: Request, res: Response) => {
     }
 
     if (rack) where.rack_id = parseInt(rack as string);
+    if (vendor) where.model = { vendor_id: parseInt(vendor as string) };
+    if (model) where.model_id = parseInt(model as string);
+    
     if (search) {
       where.OR = [
         { serial_number: { contains: search as string, mode: 'insensitive' } },
@@ -26,7 +29,11 @@ export const getItems = async (req: Request, res: Response) => {
       ];
     }
     if (device_type) {
-      where.model = { device_type: device_type as any };
+      if (where.model) {
+        where.model.device_type = device_type as any;
+      } else {
+        where.model = { device_type: device_type as any };
+      }
     }
 
     const [items, count] = await Promise.all([
@@ -140,17 +147,38 @@ export const getAnalytics = async (req: Request, res: Response) => {
       include: { model: { include: { vendor: true } } }
     });
 
-    const vendorMap: Record<string, number> = {};
+    const vendorMap: Record<string, any> = {};
+    const modelMap: Record<string, any> = {};
+    
     items.forEach(item => {
+      const vId = item.model.vendor_id;
       const vName = item.model.vendor.name;
-      vendorMap[vName] = (vendorMap[vName] || 0) + 1;
+      if (!vendorMap[vId]) vendorMap[vId] = { id: vId, name: vName, count: 0 };
+      vendorMap[vId].count++;
+
+      const mId = item.model_id;
+      const mName = `${vName} ${item.model.name}`;
+      if (!modelMap[mId]) modelMap[mId] = { id: mId, name: mName, count: 0 };
+      modelMap[mId].count++;
     });
 
-    const vendor_data = Object.entries(vendorMap).map(([name, count]) => ({
-      vendor_name: name,
-      count,
-      percentage: total ? Number(((count / total) * 100).toFixed(1)) : 0
-    })).sort((a, b) => b.count - a.count);
+    const vendor_data = Object.values(vendorMap)
+      .map((v: any) => ({
+        vendor_id: v.id,
+        vendor_name: v.name,
+        count: v.count,
+        percentage: total ? Number(((v.count / total) * 100).toFixed(1)) : 0
+      }))
+      .sort((a, b) => b.count - a.count);
+
+    const model_data = Object.values(modelMap)
+      .map((m: any) => ({
+        model_id: m.id,
+        model_name: m.name,
+        count: m.count
+      }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10); // Top 10 models
 
     const today = new Date();
     const periods = [
@@ -208,6 +236,7 @@ export const getAnalytics = async (req: Request, res: Response) => {
     res.json({
       total_items: total,
       vendor_distribution: vendor_data,
+      model_distribution: model_data,
       warranty_expiry: warranty_data,
       device_type_distribution: type_data,
       status_distribution: status_data
