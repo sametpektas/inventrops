@@ -26,27 +26,33 @@ export class XormonAdapter {
   private async authenticate(): Promise<string> {
     // 1. Check if a permanent API Key is already in the config
     if (this.config.api_key) return this.config.api_key;
-    
+
     // 2. Already have a session key?
     if (this.apiKey) return this.apiKey;
 
     // 3. Fallback to Username/Password login
     try {
-      console.log(`[Xormon] No static key found. Attempting login for ${this.config.username}...`);
+      console.log(`[Xormon] Attempting login on ${this.config.url}/api/public/v1/auth...`);
       const response = await this.client.post('/api/public/v1/auth', {
         username: this.config.username,
         password: this.config.password
       });
 
-      if (!response.data.apiKey) {
-        throw new Error('Xormon authentication failed: No API Key returned');
+      // Handle nested structure: response.data.data.apiKey
+      const dataObj = response.data.data || response.data;
+      const key = dataObj.apiKey || dataObj.api_key || dataObj.apikey;
+
+      if (!key) {
+        console.error('[Xormon] Response data structure:', JSON.stringify(response.data));
+        throw new Error('Xormon authentication failed: No API Key found in response');
       }
 
-      this.apiKey = response.data.apiKey;
+      this.apiKey = key;
       return this.apiKey!;
     } catch (error: any) {
-      console.error(`[Xormon] Auth failed: ${error.response?.data?.message || error.message}`);
-      throw new Error(`Xormon Authentication Failed: ${error.message}`);
+      const msg = error.response?.data?.message || error.message;
+      console.error(`[Xormon] Auth failed: ${msg}`);
+      throw new Error(`Xormon Authentication Failed: ${msg}`);
     }
   }
 
@@ -63,10 +69,10 @@ export class XormonAdapter {
 
   async fetchInventory(): Promise<DiscoveredDevice[]> {
     console.log(`[Xormon] Syncing from ${this.config.url}...`);
-    
+
     try {
       const key = await this.authenticate();
-      
+
       const response = await this.client.get('/api/public/v1/inventory', {
         headers: { 'apiKey': key }
       });
@@ -83,8 +89,8 @@ export class XormonAdapter {
         ip_address: d.ip || d.ip_address
       }));
     } catch (error: any) {
-       console.error(`[Xormon] Sync failed: ${error.message}`);
-       throw new Error(`Xormon Sync Failed: ${error.message}`);
+      console.error(`[Xormon] Sync failed: ${error.message}`);
+      throw new Error(`Xormon Sync Failed: ${error.message}`);
     }
   }
 }
