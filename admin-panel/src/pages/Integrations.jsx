@@ -43,12 +43,11 @@ export default function Integrations() {
     try {
       const payload = { ...form };
       if (!payload.team) delete payload.team;
-      if (form.integration_type === 'xormon') {
-         delete payload.username;
-         delete payload.password;
-      } else {
-         delete payload.api_key;
-      }
+      
+      // Cleanup empty optional fields
+      if (!payload.api_key) delete payload.api_key;
+      if (!payload.username) delete payload.username;
+      if (!payload.password) delete payload.password;
 
       await api.post('/integrations/configs', payload);
       setShowModal(false);
@@ -170,23 +169,23 @@ export default function Integrations() {
                   <input className="form-input" type="url" required value={form.base_url} onChange={e => setForm({...form, base_url: e.target.value})} placeholder="https://..." />
                 </div>
 
-                {form.integration_type === 'xormon' ? (
+                {/* Credentials Section */}
+                <div className="grid-2" style={{ gap: 12 }}>
                   <div className="form-group">
-                    <label className="form-label">API Key *</label>
-                    <input className="form-input" type="password" required value={form.api_key} onChange={e => setForm({...form, api_key: e.target.value})} />
+                    <label className="form-label">Username {form.integration_type !== 'xormon' && '*'}</label>
+                    <input className="form-input" required={form.integration_type !== 'xormon'} value={form.username} onChange={e => setForm({...form, username: e.target.value})} />
                   </div>
-                ) : (
-                  <div className="grid-2" style={{ gap: 12 }}>
-                    <div className="form-group">
-                      <label className="form-label">Username *</label>
-                      <input className="form-input" required value={form.username} onChange={e => setForm({...form, username: e.target.value})} />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">Password *</label>
-                      <input className="form-input" type="password" required value={form.password} onChange={e => setForm({...form, password: e.target.value})} />
-                    </div>
+                  <div className="form-group">
+                    <label className="form-label">Password {form.integration_type !== 'xormon' && '*'}</label>
+                    <input className="form-input" type="password" required={form.integration_type !== 'xormon'} value={form.password} onChange={e => setForm({...form, password: e.target.value})} />
                   </div>
-                )}
+                </div>
+
+                {/* API Key Section (Always available, but especially for Xormon) */}
+                <div className="form-group">
+                  <label className="form-label">API Key {form.integration_type === 'xormon' ? '(Optional if using Credentials)' : '(Optional)'}</label>
+                  <input className="form-input" type="password" value={form.api_key} onChange={e => setForm({...form, api_key: e.target.value})} placeholder="Direct API Key / Secret" />
+                </div>
                 
                 <div className="form-group">
                   <label className="form-label">Default Fallback Team</label>
