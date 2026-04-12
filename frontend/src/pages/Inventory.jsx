@@ -42,7 +42,7 @@ export default function Inventory() {
   const fetchItems = useCallback(async () => {
     setLoading(true);
     try {
-      let url = `/inventory/items?page=${page}&ordering=-created_at&status=active`;
+      let url = `/inventory/items?page=${page}&status=active`;
       if (search) url += `&search=${encodeURIComponent(search)}`;
       if (deviceType) url += `&device_type=${encodeURIComponent(deviceType)}`;
       if (vendorId) url += `&vendor=${vendorId}`;
@@ -50,6 +50,7 @@ export default function Inventory() {
       if (warrantyBefore) url += `&warranty_before=${encodeURIComponent(warrantyBefore)}`;
       if (warrantyAfter) url += `&warranty_after=${encodeURIComponent(warrantyAfter)}`;
       if (ordering) url += `&ordering=${ordering}`;
+      
       const data = await api.get(url);
       setItems(data?.results || []);
       setTotalCount(data?.count || 0);

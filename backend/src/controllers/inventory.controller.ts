@@ -37,8 +37,9 @@ export const getItems = async (req: Request, res: Response) => {
     }
 
     // Dynamic ordering
-    const orderField = (ordering as string).replace('-', '');
-    const orderDir = (ordering as string).startsWith('-') ? 'desc' : 'asc';
+    const ord = Array.isArray(ordering) ? String(ordering[0]) : String(ordering);
+    const orderField = ord.replace('-', '') || 'created_at';
+    const orderDir = ord.startsWith('-') ? 'desc' : 'asc';
 
     const [items, count] = await Promise.all([
       prisma.inventoryItem.findMany({
