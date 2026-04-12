@@ -224,7 +224,7 @@ import { z } from 'zod';
 const CreateItemSchema = z.object({
   serial_number: z.string().min(3),
   hostname: z.string().optional().nullable(),
-  ip_address: z.string().ip().optional().nullable().or(z.literal('')),
+  ip_address: z.string().regex(/^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/).optional().nullable().or(z.literal('')),
   model: z.coerce.number(),
   rack: z.coerce.number().optional().nullable(),
   rack_unit_start: z.coerce.number().optional().nullable(),

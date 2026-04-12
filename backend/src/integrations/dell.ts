@@ -8,6 +8,7 @@ export interface DiscoveredDevice {
   model_name: string;
   device_type: string;
   ip_address?: string;
+  asset_tag?: string;
 }
 
 export class DellOpenManageAdapter {

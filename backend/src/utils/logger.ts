@@ -1,4 +1,4 @@
-import prisma from '../client';
+import { prisma } from '../lib/prisma';
 
 export const auditLog = async (userId: number | null, action: string, details: string, teamId: number | null = null) => {
   try {
