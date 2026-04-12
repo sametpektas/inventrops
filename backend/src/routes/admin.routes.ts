@@ -4,8 +4,13 @@ import {
   getLDAPConfig, updateLDAPConfig,
   updateHardwareModel, deleteHardwareModel 
 } from '../controllers/admin.controller';
+import { authMiddleware, requireRole } from '../middleware/auth.middleware';
 
 const router = Router();
+
+// Only admins can access these routes
+router.use(authMiddleware);
+router.use(requireRole(['admin']));
 
 router.get('/vendors/', getVendors);
 router.post('/vendors/', createVendor);

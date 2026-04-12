@@ -136,12 +136,26 @@ export const getTeams = async (req: Request, res: Response) => {
   }
 };
 
-export const patchUser = async (req: Request, res: Response) => {
+export const patchUser = async (req: any, res: Response) => {
   const { id } = req.params;
+  const { email, first_name, last_name, role, team_id } = req.body;
+  
   try {
+    // RBAC: Only admin can change roles or other people's data
+    if (req.user.role !== 'admin' && parseInt(id as string) !== req.user.id) {
+      return res.status(403).json({ error: 'Permission denied' });
+    }
+
+    // prevent role escalation if not admin
+    const updateData: any = { email, first_name, last_name };
+    if (req.user.role === 'admin') {
+      if (role) updateData.role = role;
+      if (team_id) updateData.team_id = parseInt(team_id);
+    }
+
     const user = await prisma.user.update({
       where: { id: parseInt(id as string) },
-      data: req.body
+      data: updateData
     });
     res.json(user);
   } catch (err) {
