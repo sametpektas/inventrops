@@ -1,10 +1,13 @@
-import { Router } from 'express';
-import { getItems, getItemDetail, getModels, getVendors, createItem, getAnalytics, updateItem, setStatus, createVendor, createModel, deleteVendor, deleteModel } from '../controllers/inventory.controller';
+import { getItems, getItemDetail, getModels, getVendors, createItem, getAnalytics, updateItem, setStatus, createVendor, createModel, deleteVendor, deleteModel, exportInventory, importInventory } from '../controllers/inventory.controller';
 import { authMiddleware, requireRole } from '../middleware/auth.middleware';
+import multer from 'multer';
 
+const upload = multer({ storage: multer.memoryStorage() });
 const router = Router();
 
 router.get('/items', authMiddleware, getItems);
+router.get('/export', authMiddleware, exportInventory);
+router.post('/import', authMiddleware, requireRole(['admin', 'manager']), upload.single('file'), importInventory);
 router.get('/analytics', authMiddleware, getAnalytics);
 router.get('/items/:id', authMiddleware, getItemDetail);
 router.patch('/items/:id', authMiddleware, requireRole(['admin', 'manager', 'operator']), updateItem);

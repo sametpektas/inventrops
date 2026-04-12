@@ -11,6 +11,9 @@ export default function Inventory() {
   const [loading, setLoading] = useState(true);
   const [totalCount, setTotalCount] = useState(0);
   const [showModal, setShowModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importReport, setImportReport] = useState(null);
   const [formData, setFormData] = useState({
     serial_number: '', hostname: '', ip_address: '',
     hardware_model: '', rack: '', rack_unit_start: '', rack_unit_size: '',
@@ -31,6 +34,7 @@ export default function Inventory() {
   const modelId = searchParams.get('model') || '';
   const warrantyBefore = searchParams.get('warranty_before') || '';
   const warrantyAfter = searchParams.get('warranty_after') || '';
+  const ordering = searchParams.get('ordering') || '-created_at';
   const page = parseInt(searchParams.get('page') || '1');
 
   const canEdit = user && ['admin', 'manager', 'operator'].includes(user.role);
@@ -45,6 +49,7 @@ export default function Inventory() {
       if (modelId) url += `&model=${modelId}`;
       if (warrantyBefore) url += `&warranty_before=${encodeURIComponent(warrantyBefore)}`;
       if (warrantyAfter) url += `&warranty_after=${encodeURIComponent(warrantyAfter)}`;
+      if (ordering) url += `&ordering=${ordering}`;
       const data = await api.get(url);
       setItems(data?.results || []);
       setTotalCount(data?.count || 0);
@@ -53,7 +58,7 @@ export default function Inventory() {
     } finally {
       setLoading(false);
     }
-  }, [page, search, deviceType, vendorId, modelId, warrantyBefore, warrantyAfter]);
+  }, [page, search, deviceType, vendorId, modelId, warrantyBefore, warrantyAfter, ordering]);
 
   useEffect(() => {
     fetchItems();
@@ -96,6 +101,60 @@ export default function Inventory() {
       prev.set('page', '1');
       return prev;
     });
+  };
+
+  const handleOrder = (field) => {
+    setSearchParams(prev => {
+      const current = prev.get('ordering');
+      if (current === field) prev.set('ordering', `-${field}`);
+      else prev.set('ordering', field);
+      return prev;
+    });
+  };
+
+  const handleExport = async (scope) => {
+    try {
+      let url = `/inventory/export?scope=${scope}`;
+      if (scope === 'filtered') {
+        if (search) url += `&search=${encodeURIComponent(search)}`;
+        if (deviceType) url += `&device_type=${encodeURIComponent(deviceType)}`;
+        if (vendorId) url += `&vendor=${vendorId}`;
+        if (modelId) url += `&model=${modelId}`;
+      }
+      
+      const response = await api.get(url, { responseType: 'blob' });
+      const blobURL = window.URL.createObjectURL(new Blob([response]));
+      const link = document.createElement('a');
+      link.href = blobURL;
+      link.setAttribute('download', `inventory_${scope}_${new Date().toISOString().split('T')[0]}.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (err) {
+      console.error('Export failed:', err);
+    }
+  };
+
+  const handleImport = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setImporting(true);
+    setImportReport(null);
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const res = await api.post('/inventory/import', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      setImportReport(res);
+      fetchItems();
+    } catch (err) {
+      console.error('Import failed:', err);
+    } finally {
+      setImporting(false);
+    }
   };
 
   const handleCreate = async (e) => {
@@ -147,11 +206,22 @@ export default function Inventory() {
             if (!e.target.value) handleSearch('');
           }}
         />
-        {canEdit && (
-          <button className="btn btn--primary" onClick={() => setShowModal(true)}>
-            + Add Device
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn--secondary" onClick={() => handleExport('filtered')}>
+            Export Filtered
           </button>
-        )}
+          <button className="btn btn--secondary" onClick={() => handleExport('all')}>
+            Export All
+          </button>
+          <button className="btn btn--secondary" onClick={() => setShowImportModal(true)}>
+            Import Excel
+          </button>
+          {canEdit && (
+            <button className="btn btn--primary" onClick={() => setShowModal(true)}>
+              + Add Device
+            </button>
+          )}
+        </div>
       </div>
 
       {loading ? (
@@ -162,14 +232,20 @@ export default function Inventory() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Serial Number</th>
-                  <th>Hostname</th>
+                  <th onClick={() => handleOrder('serial_number')} style={{ cursor: 'pointer' }}>
+                    Serial {ordering.includes('serial_number') ? (ordering.startsWith('-') ? '↓' : '↑') : ''}
+                  </th>
+                  <th onClick={() => handleOrder('hostname')} style={{ cursor: 'pointer' }}>
+                    Hostname {ordering.includes('hostname') ? (ordering.startsWith('-') ? '↓' : '↑') : ''}
+                  </th>
                   <th>Model</th>
                   <th>Category</th>
                   <th>IP Address</th>
                   <th>Location</th>
                   <th>Status</th>
-                  <th>Warranty</th>
+                  <th onClick={() => handleOrder('warranty_expiry')} style={{ cursor: 'pointer' }}>
+                    Warranty {ordering.includes('warranty_expiry') ? (ordering.startsWith('-') ? '↓' : '↑') : ''}
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -395,6 +471,55 @@ export default function Inventory() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {showImportModal && (
+        <div className="modal-overlay" onClick={() => setShowImportModal(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal__header">
+              <h3 className="modal__title">Import Inventory (Excel)</h3>
+              <button className="modal__close" onClick={() => setShowImportModal(false)}>×</button>
+            </div>
+            <div className="modal__body">
+              <p style={{ fontSize: '0.85rem', marginBottom: 15, color: 'var(--text-secondary)' }}>
+                Upload an XLSX file. Columns should include: <strong>Serial Number, Vendor, Model, Hostname, IP Address, Status, Purchase Date, Warranty Expiry</strong>.
+              </p>
+              
+              {!importReport ? (
+                <div style={{ padding: '20px', border: '2px dashed var(--border-default)', borderRadius: 'var(--radius)', textAlign: 'center' }}>
+                  {importing ? (
+                    <div className="spinner" style={{ margin: '0 auto' }} />
+                  ) : (
+                    <input type="file" accept=".xlsx" onChange={handleImport} />
+                  )}
+                </div>
+              ) : (
+                <div className="report-panel">
+                   <h4 style={{ color: 'var(--teal)', marginBottom: 8 }}>Import Complete!</h4>
+                   <p style={{ fontSize: '0.9rem' }}>Created: <strong>{importReport.createdCount}</strong> / Total Rows: <strong>{importReport.totalRows}</strong></p>
+                   {importReport.errors.length > 0 && (
+                     <div style={{ marginTop: 12, padding: 12, background: 'rgba(248, 81, 73, 0.1)', borderRadius: 4 }}>
+                       <p style={{ fontSize: '0.78rem', color: 'var(--red)', fontWeight: 600 }}>Conflicts or Issues:</p>
+                       <ul style={{ fontSize: '0.75rem', marginTop: 5, maxHeight: 150, overflowY: 'auto' }}>
+                         {importReport.errors.map((err, i) => <li key={i}>{err}</li>)}
+                       </ul>
+                     </div>
+                   )}
+                </div>
+              )}
+            </div>
+            <div className="modal__footer">
+              <button className="btn btn--secondary" onClick={() => { setShowImportModal(false); setImportReport(null); }}>
+                Close
+              </button>
+              {importReport && (
+                <button className="btn btn--primary" onClick={() => { setImportReport(null); }}>
+                  Import More
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

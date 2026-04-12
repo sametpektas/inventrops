@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 
 export const getItems = async (req: Request, res: Response) => {
-  const { rack, search, device_type, vendor, model, status = 'active', page = '1' } = req.query;
+  const { rack, search, device_type, vendor, model, status = 'active', page = '1', ordering = '-created_at' } = req.query;
   const skip = (parseInt(page as string) - 1) * 25;
   const { team_id, role } = (req as any).user || {};
 
@@ -36,6 +36,10 @@ export const getItems = async (req: Request, res: Response) => {
       }
     }
 
+    // Dynamic ordering
+    const orderField = (ordering as string).replace('-', '');
+    const orderDir = (ordering as string).startsWith('-') ? 'desc' : 'asc';
+
     const [items, count] = await Promise.all([
       prisma.inventoryItem.findMany({
         where,
@@ -44,7 +48,7 @@ export const getItems = async (req: Request, res: Response) => {
           rack: { include: { room: { include: { datacenter: true } } } },
           team: true 
         },
-        orderBy: { created_at: 'desc' },
+        orderBy: { [orderField]: orderDir },
         skip,
         take: 25
       }),
@@ -71,6 +75,131 @@ export const getItems = async (req: Request, res: Response) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to fetch items' });
+  }
+};
+
+import * as XLSX from 'xlsx';
+
+export const exportInventory = async (req: Request, res: Response) => {
+  const { search, device_type, vendor, model, status, scope = 'filtered' } = req.query;
+  const { team_id, role } = (req as any).user || {};
+
+  try {
+    const where: any = {};
+    if (scope === 'filtered') {
+      if (status && status !== 'all') where.status = status as string;
+      if (vendor) where.model = { vendor_id: parseInt(vendor as string) };
+      if (model) where.model_id = parseInt(model as string);
+      if (device_type) {
+         if (where.model) where.model.device_type = device_type as any;
+         else where.model = { device_type: device_type as any };
+      }
+      if (search) {
+        where.OR = [
+          { serial_number: { contains: search as string, mode: 'insensitive' } },
+          { hostname: { contains: search as string, mode: 'insensitive' } },
+        ];
+      }
+    }
+    
+    if (role !== 'admin' && team_id) where.team_id = team_id;
+
+    const items = await prisma.inventoryItem.findMany({
+      where,
+      include: { model: { include: { vendor: true } }, team: true }
+    });
+
+    const data = items.map(i => ({
+      'Serial Number': i.serial_number,
+      'Hostname': i.hostname || '',
+      'IP Address': i.ip_address || '',
+      'Vendor': i.model.vendor.name,
+      'Model': i.model.name,
+      'Category': i.model.category,
+      'Type': i.model.device_type,
+      'Status': i.status,
+      'Purchase Date': i.purchase_date?.toISOString().split('T')[0] || '',
+      'Warranty Expiry': i.warranty_expiry?.toISOString().split('T')[0] || '',
+      'Team': i.team?.name || ''
+    }));
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(data);
+    XLSX.utils.book_append_sheet(wb, ws, 'Inventory');
+    
+    const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    res.setHeader('Content-Disposition', 'attachment; filename="inventory_export.xlsx"');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.send(buf);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Export failed' });
+  }
+};
+
+export const importInventory = async (req: Request, res: Response) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+  const { team_id, role } = (req as any).user || {};
+
+  try {
+    const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const data: any[] = XLSX.utils.sheet_to_json(sheet);
+
+    let createdCount = 0;
+    let errors = [];
+
+    // Pre-fetch for mapping
+    const models = await prisma.model.findMany({ include: { vendor: true } });
+
+    for (const row of data) {
+      const serial = String(row['Serial Number'] || '').trim();
+      const vendorName = String(row['Vendor'] || '').trim();
+      const modelName = String(row['Model'] || '').trim();
+      
+      if (!serial || !vendorName || !modelName) {
+        errors.push(`Skipping row - Missing Serial/Vendor/Model`);
+        continue;
+      }
+
+      let model = models.find(m => 
+        m.name.toLowerCase() === modelName.toLowerCase() && 
+        m.vendor.name.toLowerCase() === vendorName.toLowerCase()
+      );
+
+      if (!model) {
+        errors.push(`Model "${vendorName} ${modelName}" not found. Please create it in settings first.`);
+        continue;
+      }
+
+      try {
+        await prisma.inventoryItem.create({
+          data: {
+            serial_number: serial,
+            hostname: row['Hostname'] || null,
+            ip_address: row['IP Address'] || null,
+            model_id: model.id,
+            status: (row['Status'] || 'active').toLowerCase(),
+            purchase_date: row['Purchase Date'] ? new Date(row['Purchase Date']) : null,
+            warranty_expiry: row['Warranty Expiry'] ? new Date(row['Warranty Expiry']) : null,
+            team_id: role === 'admin' && row['Team ID'] ? parseInt(row['Team ID']) : (team_id || null),
+            notes: row['Notes'] || null
+          }
+        });
+        createdCount++;
+      } catch (err: any) {
+        if (err.code === 'P2002') {
+          errors.push(`Serial ${serial} already exists.`);
+        } else {
+          errors.push(`Serial ${serial}: ${err.message}`);
+        }
+      }
+    }
+
+    res.json({ createdCount, totalRows: data.length, errors });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Import failed' });
   }
 };
 

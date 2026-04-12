@@ -22,6 +22,7 @@
     "@types/dompurify": "^3.0.5",
     "@types/ioredis": "^4.28.10",
     "@types/ldapjs": "^3.0.6",
+    "@types/multer": "^2.1.0",
     "axios": "^1.15.0",
     "bcryptjs": "^3.0.3",
     "bullmq": "^5.73.4",
@@ -34,9 +35,11 @@
     "ioredis": "^5.10.1",
     "jsonwebtoken": "^9.0.3",
     "ldapjs": "^3.0.7",
+    "multer": "^2.1.1",
     "pg": "^8.20.0",
     "prisma": "^7.7.0",
     "ts-node": "^10.9.2",
+    "xlsx": "^0.18.5",
     "zod": "^4.3.6"
   },
   "devDependencies": {
