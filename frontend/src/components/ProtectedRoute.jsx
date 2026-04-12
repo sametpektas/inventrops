@@ -15,10 +15,6 @@ export default function ProtectedRoute({ children, requiredRole }) {
 
   if (!user) return <Navigate to="/login" replace />;
 
-  if (user.require_password_change && location.pathname !== '/change-password') {
-    return <Navigate to="/change-password" replace />;
-  }
-
   if (requiredRole && user.role !== requiredRole) {
     return <Navigate to="/dashboard" replace />;
   }

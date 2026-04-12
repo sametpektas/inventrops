@@ -1,6 +1,7 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import ThemeToggle from './ThemeToggle';
+import PasswordChangeModal from './PasswordChangeModal';
 
 const NAV_ITEMS = [
   {
@@ -140,6 +141,7 @@ export default function Layout() {
           <Outlet />
         </main>
       </div>
+      <PasswordChangeModal />
     </div>
   );
 }

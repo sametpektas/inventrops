@@ -185,24 +185,55 @@ export default function Vendors() {
                 <div className="grid-2" style={{ gap: 16 }}>
                   <div className="form-group">
                     <label className="form-label">Category</label>
-                    <select className="form-input form-select" value={modelForm.category || 'hardware'} onChange={e => setModelForm({ ...modelForm, category: e.target.value })}>
+                    <select 
+                      className="form-input form-select" 
+                      value={modelForm.category || 'hardware'} 
+                      onChange={e => {
+                        const cat = e.target.value;
+                        setModelForm({ 
+                          ...modelForm, 
+                          category: cat,
+                          device_type: cat === 'software' ? 'software' : 'server',
+                          rack_unit_size: cat === 'software' ? 0 : 1
+                        });
+                      }}
+                    >
                       <option value="hardware">Hardware</option>
                       <option value="software">Software</option>
                     </select>
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Device Type</label>
+                    <label className="form-label">Type</label>
                     <select className="form-input form-select" value={modelForm.device_type} onChange={e => setModelForm({ ...modelForm, device_type: e.target.value })}>
-                      <option value="server">Server</option>
-                      <option value="network_switch">Network Switch</option>
-                      <option value="san_switch">SAN Switch</option>
-                      <option value="firewall">Firewall</option>
-                      <option value="storage">Storage</option>
-                      <option value="backup">Backup</option>
-                      <option value="software">Software / Platform</option>
+                      {modelForm.category === 'software' ? (
+                        <option value="software">Software / Platform</option>
+                      ) : (
+                        <>
+                          <option value="server">Server</option>
+                          <option value="network_switch">Network Switch</option>
+                          <option value="san_switch">SAN Switch</option>
+                          <option value="firewall">Firewall</option>
+                          <option value="storage">Storage</option>
+                          <option value="backup">Backup</option>
+                          <option value="pdu">PDU</option>
+                          <option value="ups">UPS</option>
+                        </>
+                      )}
                     </select>
                   </div>
                 </div>
+                {modelForm.category !== 'software' && (
+                  <div className="form-group">
+                    <label className="form-label">Rack Units (Size)</label>
+                    <input 
+                      type="number" 
+                      className="form-input" 
+                      min="1" 
+                      value={modelForm.rack_unit_size} 
+                      onChange={e => setModelForm({ ...modelForm, rack_unit_size: parseInt(e.target.value) })}
+                    />
+                  </div>
+                )}
               </div>
               <div className="modal__footer">
                 <button type="button" className="btn btn--secondary" onClick={() => setShowModelModal(false)}>Cancel</button>
