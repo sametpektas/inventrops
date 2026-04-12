@@ -169,16 +169,25 @@ export default function Dashboard() {
           </div>
           <div className="panel__body">
             <div className="stat-summary-item">
-              <label>Active Devices</label>
+              <label>
+                <span className="indicator indicator--active"></span>
+                Active Devices
+              </label>
               <span>{data?.status_distribution?.find(s => s.status === 'active')?.count || 0}</span>
             </div>
             <div className="stat-summary-item">
-              <label>Inactive / Spare</label>
+              <label>
+                <span className="indicator indicator--inactive"></span>
+                Inactive / Spare
+              </label>
               <span>{data?.status_distribution?.find(s => s.status === 'inactive')?.count || 0}</span>
             </div>
             <div className="stat-summary-item">
-              <label>Total Value Tracking</label>
-              <span>Managed by {data?.vendor_distribution?.length} Vendors</span>
+              <label>
+                <span className="indicator indicator--vendor"></span>
+                Total Vendors
+              </label>
+              <span>{data?.vendor_distribution?.length} Managed</span>
             </div>
             <div style={{ marginTop: 20 }}>
                <Link to="/analytics" className="btn btn--secondary btn--block">Full Analytics Report →</Link>
