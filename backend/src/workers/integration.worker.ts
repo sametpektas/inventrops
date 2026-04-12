@@ -20,11 +20,11 @@ async function getOrCreateVendor(name: string) {
 }
 
 async function getOrCreateModel(device: DiscoveredDevice, vendorId: number) {
-  let model = await prisma.hardwareModel.findFirst({
+  let model = await prisma.model.findFirst({
     where: { vendor_id: vendorId, name: device.model_name || 'Unknown' }
   });
   if (!model) {
-    model = await prisma.hardwareModel.create({
+    model = await prisma.model.create({
       data: {
         vendor_id: vendorId,
         name: device.model_name || 'Unknown',
@@ -74,7 +74,7 @@ async function syncDevice(device: DiscoveredDevice, integration: any) {
     data: {
       serial_number: device.serial_number,
       hostname: device.hostname,
-      hardware_model_id: hwModel.id,
+      model_id: hwModel.id,
       status: 'active',
       team_id: integration.team_id,
       ip_address: device.ip_address,

@@ -152,7 +152,7 @@ export default function InventoryDetail() {
       <div className="detail-header">
         <div>
           <h2 className="detail-title">{item.serial_number}</h2>
-          <p className="detail-subtitle">{item.hardware_model_name}</p>
+          <p className="detail-subtitle">{item.model_name} ({item.category})</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <span className={`badge badge--${item.status}`} style={{ fontSize: '0.75rem', padding: '5px 12px' }}>
@@ -386,8 +386,8 @@ export default function InventoryDetail() {
           <div className="panel__body">
             <div className="detail-grid">
               <div className="detail-field">
-                <div className="detail-field__label">Hardware Model</div>
-                <div className="detail-field__value">{item.hardware_model_name}</div>
+                <div className="detail-field__label">Model</div>
+                <div className="detail-field__value">{item.model_name}</div>
               </div>
               <div className="detail-field">
                 <div className="detail-field__label">Discovered Via</div>

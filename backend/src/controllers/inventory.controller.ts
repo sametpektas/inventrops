@@ -4,12 +4,19 @@ import { prisma } from '../lib/prisma';
 export const getItems = async (req: Request, res: Response) => {
   const { rack, search, device_type, status = 'active', page = '1' } = req.query;
   const skip = (parseInt(page as string) - 1) * 25;
+  const { team_id, role } = (req as any).user || {};
 
   try {
     const where: any = {};
     if (status !== 'all') {
       where.status = status as string;
     }
+    
+    // Team Scoping: Only filter by team if user is not admin
+    if (role !== 'admin' && team_id) {
+      where.team_id = team_id;
+    }
+
     if (rack) where.rack_id = parseInt(rack as string);
     if (search) {
       where.OR = [
@@ -19,14 +26,14 @@ export const getItems = async (req: Request, res: Response) => {
       ];
     }
     if (device_type) {
-      where.hardware_model = { device_type: device_type as any };
+      where.model = { device_type: device_type as any };
     }
 
     const [items, count] = await Promise.all([
       prisma.inventoryItem.findMany({
         where,
         include: { 
-          hardware_model: { include: { vendor: true } }, 
+          model: { include: { vendor: true } }, 
           rack: { include: { room: { include: { datacenter: true } } } },
           team: true 
         },
@@ -37,17 +44,16 @@ export const getItems = async (req: Request, res: Response) => {
       prisma.inventoryItem.count({ where })
     ]);
 
-    // Format like Django REST Framework
     const results = items.map(item => ({
       ...item,
-      hardware_model_name: `${item.hardware_model.vendor.name} ${item.hardware_model.name}`,
+      model_name: `${item.model.vendor.name} ${item.model.name}`,
       rack_name: item.rack?.name,
       room_name: item.rack?.room?.name,
       datacenter_name: item.rack?.room?.datacenter?.name,
       team_name: item.team?.name,
       location_display: item.rack 
         ? `${item.rack.room.datacenter.name} / ${item.rack.room.name} / ${item.rack.name}`
-        : 'Storage'
+        : (item.model.category === 'software' ? 'Cloud / Licensing' : 'Storage/Depot')
     }));
 
     res.json({ results, count });
@@ -59,27 +65,35 @@ export const getItems = async (req: Request, res: Response) => {
 
 export const getItemDetail = async (req: Request, res: Response) => {
   const { id } = req.params;
+  const { team_id, role } = (req as any).user || {};
+
   try {
     const item = await prisma.inventoryItem.findUnique({
       where: { id: parseInt(id as string) },
       include: { 
-        hardware_model: { include: { vendor: true } }, 
+        model: { include: { vendor: true } }, 
         rack: { include: { room: { include: { datacenter: true } } } },
         team: true
       }
     });
+
     if (!item) return res.status(404).json({ error: 'Item not found' });
+
+    // Team Scoping check
+    if (role !== 'admin' && item.team_id !== team_id) {
+       return res.status(403).json({ error: 'Not authorized to view this item' });
+    }
     
     res.json({
        ...item,
-       hardware_model_name: `${item.hardware_model.vendor.name} ${item.hardware_model.name}`,
+       model_name: `${item.model.vendor.name} ${item.model.name}`,
        rack_name: item.rack?.name,
        room_name: item.rack?.room?.name,
        datacenter_name: item.rack?.room?.datacenter?.name,
        team_name: item.team?.name,
        location_display: item.rack 
          ? `${item.rack.room.datacenter.name} / ${item.rack.room.name} / ${item.rack.name}`
-         : 'Storage'
+         : (item.model.category === 'software' ? 'Cloud / Licensing' : 'Storage/Depot')
     });
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch item detail' });
@@ -88,7 +102,7 @@ export const getItemDetail = async (req: Request, res: Response) => {
 
 export const getModels = async (req: Request, res: Response) => {
   try {
-    const models = await prisma.hardwareModel.findMany({
+    const models = await prisma.model.findMany({
       include: { vendor: true }
     });
     const results = models.map(m => ({
@@ -100,6 +114,7 @@ export const getModels = async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Failed to fetch models' });
   }
 };
+
 export const getVendors = async (req: Request, res: Response) => {
   try {
     const vendors = await prisma.vendor.findMany({
@@ -112,23 +127,22 @@ export const getVendors = async (req: Request, res: Response) => {
 };
 
 export const getAnalytics = async (req: Request, res: Response) => {
-  const { team_id } = (req as any).user || {};
+  const { team_id, role } = (req as any).user || {};
   
   try {
     const where: any = {};
-    if (team_id) where.team_id = team_id;
+    if (role !== 'admin' && team_id) where.team_id = team_id;
 
     const total = await prisma.inventoryItem.count({ where });
     
-    // Vendor distribution
     const items = await prisma.inventoryItem.findMany({
       where,
-      include: { hardware_model: { include: { vendor: true } } }
+      include: { model: { include: { vendor: true } } }
     });
 
     const vendorMap: Record<string, number> = {};
     items.forEach(item => {
-      const vName = item.hardware_model.vendor.name;
+      const vName = item.model.vendor.name;
       vendorMap[vName] = (vendorMap[vName] || 0) + 1;
     });
 
@@ -138,7 +152,6 @@ export const getAnalytics = async (req: Request, res: Response) => {
       percentage: total ? Number(((count / total) * 100).toFixed(1)) : 0
     })).sort((a, b) => b.count - a.count);
 
-    // Warranty data
     const today = new Date();
     const periods = [
       { label: '180 days', days: 180 },
@@ -166,26 +179,23 @@ export const getAnalytics = async (req: Request, res: Response) => {
           hostname: i.hostname,
           ip_address: i.ip_address,
           warranty_expiry: i.warranty_expiry?.toISOString().split('T')[0],
-          vendor_name: i.hardware_model.vendor.name,
-          model_name: i.hardware_model.name
+          vendor_name: i.model.vendor.name,
+          model_name: i.model.name
         }))
       };
     });
 
-    // Device type distribution
     const typeMap: Record<string, number> = {};
     items.forEach(item => {
-      const type = item.hardware_model?.device_type || 'other';
+      const type = item.model?.device_type || 'other';
       typeMap[type] = (typeMap[type] || 0) + 1;
     });
-    console.log('[Analytics] Calculated device type distribution:', typeMap);
 
     const type_data = Object.entries(typeMap).map(([type, count]) => ({
       device_type: type,
       count
     }));
 
-    // Status distribution
     const statusMap: Record<string, number> = {};
     items.forEach(item => {
       statusMap[item.status] = (statusMap[item.status] || 0) + 1;
@@ -210,10 +220,14 @@ export const getAnalytics = async (req: Request, res: Response) => {
 
 export const createItem = async (req: Request, res: Response) => {
   const data = req.body;
+  const { team_id, role } = (req as any).user || {};
   
   try {
-    // Basic rack placement validation
-    if (data.rack && data.rack_unit_start) {
+    const model = await prisma.model.findUnique({ where: { id: parseInt(data.model) } });
+    if (!model) return res.status(400).json({ model: ['Model not found'] });
+
+    // Basic rack placement validation (Only for Hardware)
+    if (model.category === 'hardware' && data.rack && data.rack_unit_start) {
       const rackId = parseInt(data.rack);
       const startU = parseInt(data.rack_unit_start);
       const size = parseInt(data.rack_unit_size || 1);
@@ -224,7 +238,6 @@ export const createItem = async (req: Request, res: Response) => {
         return res.status(400).json({ rack: [`Placement U${startU}–U${endU} exceeds rack capacity (${rack.total_units}U).`] });
       }
 
-      // Check conflicts
       const conflicts = await prisma.inventoryItem.findMany({
         where: {
           rack_id: rackId,
@@ -247,14 +260,15 @@ export const createItem = async (req: Request, res: Response) => {
         serial_number: data.serial_number,
         hostname: data.hostname,
         ip_address: data.ip_address,
-        hardware_model_id: parseInt(data.hardware_model),
-        rack_id: data.rack ? parseInt(data.rack) : null,
-        rack_unit_start: data.rack_unit_start ? parseInt(data.rack_unit_start) : null,
+        model_id: model.id,
+        rack_id: model.category === 'hardware' && data.rack ? parseInt(data.rack) : null,
+        rack_unit_start: model.category === 'hardware' && data.rack_unit_start ? parseInt(data.rack_unit_start) : null,
         rack_unit_size: data.rack_unit_size ? parseInt(data.rack_unit_size) : 1,
         purchase_date: data.purchase_date ? new Date(data.purchase_date) : null,
         warranty_expiry: data.warranty_expiry ? new Date(data.warranty_expiry) : null,
         status: data.status || 'active',
-        notes: data.notes
+        notes: data.notes,
+        team_id: role === 'admin' && data.team ? parseInt(data.team) : (team_id || null)
       }
     });
 
@@ -268,9 +282,18 @@ export const createItem = async (req: Request, res: Response) => {
 export const updateItem = async (req: Request, res: Response) => {
   const { id } = req.params;
   const data = req.body;
+  const { team_id, role } = (req as any).user || {};
+
   try {
+    const item = await prisma.inventoryItem.findUnique({ where: { id: parseInt(id) } });
+    if (!item) return res.status(404).json({ error: 'Item not found' });
+
+    if (role !== 'admin' && item.team_id !== team_id) {
+       return res.status(403).json({ error: 'Not authorized to update this item' });
+    }
+
     const updated = await prisma.inventoryItem.update({
-      where: { id: parseInt(id as string) },
+      where: { id: item.id },
       data: {
         hostname: data.hostname,
         ip_address: data.ip_address,
@@ -281,7 +304,8 @@ export const updateItem = async (req: Request, res: Response) => {
         warranty_expiry: data.warranty_expiry ? new Date(data.warranty_expiry) : null,
         status: data.status,
         notes: data.notes,
-        storage_location: data.storage_location
+        storage_location: data.storage_location,
+        team_id: role === 'admin' && data.team ? parseInt(data.team) : undefined
       }
     });
     res.json(updated);
@@ -293,10 +317,18 @@ export const updateItem = async (req: Request, res: Response) => {
 export const setStatus = async (req: Request, res: Response) => {
   const { id } = req.params;
   const { status, storage_location } = req.body;
-  console.log(`[Inventory] Setting status for item ${id} to ${status}. Location: ${storage_location}`);
+  const { team_id, role } = (req as any).user || {};
+
   try {
+    const item = await prisma.inventoryItem.findUnique({ where: { id: parseInt(id) } });
+    if (!item) return res.status(404).json({ error: 'Item not found' });
+
+    if (role !== 'admin' && item.team_id !== team_id) {
+       return res.status(403).json({ error: 'Not authorized to change status' });
+    }
+
     const updated = await prisma.inventoryItem.update({
-      where: { id: parseInt(id as string) },
+      where: { id: item.id },
       data: { 
         status, 
         storage_location: storage_location || null,
@@ -304,10 +336,8 @@ export const setStatus = async (req: Request, res: Response) => {
         ...(status === 'inactive' && { rack_id: null, rack_unit_start: null })
       }
     });
-    console.log(`[Inventory] Status updated successfully for item ${id}`);
     res.json(updated);
   } catch (err) {
-    console.error(`[Inventory] Error setting status for item ${id}:`, err);
     res.status(500).json({ error: 'Failed to set status' });
   }
 };
@@ -324,21 +354,22 @@ export const createVendor = async (req: Request, res: Response) => {
   }
 };
 
-export const createHardwareModel = async (req: Request, res: Response) => {
-  const { name, vendor_id, vendor, device_type, rack_units, rack_unit_size } = req.body;
+export const createModel = async (req: Request, res: Response) => {
+  const { name, vendor_id, vendor, device_type, rack_units, rack_unit_size, category } = req.body;
   try {
-    const model = await prisma.hardwareModel.create({
+    const model = await prisma.model.create({
       data: {
         name,
         vendor_id: parseInt(vendor_id || vendor),
-        device_type,
+        device_type: device_type as any,
+        category: category as any || 'hardware',
         rack_units: parseInt(rack_units || rack_unit_size || '1')
       }
     });
     res.status(201).json(model);
   } catch (err) {
     console.error(err);
-    res.status(400).json({ error: 'Failed to create hardware model' });
+    res.status(400).json({ error: 'Failed to create model' });
   }
 };
 
@@ -348,16 +379,16 @@ export const deleteVendor = async (req: Request, res: Response) => {
     await prisma.vendor.delete({ where: { id: parseInt(id as string) } });
     res.status(204).send();
   } catch (err) {
-    res.status(400).json({ error: 'Cannot delete vendor with associated hardware models' });
+    res.status(400).json({ error: 'Cannot delete vendor with associated models' });
   }
 };
 
-export const deleteHardwareModel = async (req: Request, res: Response) => {
+export const deleteModel = async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
-    await prisma.hardwareModel.delete({ where: { id: parseInt(id as string) } });
+    await prisma.model.delete({ where: { id: parseInt(id as string) } });
     res.status(204).send();
   } catch (err) {
-    res.status(400).json({ error: 'Cannot delete hardware model with associated inventory items' });
+    res.status(400).json({ error: 'Cannot delete model with associated items' });
   }
 };

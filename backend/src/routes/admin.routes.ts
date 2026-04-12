@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { 
   getVendors, createVendor, 
   getLDAPConfig, updateLDAPConfig,
-  updateHardwareModel, deleteHardwareModel 
+  updateModel, deleteModel 
 } from '../controllers/admin.controller';
 import { authMiddleware, requireRole } from '../middleware/auth.middleware';
 
@@ -18,7 +18,7 @@ router.post('/vendors/', createVendor);
 router.get('/ldap-config/', getLDAPConfig);
 router.patch('/ldap-config/', updateLDAPConfig);
 
-router.patch('/models/:id/', updateHardwareModel);
-router.delete('/models/:id/', deleteHardwareModel);
+router.patch('/models/:id/', updateModel);
+router.delete('/models/:id/', deleteModel);
 
 export default router;

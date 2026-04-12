@@ -16,11 +16,19 @@ enum Role {
 enum DeviceType {
   server
   storage
-  switch
+  backup
+  san_switch
+  network_switch
   firewall
+  software
   pdu
   ups
   other
+}
+
+enum ModelCategory {
+  hardware
+  software
 }
 
 enum ItemStatus {
@@ -144,21 +152,22 @@ model Vendor {
   support_email String?
   created_at    DateTime @default(now())
   
-  models        HardwareModel[]
+  models        Model[]
 
   @@map("inventory_vendor")
 }
 
-model HardwareModel {
-  id            Int         @id @default(autoincrement())
+model Model {
+  id            Int           @id @default(autoincrement())
   name          String
-  device_type   String      @default("server")
-  rack_units    Int         @default(1)
+  category      ModelCategory @default(hardware)
+  device_type   DeviceType    @default(server)
+  rack_units    Int           @default(1)
   part_number   String?
-  created_at    DateTime    @default(now())
+  created_at    DateTime      @default(now())
   
   vendor_id     Int
-  vendor        Vendor      @relation(fields: [vendor_id], references: [id])
+  vendor        Vendor        @relation(fields: [vendor_id], references: [id])
   items         InventoryItem[]
 
   @@unique([vendor_id, name])
@@ -183,14 +192,14 @@ model InventoryItem {
   created_at        DateTime    @default(now())
   updated_at        DateTime    @updatedAt
   
-  hardware_model_id Int
-  hardware_model    HardwareModel @relation(fields: [hardware_model_id], references: [id])
+  model_id          Int
+  model             Model       @relation(fields: [model_id], references: [id])
   
   rack_id           Int?
-  rack              Rack?         @relation(fields: [rack_id], references: [id])
+  rack              Rack?       @relation(fields: [rack_id], references: [id])
   
   team_id           Int?
-  team              Team?         @relation(fields: [team_id], references: [id])
+  team              Team?       @relation(fields: [team_id], references: [id])
 
   @@map("inventory_inventoryitem")
 }

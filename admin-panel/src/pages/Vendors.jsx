@@ -106,21 +106,22 @@ export default function Vendors() {
           </table>
         </div>
 
-        {/* Hardware Models Panel */}
+        {/* Models Panel */}
         <div className="panel">
           <div className="panel__header">
-            <h2 className="panel__title">Hardware Models</h2>
+            <h2 className="panel__title">Models</h2>
             <button className="btn btn--sm btn--primary" onClick={() => setShowModelModal(true)}>+ Add Model</button>
           </div>
           <table className="data-table">
             <thead>
-              <tr><th>Model Name</th><th>Vendor</th><th>Type</th><th>Actions</th></tr>
+              <tr><th>Model Name</th><th>Vendor</th><th>Category</th><th>Type</th><th>Actions</th></tr>
             </thead>
             <tbody>
               {models.map(m => (
                 <tr key={m.id}>
                   <td style={{ fontWeight: 600 }}>{m.name}</td>
                   <td>{m.vendor_name}</td>
+                  <td><span className="badge badge--secondary">{m.category}</span></td>
                   <td><span className="badge badge--info">{m.device_type}</span></td>
                   <td>
                     <button className="btn btn--sm btn--danger" onClick={() => handleDelete('models', m.id)}>Del</button>
@@ -163,9 +164,9 @@ export default function Vendors() {
       {/* --- Model Modal --- */}
       {showModelModal && (
         <div className="modal-overlay" onClick={() => setShowModelModal(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 420 }}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 460 }}>
             <div className="modal__header">
-              <h3 className="modal__title">Create Hardware Model</h3>
+              <h3 className="modal__title">Create Model</h3>
               <button className="modal__close" onClick={() => setShowModelModal(false)}>×</button>
             </div>
             <form onSubmit={handleCreateModel}>
@@ -181,6 +182,14 @@ export default function Vendors() {
                   <label className="form-label">Model Name *</label>
                   <input className="form-input" required value={modelForm.name} onChange={e => setModelForm({ ...modelForm, name: e.target.value })} />
                 </div>
+                <div className="grid-2" style={{ gap: 16 }}>
+                  <div className="form-group">
+                    <label className="form-label">Category</label>
+                    <select className="form-input form-select" value={modelForm.category || 'hardware'} onChange={e => setModelForm({ ...modelForm, category: e.target.value })}>
+                      <option value="hardware">Hardware</option>
+                      <option value="software">Software</option>
+                    </select>
+                  </div>
                   <div className="form-group">
                     <label className="form-label">Device Type</label>
                     <select className="form-input form-select" value={modelForm.device_type} onChange={e => setModelForm({ ...modelForm, device_type: e.target.value })}>
@@ -189,9 +198,12 @@ export default function Vendors() {
                       <option value="san_switch">SAN Switch</option>
                       <option value="firewall">Firewall</option>
                       <option value="storage">Storage</option>
+                      <option value="backup">Backup</option>
+                      <option value="software">Software / Platform</option>
                     </select>
                   </div>
                 </div>
+              </div>
               <div className="modal__footer">
                 <button type="button" className="btn btn--secondary" onClick={() => setShowModelModal(false)}>Cancel</button>
                 <button type="submit" className="btn btn--primary">Create</button>

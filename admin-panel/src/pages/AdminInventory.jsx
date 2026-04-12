@@ -46,7 +46,8 @@ export default function AdminInventory() {
               <tr>
                 <th>Serial Number</th>
                 <th>Hostname</th>
-                <th>Hardware Model</th>
+                <th>Model</th>
+                <th>Category</th>
                 <th>Team</th>
                 <th>Status</th>
               </tr>
@@ -56,7 +57,8 @@ export default function AdminInventory() {
                 <tr key={item.id}>
                   <td className="mono" style={{ color: 'var(--teal)' }}>{item.serial_number}</td>
                   <td>{item.hostname || '—'}</td>
-                  <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{item.hardware_model_name}</td>
+                  <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{item.model_name}</td>
+                  <td><span className="badge badge--secondary">{item.category}</span></td>
                   <td style={{ fontWeight: 600 }}>{item.team_name || '—'}</td>
                   <td><span className={`badge badge--${item.status}`}>{item.status}</span></td>
                 </tr>

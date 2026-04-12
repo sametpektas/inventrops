@@ -54,11 +54,11 @@ export const updateLDAPConfig = async (req: Request, res: Response) => {
   }
 };
 
-// Hardware Models
-export const updateHardwareModel = async (req: Request, res: Response) => {
+// Models
+export const updateModel = async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
-    const model = await prisma.hardwareModel.update({
+    const model = await prisma.model.update({
       where: { id: parseInt(id as string) },
       data: req.body
     });
@@ -68,10 +68,10 @@ export const updateHardwareModel = async (req: Request, res: Response) => {
   }
 };
 
-export const deleteHardwareModel = async (req: Request, res: Response) => {
+export const deleteModel = async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
-    await prisma.hardwareModel.delete({
+    await prisma.model.delete({
       where: { id: parseInt(id as string) }
     });
     res.status(204).send();

@@ -33,7 +33,7 @@ export const startWarrantyWorker = () => {
             lte: windowEnd
           }
         },
-        include: { hardware_model: { include: { vendor: true } }, team: true }
+        include: { model: { include: { vendor: true } }, team: true }
       });
 
       for (const item of items) {

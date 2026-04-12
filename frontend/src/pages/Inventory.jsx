@@ -14,6 +14,7 @@ export default function Inventory() {
   const [formData, setFormData] = useState({
     serial_number: '', hostname: '', ip_address: '',
     hardware_model: '', rack: '', rack_unit_start: '', rack_unit_size: '',
+    model: '', // New field name
     warranty_expiry: '', purchase_date: '', notes: '', status: 'active',
   });
   const [formError, setFormError] = useState('');
@@ -109,6 +110,7 @@ export default function Inventory() {
       setFormData({
         serial_number: '', hostname: '', ip_address: '',
         hardware_model: '', rack: '', rack_unit_start: '', rack_unit_size: '',
+    model: '', // New field name
         warranty_expiry: '', purchase_date: '', notes: '', status: 'active',
       });
       setSelectedDc('');
@@ -159,6 +161,7 @@ export default function Inventory() {
                   <th>Serial Number</th>
                   <th>Hostname</th>
                   <th>Model</th>
+                  <th>Category</th>
                   <th>IP Address</th>
                   <th>Location</th>
                   <th>Status</th>
@@ -175,8 +178,9 @@ export default function Inventory() {
                     </td>
                     <td>{item.hostname || '—'}</td>
                     <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                      {item.hardware_model_name}
+                      {item.model_name}
                     </td>
+                    <td><span className="badge badge--secondary">{item.category}</span></td>
                     <td className="mono">{item.ip_address || '—'}</td>
                     <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                       {item.status === 'inactive' && item.storage_location
@@ -269,17 +273,17 @@ export default function Inventory() {
                     />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Hardware Model *</label>
+                    <label className="form-label">Model *</label>
                     <select
                       className="form-input form-select"
-                      value={formData.hardware_model}
-                      onChange={(e) => setFormData(f => ({ ...f, hardware_model: e.target.value }))}
+                      value={formData.model}
+                      onChange={(e) => setFormData(f => ({ ...f, model: e.target.value }))}
                       required
                     >
                       <option value="">Select model...</option>
                       {models.map(m => (
                         <option key={m.id} value={m.id}>
-                          {m.vendor_name} {m.name}
+                          {m.vendor_name} {m.name} ({m.category})
                         </option>
                       ))}
                     </select>
