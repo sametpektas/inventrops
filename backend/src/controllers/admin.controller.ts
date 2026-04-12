@@ -83,7 +83,10 @@ export const deleteModel = async (req: Request, res: Response) => {
 export const getIntegrations = async (req: Request, res: Response) => {
   try {
     const configs = await prisma.integrationConfig.findMany({
-      include: { team: true },
+      include: { 
+        team: true,
+        logs: { orderBy: { created_at: 'desc' }, take: 1 }
+      },
       orderBy: { created_at: 'desc' }
     });
     res.json({ results: configs });

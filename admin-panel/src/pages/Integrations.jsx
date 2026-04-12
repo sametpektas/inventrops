@@ -100,7 +100,7 @@ export default function Integrations() {
               <th>Name</th>
               <th>Type</th>
               <th>Target URL</th>
-              <th>Last Sync</th>
+              <th>Last Result</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -108,19 +108,37 @@ export default function Integrations() {
             {integrations.length === 0 && (
               <tr><td colSpan="6" style={{textAlign: 'center', padding: 20}}>No integrations configured</td></tr>
             )}
-            {integrations.map(inv => (
-              <tr key={inv.id}>
-                <td>
-                  <span className={`badge badge--${inv.is_active ? 'active' : 'inactive'}`}>
-                    {inv.is_active ? 'Active' : 'Disabled'}
-                  </span>
-                </td>
-                <td style={{ fontWeight: 600 }}>{inv.name}</td>
-                <td><span className="badge badge--info">{inv.integration_type}</span></td>
-                <td className="mono" style={{ fontSize: '0.8rem' }}>{inv.base_url}</td>
-                <td style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                  {inv.last_sync_at ? new Date(inv.last_sync_at).toLocaleString() : 'Never'}
-                </td>
+            {integrations.map(inv => {
+              const lastLog = inv.logs && inv.logs[0];
+              return (
+                <tr key={inv.id}>
+                  <td>
+                    <span className={`badge badge--${inv.is_active ? 'active' : 'inactive'}`}>
+                      {inv.is_active ? 'Active' : 'Disabled'}
+                    </span>
+                  </td>
+                  <td style={{ fontWeight: 600 }}>{inv.name}</td>
+                  <td><span className="badge badge--info">{inv.integration_type}</span></td>
+                  <td className="mono" style={{ fontSize: '0.8rem' }}>{inv.base_url}</td>
+                  <td>
+                    {lastLog ? (
+                      <div style={{ fontSize: '0.8rem' }}>
+                        <div style={{ color: lastLog.status === 'success' ? '#10b981' : '#ef4444', fontWeight: 600 }}>
+                          {lastLog.status.toUpperCase()}
+                        </div>
+                        <div style={{ color: 'var(--text-muted)' }}>
+                          {lastLog.status === 'success' 
+                            ? `${lastLog.items_discovered} found, ${lastLog.items_created} new`
+                            : lastLog.error_message?.substring(0, 30)}
+                        </div>
+                        <div style={{ fontSize: '0.7rem', opacity: 0.7 }}>
+                           {new Date(lastLog.created_at).toLocaleString()}
+                        </div>
+                      </div>
+                    ) : (
+                      <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>Never synced</span>
+                    )}
+                  </td>
                 <td>
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <button 
