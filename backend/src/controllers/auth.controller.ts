@@ -140,7 +140,7 @@ export const patchUser = async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
     const user = await prisma.user.update({
-      where: { id: parseInt(id) },
+      where: { id: parseInt(id as string) },
       data: req.body
     });
     res.json(user);
@@ -183,7 +183,7 @@ export const createTeam = async (req: Request, res: Response) => {
 export const deleteTeam = async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
-    await prisma.team.delete({ where: { id: parseInt(id) } });
+    await prisma.team.delete({ where: { id: parseInt(id as string) } });
     res.status(204).send();
   } catch (err) {
     res.status(400).json({ error: 'Cannot delete team with active users' });

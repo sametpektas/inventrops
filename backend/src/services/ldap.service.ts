@@ -31,7 +31,7 @@ export const authenticateLDAP = async (username: string, password: string) => {
 
         let userEntry: any = null;
 
-        res.on('searchEntry', (entry) => {
+        res.on('searchEntry', (entry: any) => {
           userEntry = entry.object;
         });
 

@@ -59,7 +59,7 @@ export const updateHardwareModel = async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
     const model = await prisma.hardwareModel.update({
-      where: { id: parseInt(id) },
+      where: { id: parseInt(id as string) },
       data: req.body
     });
     res.json(model);
@@ -72,7 +72,7 @@ export const deleteHardwareModel = async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
     await prisma.hardwareModel.delete({
-      where: { id: parseInt(id) }
+      where: { id: parseInt(id as string) }
     });
     res.status(204).send();
   } catch (err) {

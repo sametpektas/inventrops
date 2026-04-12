@@ -65,7 +65,7 @@ export const getRackDetail = async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
     const rack = await prisma.rack.findUnique({
-      where: { id: parseInt(id) },
+      where: { id: parseInt(id as string) },
       include: { room: { include: { datacenter: true } } }
     });
     if (!rack) return res.status(404).json({ error: 'Rack not found' });
@@ -145,7 +145,7 @@ export const createRack = async (req: Request, res: Response) => {
 export const deleteDatacenter = async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
-    await prisma.datacenter.delete({ where: { id: parseInt(id) } });
+    await prisma.datacenter.delete({ where: { id: parseInt(id as string) } });
     res.status(204).send();
   } catch (err) {
     res.status(400).json({ error: 'Cannot delete datacenter with associated rooms' });

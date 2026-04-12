@@ -61,7 +61,7 @@ export const getItemDetail = async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
     const item = await prisma.inventoryItem.findUnique({
-      where: { id: parseInt(id) },
+      where: { id: parseInt(id as string) },
       include: { 
         hardware_model: { include: { vendor: true } }, 
         rack: { include: { room: { include: { datacenter: true } } } },
@@ -270,7 +270,7 @@ export const updateItem = async (req: Request, res: Response) => {
   const data = req.body;
   try {
     const updated = await prisma.inventoryItem.update({
-      where: { id: parseInt(id) },
+      where: { id: parseInt(id as string) },
       data: {
         hostname: data.hostname,
         ip_address: data.ip_address,
@@ -296,7 +296,7 @@ export const setStatus = async (req: Request, res: Response) => {
   console.log(`[Inventory] Setting status for item ${id} to ${status}. Location: ${storage_location}`);
   try {
     const updated = await prisma.inventoryItem.update({
-      where: { id: parseInt(id) },
+      where: { id: parseInt(id as string) },
       data: { 
         status, 
         storage_location: storage_location || null,
@@ -345,7 +345,7 @@ export const createHardwareModel = async (req: Request, res: Response) => {
 export const deleteVendor = async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
-    await prisma.vendor.delete({ where: { id: parseInt(id) } });
+    await prisma.vendor.delete({ where: { id: parseInt(id as string) } });
     res.status(204).send();
   } catch (err) {
     res.status(400).json({ error: 'Cannot delete vendor with associated hardware models' });
@@ -355,7 +355,7 @@ export const deleteVendor = async (req: Request, res: Response) => {
 export const deleteHardwareModel = async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
-    await prisma.hardwareModel.delete({ where: { id: parseInt(id) } });
+    await prisma.hardwareModel.delete({ where: { id: parseInt(id as string) } });
     res.status(204).send();
   } catch (err) {
     res.status(400).json({ error: 'Cannot delete hardware model with associated inventory items' });
