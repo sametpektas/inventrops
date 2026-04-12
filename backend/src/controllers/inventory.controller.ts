@@ -58,6 +58,10 @@ export const getItems = async (req: Request, res: Response) => {
       room_name: item.rack?.room?.name,
       datacenter_name: item.rack?.room?.datacenter?.name,
       team_name: item.team?.name,
+      created_at: item.created_at.toISOString().split('T')[0],
+      updated_at: item.updated_at.toISOString().split('T')[0],
+      purchase_date: item.purchase_date?.toISOString().split('T')[0],
+      warranty_expiry: item.warranty_expiry?.toISOString().split('T')[0],
       location_display: item.rack 
         ? `${item.rack.room.datacenter.name} / ${item.rack.room.name} / ${item.rack.name}`
         : (item.model.category === 'software' ? 'Cloud / Licensing' : 'Storage/Depot')
@@ -98,6 +102,10 @@ export const getItemDetail = async (req: Request, res: Response) => {
        room_name: item.rack?.room?.name,
        datacenter_name: item.rack?.room?.datacenter?.name,
        team_name: item.team?.name,
+       created_at: item.created_at.toISOString().split('T')[0],
+       updated_at: item.updated_at.toISOString().split('T')[0],
+       purchase_date: item.purchase_date?.toISOString().split('T')[0],
+       warranty_expiry: item.warranty_expiry?.toISOString().split('T')[0],
        location_display: item.rack 
          ? `${item.rack.room.datacenter.name} / ${item.rack.room.name} / ${item.rack.name}`
          : (item.model.category === 'software' ? 'Cloud / Licensing' : 'Storage/Depot')
@@ -190,9 +198,9 @@ export const getAnalytics = async (req: Request, res: Response) => {
     );
 
     const periods = [
-      { label: '0-180 days', min: 0, max: 180 },
-      { label: '181-360 days', min: 181, max: 360 },
-      { label: '361-720 days', min: 361, max: 720 },
+      { label: 'Next 6 Months', min: 0, max: 180 },
+      { label: 'Next 1 Year', min: 181, max: 365 },
+      { label: 'Next 2 Years', min: 366, max: 730 },
     ];
 
     const warranty_data = periods.map(p => {
@@ -224,10 +232,10 @@ export const getAnalytics = async (req: Request, res: Response) => {
       };
     });
 
-    // Add expired at the beginning of the array
+    // Add expired at the beginning
     const full_warranty_data = [
       {
-        period: 'Expired',
+        period: 'Expired!',
         count: expiredItems.length,
         items: expiredItems.map(i => ({
           id: i.id,
