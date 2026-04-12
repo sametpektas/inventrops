@@ -1,5 +1,6 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import ThemeToggle from './ThemeToggle';
 
 const NAV_ITEMS = [
   {
@@ -12,7 +13,7 @@ const NAV_ITEMS = [
   {
     section: 'Inventory',
     items: [
-      { to: '/inventory', label: 'All Devices', icon: '⬡' },
+      { to: '/inventory', label: 'Active Inventory', icon: '⬡' },
       { to: '/inventory/deactivated', label: 'Deactivated / Depot', icon: '⚇' },
     ],
   },
@@ -27,7 +28,7 @@ const NAV_ITEMS = [
 const PAGE_TITLES = {
   '/dashboard': 'Dashboard',
   '/analytics': 'Analytics',
-  '/inventory': 'Inventory',
+  '/inventory': 'Active Inventory',
   '/shares': 'Shared Links',
   '/profile': 'Profile',
 };
@@ -131,6 +132,7 @@ export default function Layout() {
               }} />
               System OK
             </span>
+            <ThemeToggle />
           </div>
         </header>
 

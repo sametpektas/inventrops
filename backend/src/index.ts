@@ -1,5 +1,7 @@
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import { prisma } from './lib/prisma';
 import authRoutes from './routes/auth.routes';
@@ -12,6 +14,16 @@ dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 8000;
+
+// Security Middleware
+app.use(helmet());
+app.use(rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per windowMs
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: 'Too many requests from this IP, please try again later.'
+}));
 
 // Emergency Admin Setup (Remove in production)
 app.get('/api/setup-admin', async (req, res) => {

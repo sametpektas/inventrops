@@ -1,5 +1,6 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import ThemeToggle from './ThemeToggle';
 
 const NAV_ITEMS = [
   {
@@ -30,7 +31,7 @@ const PAGE_TITLES = {
   '/admin/dashboard': 'Admin Dashboard',
   '/admin/users': 'User Management',
   '/admin/teams': 'Team Management',
-  '/admin/inventory': 'Inventory (All Teams)',
+  '/admin/inventory': 'Active Inventory (All Teams)',
   '/admin/vendors': 'Vendors & Hardware Models',
   '/admin/infrastructure': 'Datacenters & Racks',
   '/admin/integrations': 'Third-Party Integrations',
@@ -98,6 +99,7 @@ export default function AdminLayout() {
           <h1 className="topbar__title">{pageTitle}</h1>
           <div className="topbar__actions">
             <span className="badge badge--warning" style={{ fontSize: '0.7rem' }}>ADMIN MODE</span>
+            <ThemeToggle />
           </div>
         </header>
         <main className="page-content">

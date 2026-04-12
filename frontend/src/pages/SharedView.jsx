@@ -133,7 +133,7 @@ export default function SharedView() {
 
         <div className="panel">
           <div className="panel__header">
-            <h2 className="panel__title">All Devices</h2>
+            <h2 className="panel__title">Active Inventory</h2>
             <span className="panel__badge">{data.items?.length} items</span>
           </div>
           <table className="data-table">
