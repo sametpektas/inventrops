@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
+import DOMPurify from 'dompurify';
 import RackVisualizer from '../components/RackVisualizer';
 
 export default function InventoryDetail() {
@@ -407,9 +408,11 @@ export default function InventoryDetail() {
             {item.notes && (
               <div className="detail-field" style={{ marginTop: 8 }}>
                 <div className="detail-field__label">Notes</div>
-                <div className="detail-field__value" style={{ whiteSpace: 'pre-wrap' }}>
-                  {item.notes}
-                </div>
+                <div 
+                  className="detail-field__value" 
+                  style={{ whiteSpace: 'pre-wrap' }}
+                  dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(item.notes) }}
+                />
               </div>
             )}
           </div>

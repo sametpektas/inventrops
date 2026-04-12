@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { comparePassword, generateToken, generateRefreshToken, verifyRefreshToken, hashPassword } from '../utils/auth';
 import { authenticateLDAP } from '../services/ldap.service';
+import { auditLog } from '../utils/logger';
 
 export const login = async (req: Request, res: Response) => {
   const { username, password } = req.body;
@@ -43,6 +44,8 @@ export const login = async (req: Request, res: Response) => {
 
     const access = generateToken({ id: authenticatedUser.id, username: authenticatedUser.username, role: authenticatedUser.role, team_id: authenticatedUser.team_id });
     const refresh = generateRefreshToken({ id: authenticatedUser.id });
+
+    await auditLog(authenticatedUser.id, 'LOGIN_SUCCESS', `User ${authenticatedUser.username} logged in successfully`, authenticatedUser.team_id);
 
     res.json({
       access,

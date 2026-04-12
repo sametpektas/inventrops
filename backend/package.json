@@ -19,12 +19,14 @@
     "@prisma/adapter-pg": "^7.7.0",
     "@prisma/client": "^7.7.0",
     "@types/axios": "^0.9.36",
+    "@types/dompurify": "^3.0.5",
     "@types/ioredis": "^4.28.10",
     "@types/ldapjs": "^3.0.6",
     "axios": "^1.15.0",
     "bcryptjs": "^3.0.3",
     "bullmq": "^5.73.4",
     "cors": "^2.8.6",
+    "dompurify": "^3.3.3",
     "dotenv": "^17.4.1",
     "express": "^5.2.1",
     "express-rate-limit": "^8.3.2",
@@ -33,7 +35,8 @@
     "jsonwebtoken": "^9.0.3",
     "ldapjs": "^3.0.7",
     "pg": "^8.20.0",
-    "prisma": "^7.7.0"
+    "prisma": "^7.7.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

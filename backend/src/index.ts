@@ -12,6 +12,12 @@ import { hashPassword } from './utils/auth';
 
 dotenv.config();
 
+// FATAL CHECK: Enforce environment variables
+if (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'secret' || process.env.JWT_SECRET === 'production_secret_change_me') {
+  console.error('FATAL: JWT_SECRET environment variable is NOT set or is insecure! Server refusing to start.');
+  process.exit(1);
+}
+
 const app = express();
 const port = process.env.PORT || 8000;
 

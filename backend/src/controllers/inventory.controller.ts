@@ -218,63 +218,97 @@ export const getAnalytics = async (req: Request, res: Response) => {
   }
 };
 
+import { auditLog } from '../utils/logger';
+import { z } from 'zod';
+
+const CreateItemSchema = z.object({
+  serial_number: z.string().min(3),
+  hostname: z.string().optional().nullable(),
+  ip_address: z.string().ip().optional().nullable().or(z.literal('')),
+  model: z.coerce.number(),
+  rack: z.coerce.number().optional().nullable(),
+  rack_unit_start: z.coerce.number().optional().nullable(),
+  rack_unit_size: z.coerce.number().min(1).optional().default(1),
+  purchase_date: z.string().datetime().optional().nullable().or(z.literal('')),
+  warranty_expiry: z.string().datetime().optional().nullable().or(z.literal('')),
+  status: z.enum(['active', 'inactive', 'maintenance', 'decommissioned']).default('active'),
+  notes: z.string().optional().nullable(),
+  team: z.coerce.number().optional().nullable()
+});
+
 export const createItem = async (req: Request, res: Response) => {
-  const data = req.body;
   const { team_id, role } = (req as any).user || {};
   
+  const validation = CreateItemSchema.safeParse(req.body);
+  if (!validation.success) {
+    return res.status(400).json({ errors: validation.error.flatten().fieldErrors });
+  }
+
+  const data = validation.data;
+
   try {
-    const model = await prisma.model.findUnique({ where: { id: parseInt(data.model) } });
-    if (!model) return res.status(400).json({ model: ['Model not found'] });
+    const newItem = await prisma.$transaction(async (tx) => {
+      const model = await tx.model.findUnique({ where: { id: data.model } });
+      if (!model) throw new Error('Model not found');
 
-    // Basic rack placement validation (Only for Hardware)
-    if (model.category === 'hardware' && data.rack && data.rack_unit_start) {
-      const rackId = parseInt(data.rack);
-      const startU = parseInt(data.rack_unit_start);
-      const size = parseInt(data.rack_unit_size || 1);
-      const endU = startU + size - 1;
+      // Basic rack placement validation (Only for Hardware)
+      if (model.category === 'hardware' && data.rack && data.rack_unit_start) {
+        const rackId = data.rack;
+        const startU = data.rack_unit_start;
+        const size = data.rack_unit_size;
+        const endU = startU + size - 1;
 
-      const rack = await prisma.rack.findUnique({ where: { id: rackId } });
-      if (rack && endU > rack.total_units) {
-        return res.status(400).json({ rack: [`Placement U${startU}–U${endU} exceeds rack capacity (${rack.total_units}U).`] });
+        const rack = await tx.rack.findUnique({ where: { id: rackId } });
+        if (!rack) throw new Error('Rack not found');
+
+        if (endU > rack.total_units) {
+          throw new Error(`Placement U${startU}–U${endU} exceeds rack capacity (${rack.total_units}U).`);
+        }
+
+        const conflicts = await tx.inventoryItem.findMany({
+          where: {
+            rack_id: rackId,
+            status: 'active',
+            NOT: { rack_unit_start: null }
+          }
+        });
+
+        for (const item of conflicts) {
+          const itemStart = item.rack_unit_start!;
+          const itemEnd = itemStart + item.rack_unit_size - 1;
+          if (startU <= itemEnd && endU >= itemStart) {
+            throw new Error(`U-slot conflict with ${item.serial_number} (U${itemStart}–U${itemEnd}).`);
+          }
+        }
       }
 
-      const conflicts = await prisma.inventoryItem.findMany({
-        where: {
-          rack_id: rackId,
-          status: 'active',
-          NOT: { rack_unit_start: null }
+      return tx.inventoryItem.create({
+        data: {
+          serial_number: data.serial_number,
+          hostname: data.hostname,
+          ip_address: data.ip_address,
+          model_id: model.id,
+          rack_id: model.category === 'hardware' && data.rack ? data.rack : null,
+          rack_unit_start: model.category === 'hardware' && data.rack_unit_start ? data.rack_unit_start : null,
+          rack_unit_size: data.rack_unit_size,
+          purchase_date: data.purchase_date ? new Date(data.purchase_date) : null,
+          warranty_expiry: data.warranty_expiry ? new Date(data.warranty_expiry) : null,
+          status: data.status,
+          notes: data.notes,
+          team_id: role === 'admin' && data.team ? data.team : (team_id || null)
         }
       });
-
-      for (const item of conflicts) {
-        const itemStart = item.rack_unit_start!;
-        const itemEnd = itemStart + item.rack_unit_size - 1;
-        if (startU <= itemEnd && endU >= itemStart) {
-          return res.status(400).json({ rack: [`U-slot conflict with ${item.serial_number} (U${itemStart}–U${itemEnd}).`] });
-        }
-      }
-    }
-
-    const newItem = await prisma.inventoryItem.create({
-      data: {
-        serial_number: data.serial_number,
-        hostname: data.hostname,
-        ip_address: data.ip_address,
-        model_id: model.id,
-        rack_id: model.category === 'hardware' && data.rack ? parseInt(data.rack) : null,
-        rack_unit_start: model.category === 'hardware' && data.rack_unit_start ? parseInt(data.rack_unit_start) : null,
-        rack_unit_size: data.rack_unit_size ? parseInt(data.rack_unit_size) : 1,
-        purchase_date: data.purchase_date ? new Date(data.purchase_date) : null,
-        warranty_expiry: data.warranty_expiry ? new Date(data.warranty_expiry) : null,
-        status: data.status || 'active',
-        notes: data.notes,
-        team_id: role === 'admin' && data.team ? parseInt(data.team) : (team_id || null)
-      }
     });
 
+    const user = (req as any).user;
+    await auditLog(user?.id || null, 'ITEM_CREATED', `Device ${newItem.serial_number} (ID: ${newItem.id}) created`, newItem.team_id);
+
     res.status(201).json(newItem);
-  } catch (err) {
+  } catch (err: any) {
     console.error(err);
+    if (err.message && (err.message.includes('conflict') || err.message.includes('not found') || err.message.includes('exceeds'))) {
+      return res.status(400).json({ error: err.message });
+    }
     res.status(500).json({ error: 'Failed to create item' });
   }
 };
