@@ -9,7 +9,7 @@
     "start": "node dist/index.js",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "seed": "npx ts-node --transpile-only src/scripts/seed.ts"
+    "seed": "npx ts-node --transpile-only ./src/scripts/seed.ts"
   },
   "keywords": [],
   "author": "",
