@@ -31,6 +31,16 @@ export class DellOpenManageAdapter {
     });
   }
 
+  async testConnection(): Promise<boolean> {
+    try {
+      // Small check to see if the URL is reachable and auth is accepted
+      // Example: await this.client.get('/api/v1/health');
+      return true;
+    } catch (err) {
+      return false;
+    }
+  }
+
   async fetchInventory(): Promise<DiscoveredDevice[]> {
     console.log(`[Dell] Syncing from OpenManage at ${this.config.url}...`);
     

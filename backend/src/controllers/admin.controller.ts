@@ -1,5 +1,9 @@
 import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
+import { integrationQueue } from '../workers/integration.worker';
+import { HPEOneViewAdapter } from '../integrations/hpe';
+import { DellOpenManageAdapter } from '../integrations/dell';
+import { XormonAdapter } from '../integrations/xormon';
 
 // Vendors
 export const getVendors = async (req: Request, res: Response) => {
@@ -79,6 +83,7 @@ export const deleteModel = async (req: Request, res: Response) => {
     res.status(400).json({ error: 'Failed to delete model' });
   }
 };
+
 // Integrations
 export const getIntegrations = async (req: Request, res: Response) => {
   try {
@@ -129,8 +134,6 @@ export const deleteIntegration = async (req: Request, res: Response) => {
   }
 };
 
-import { integrationQueue } from '../workers/integration.worker';
-
 export const triggerSync = async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
@@ -144,5 +147,29 @@ export const triggerSync = async (req: Request, res: Response) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to trigger sync' });
+  }
+};
+
+export const testIntegrationConnection = async (req: Request, res: Response) => {
+  const { integration_type, base_url, username, password, api_key } = req.body;
+  
+  // Mock config for adapter
+  const config = { url: base_url, username, password, api_key };
+  
+  try {
+    let adapter: any;
+    if (integration_type === 'dell_openmanage') adapter = new DellOpenManageAdapter(config);
+    else if (integration_type === 'hpe_oneview') adapter = new HPEOneViewAdapter(config);
+    else if (integration_type === 'xormon') adapter = new XormonAdapter(config);
+    else return res.status(400).json({ error: 'Invalid integration type' });
+
+    const ok = await adapter.testConnection();
+    if (ok) {
+      res.json({ message: 'Connection successful' });
+    } else {
+      res.status(422).json({ error: 'Connection failed. Please check your credentials and URL.' });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: `Connection error: ${err.message}` });
   }
 };

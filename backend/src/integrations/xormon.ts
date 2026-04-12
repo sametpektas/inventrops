@@ -50,6 +50,17 @@ export class XormonAdapter {
     }
   }
 
+  async testConnection(): Promise<boolean> {
+    try {
+      await this.authenticate();
+      // If we got here, auth worked. Let's try a quick health/info check if possible
+      // but usually auth is enough for a "test"
+      return true;
+    } catch (err) {
+      return false;
+    }
+  }
+
   async fetchInventory(): Promise<DiscoveredDevice[]> {
     console.log(`[Xormon] Syncing from ${this.config.url}...`);
     

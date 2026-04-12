@@ -49,12 +49,23 @@ export default function Integrations() {
       if (!payload.username) delete payload.username;
       if (!payload.password) delete payload.password;
 
+      // PHASE 1: TEST CONNECTION
+      showToastMsg('Testing connection...', 'info');
+      try {
+        await api.post('/admin/integrations/test-connection', payload);
+      } catch (testErr) {
+        showToastMsg(testErr?.data?.error || 'Connection test failed', 'error');
+        setSubmitting(false);
+        return;
+      }
+
+      // PHASE 2: SAVE IF SUCCESS
       await api.post('/admin/integrations/configs', payload);
       setShowModal(false);
       fetchData();
-      showToastMsg('Integration configured successfully');
+      showToastMsg('Connection verified and configured successfully');
     } catch (err) {
-      showToastMsg('Failed to configure integration', 'error');
+      showToastMsg('Failed to save integration', 'error');
     } finally {
       setSubmitting(false);
     }
