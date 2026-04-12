@@ -181,27 +181,38 @@ export const getAnalytics = async (req: Request, res: Response) => {
       .slice(0, 10); // Top 10 models
 
     const today = new Date();
+    
+    // Categorize expired separately
+    const expiredItems = items.filter(i => 
+      i.status === 'active' && 
+      i.warranty_expiry && 
+      i.warranty_expiry < today
+    );
+
     const periods = [
-      { label: '180 days', days: 180 },
-      { label: '360 days', days: 360 },
-      { label: '720 days', days: 720 },
+      { label: '0-180 days', min: 0, max: 180 },
+      { label: '181-360 days', min: 181, max: 360 },
+      { label: '361-720 days', min: 361, max: 720 },
     ];
 
     const warranty_data = periods.map(p => {
-      const deadline = new Date(today);
-      deadline.setDate(today.getDate() + p.days);
-      const expiringItems = items.filter(i => 
+      const minDate = new Date(today);
+      minDate.setDate(today.getDate() + p.min);
+      
+      const maxDate = new Date(today);
+      maxDate.setDate(today.getDate() + p.max);
+
+      const bucketItems = items.filter(i => 
         i.status === 'active' && 
         i.warranty_expiry && 
-        i.warranty_expiry <= deadline && 
-        i.warranty_expiry >= today
+        i.warranty_expiry >= minDate && 
+        i.warranty_expiry <= maxDate
       );
 
       return {
         period: p.label,
-        count: expiringItems.length,
-        days: p.days,
-        items: expiringItems.map(i => ({
+        count: bucketItems.length,
+        items: bucketItems.map(i => ({
           id: i.id,
           serial_number: i.serial_number,
           hostname: i.hostname,
@@ -212,6 +223,24 @@ export const getAnalytics = async (req: Request, res: Response) => {
         }))
       };
     });
+
+    // Add expired at the beginning of the array
+    const full_warranty_data = [
+      {
+        period: 'Expired',
+        count: expiredItems.length,
+        items: expiredItems.map(i => ({
+          id: i.id,
+          serial_number: i.serial_number,
+          hostname: i.hostname,
+          ip_address: i.ip_address,
+          warranty_expiry: i.warranty_expiry?.toISOString().split('T')[0],
+          vendor_name: i.model.vendor.name,
+          model_name: i.model.name
+        }))
+      },
+      ...warranty_data
+    ];
 
     const typeMap: Record<string, number> = {};
     items.forEach(item => {
@@ -237,7 +266,7 @@ export const getAnalytics = async (req: Request, res: Response) => {
       total_items: total,
       vendor_distribution: vendor_data,
       model_distribution: model_data,
-      warranty_expiry: warranty_data,
+      warranty_expiry: full_warranty_data,
       device_type_distribution: type_data,
       status_distribution: status_data
     });

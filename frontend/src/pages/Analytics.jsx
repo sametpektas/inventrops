@@ -12,16 +12,16 @@ function WarrantyTab({ warrantyData, activeTab, setActiveTab }) {
   return (
     <div>
       <div className="tabs">
-        {periods.map((period, i) => (
+        {warrantyData?.map((p, i) => (
           <button
-            key={period}
+            key={p.period}
             className={`tab ${activeTab === i ? 'tab--active' : ''}`}
             onClick={() => setActiveTab(i)}
           >
-            {period}
-            {warrantyData?.[i]?.count > 0 && (
-              <span className="badge badge--danger" style={{ marginLeft: 6, fontSize: '0.6rem' }}>
-                {warrantyData[i].count}
+            {p.period}
+            {p.count > 0 && (
+              <span className={`badge badge--${p.period === 'Expired' ? 'danger' : 'warning'}`} style={{ marginLeft: 6, fontSize: '0.6rem' }}>
+                {p.count}
               </span>
             )}
           </button>
@@ -143,25 +143,21 @@ export default function Analytics() {
   return (
     <div>
       <div className="stat-grid" style={{ marginBottom: 24, gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
-        <div className="stat-card stat-card--teal">
-          <div className="stat-card__label">Total Devices</div>
-          <div className="stat-card__value">{data?.total_items || 0}</div>
-        </div>
-        <div className="stat-card stat-card--orange">
-          <div className="stat-card__label">Vendors</div>
-          <div className="stat-card__value">{data?.vendor_distribution?.length || 0}</div>
-        </div>
-        <div className="stat-card stat-card--yellow" onClick={() => handleWarrantyClick(180)} style={{ cursor: 'pointer' }}>
-          <div className="stat-card__label">Expiring (180d)</div>
+        <div className="stat-card stat-card--red" onClick={() => navigate('/inventory?warranty_before=' + new Date().toISOString().split('T')[0])} style={{ cursor: 'pointer' }}>
+          <div className="stat-card__label">Expired Warranty</div>
           <div className="stat-card__value">{data?.warranty_expiry?.[0]?.count || 0}</div>
         </div>
-        <div className="stat-card stat-card--orange" onClick={() => handleWarrantyClick(360)} style={{ cursor: 'pointer' }}>
-          <div className="stat-card__label">Expiring (360d)</div>
+        <div className="stat-card stat-card--orange" onClick={() => handleWarrantyClick(180)} style={{ cursor: 'pointer' }}>
+          <div className="stat-card__label">Expiring (180d)</div>
           <div className="stat-card__value">{data?.warranty_expiry?.[1]?.count || 0}</div>
         </div>
-        <div className="stat-card stat-card--red" onClick={() => handleWarrantyClick(720)} style={{ cursor: 'pointer' }}>
-          <div className="stat-card__label">Expiring (720d)</div>
+        <div className="stat-card stat-card--yellow" onClick={() => handleWarrantyClick(360)} style={{ cursor: 'pointer' }}>
+          <div className="stat-card__label">Expiring (360d)</div>
           <div className="stat-card__value">{data?.warranty_expiry?.[2]?.count || 0}</div>
+        </div>
+        <div className="stat-card stat-card--teal" onClick={() => handleWarrantyClick(720)} style={{ cursor: 'pointer' }}>
+          <div className="stat-card__label">Expiring (720d)</div>
+          <div className="stat-card__value">{data?.warranty_expiry?.[3]?.count || 0}</div>
         </div>
       </div>
 
