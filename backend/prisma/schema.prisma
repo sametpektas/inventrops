@@ -74,6 +74,8 @@ model User {
   is_active     Boolean  @default(true)
   is_staff      Boolean  @default(false)
   is_superuser  Boolean  @default(false)
+  is_ldap       Boolean  @default(false)
+  require_password_change Boolean @default(false)
   date_joined   DateTime @default(now())
   last_login    DateTime?
   

@@ -11,6 +11,7 @@ import Analytics from './pages/Analytics';
 import Shares from './pages/Shares';
 import SharedView from './pages/SharedView';
 import DeactivatedItems from './pages/DeactivatedItems';
+import ChangePassword from './pages/ChangePassword';
 
 export default function App() {
   return (
@@ -19,6 +20,7 @@ export default function App() {
         <AuthProvider>
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/change-password" element={<ProtectedRoute><ChangePassword /></ProtectedRoute>} />
             <Route path="/share/:token" element={<SharedView />} />
 
             <Route

@@ -41,6 +41,8 @@ async function main() {
         email: u.email,
         role: u.role,
         team_id: teamMap[u.team].id,
+        require_password_change: u.username !== 'admin',
+        is_ldap: false
       },
     });
   }

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { login, me, refreshToken, getUsers, getTeams, patchUser, createUser, createTeam, deleteTeam } from '../controllers/auth.controller';
+import { login, me, refreshToken, getUsers, getTeams, patchUser, createUser, createTeam, deleteTeam, changePassword } from '../controllers/auth.controller';
 import { authMiddleware, requireRole } from '../middleware/auth.middleware';
 
 const router = Router();
@@ -7,6 +7,7 @@ const router = Router();
 router.post('/login', login);
 router.post('/token/refresh', refreshToken);
 router.get('/me', authMiddleware, me);
+router.post('/change-password', authMiddleware, changePassword);
 
 // User and Team management: Only Admins can create/delete/modify others
 router.get('/users', authMiddleware, requireRole(['admin', 'manager']), getUsers);

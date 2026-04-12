@@ -8,7 +8,7 @@ export default function Users() {
   const [showModal, setShowModal] = useState(false);
   const [formData, setFormData] = useState({
     username: '', email: '', password: '', first_name: '', last_name: '',
-    role: 'viewer', team: '',
+    role: 'viewer', team: '', require_password_change: true
   });
   const [formError, setFormError] = useState('');
   const [toast, setToast] = useState(null);
@@ -60,6 +60,15 @@ export default function Users() {
     }
   }
 
+  async function handleTogglePassChange(user) {
+    try {
+      await api.patch(`/auth/users/${user.id}/`, { require_password_change: !user.require_password_change });
+      fetchData();
+    } catch {
+      showToastMsg('Failed to update password requirement', 'error');
+    }
+  }
+
   function showToastMsg(message, type) {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
@@ -90,6 +99,7 @@ export default function Users() {
               <th>Role</th>
               <th>Team</th>
               <th>Status</th>
+              <th>Pass Change</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -109,6 +119,15 @@ export default function Users() {
                   <span className={`badge badge--${u.is_active ? 'active' : 'inactive'}`}>
                     {u.is_active ? 'Active' : 'Disabled'}
                   </span>
+                </td>
+                <td>
+                  <button 
+                    className={`btn btn--sm ${u.require_password_change ? 'btn--warning' : 'btn--secondary'}`}
+                    onClick={() => handleTogglePassChange(u)}
+                    title="Force password change on next login"
+                  >
+                    {u.require_password_change ? 'Required' : 'Force'}
+                  </button>
                 </td>
                 <td>
                   <button
@@ -175,6 +194,16 @@ export default function Users() {
                       {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                     </select>
                   </div>
+                </div>
+                <div className="form-group" style={{ marginTop: 8 }}>
+                  <label className="checkbox-label" style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                    <input 
+                      type="checkbox" 
+                      checked={formData.require_password_change} 
+                      onChange={e => setFormData(f => ({ ...f, require_password_change: e.target.checked }))} 
+                    />
+                    <span style={{ fontSize: '0.85rem' }}>Force password change on first login</span>
+                  </label>
                 </div>
               </div>
               <div className="modal__footer">

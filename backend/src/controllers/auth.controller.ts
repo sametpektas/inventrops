@@ -51,7 +51,8 @@ export const login = async (req: Request, res: Response) => {
         username: authenticatedUser.username,
         email: authenticatedUser.email,
         role: authenticatedUser.role,
-        team_name: authenticatedUser.team?.name
+        team_name: authenticatedUser.team?.name,
+        require_password_change: authenticatedUser.require_password_change
       }
     });
   } catch (err) {
@@ -75,7 +76,8 @@ export const me = async (req: Request, res: Response) => {
       username: user.username,
       email: user.email,
       role: user.role,
-      team_name: user.team?.name
+      team_name: user.team?.name,
+      require_password_change: user.require_password_change
     });
   } catch (err) {
     res.status(500).json({ error: 'Internal server error' });
@@ -147,10 +149,16 @@ export const patchUser = async (req: any, res: Response) => {
     }
 
     // prevent role escalation if not admin
+    const { is_active, require_password_change, is_ldap } = req.body;
     const updateData: any = { email, first_name, last_name };
+    
+    if (is_active !== undefined) updateData.is_active = is_active;
+
     if (req.user.role === 'admin') {
       if (role) updateData.role = role;
       if (team_id) updateData.team_id = parseInt(team_id);
+      if (require_password_change !== undefined) updateData.require_password_change = require_password_change;
+      if (is_ldap !== undefined) updateData.is_ldap = is_ldap;
     }
 
     const user = await prisma.user.update({
@@ -173,7 +181,8 @@ export const createUser = async (req: Request, res: Response) => {
         email,
         password: hp,
         role: role || 'viewer',
-        team_id: team ? parseInt(team) : null
+        team_id: team ? parseInt(team) : null,
+        require_password_change: true
       }
     });
     res.status(201).json(user);
@@ -201,5 +210,35 @@ export const deleteTeam = async (req: Request, res: Response) => {
     res.status(204).send();
   } catch (err) {
     res.status(400).json({ error: 'Cannot delete team with active users' });
+  }
+};
+
+export const changePassword = async (req: any, res: Response) => {
+  const { old_password, new_password } = req.body;
+  const userId = req.user.id;
+
+  try {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    if (user.is_ldap) {
+      return res.status(400).json({ error: 'Cannot change password for LDAP users' });
+    }
+
+    const isValid = await comparePassword(old_password, user.password);
+    if (!isValid) return res.status(400).json({ error: 'Invalid old password' });
+
+    const hp = await hashPassword(new_password);
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        password: hp,
+        require_password_change: false
+      }
+    });
+
+    res.json({ message: 'Password updated successfully' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update password' });
   }
 };
