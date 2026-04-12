@@ -73,12 +73,13 @@ export class XormonAdapter {
     try {
       const key = await this.authenticate();
 
-      const response = await this.client.get('/api/public/v1/inventory', {
+      console.log(`[Xormon] Fetching devices from /api/public/v1/architecture/devices...`);
+      const response = await this.client.get('/api/public/v1/architecture/devices', {
         headers: { 'apiKey': key }
       });
 
-      // Xormon typically returns an array of items under a data property or directly
-      const items = Array.isArray(response.data) ? response.data : (response.data.items || []);
+      // Handle nested data or direct array
+      const items = Array.isArray(response.data) ? response.data : (response.data.data || response.data.items || []);
 
       return items.map((d: any) => ({
         serial_number: d.serial || d.serial_number || d.id,
