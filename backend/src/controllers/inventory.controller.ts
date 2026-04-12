@@ -26,6 +26,8 @@ export const getItems = async (req: Request, res: Response) => {
         { serial_number: { contains: search as string, mode: 'insensitive' } },
         { hostname: { contains: search as string, mode: 'insensitive' } },
         { ip_address: { contains: search as string, mode: 'insensitive' } },
+        { model: { name: { contains: search as string, mode: 'insensitive' } } },
+        { model: { vendor: { name: { contains: search as string, mode: 'insensitive' } } } },
       ];
     }
     if (device_type) {
