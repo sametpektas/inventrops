@@ -89,8 +89,8 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', engine: 'Node.js' });
 });
 
-app.listen(port, async () => {
-  console.log(`[server]: Server is running at http://localhost:${port}`);
+app.listen(Number(port), '0.0.0.0', async () => {
+  console.log(`[server]: Server is running at http://0.0.0.0:${port}`);
   
   // Create first admin if not exists
   const hp = await hashPassword('admin123');
