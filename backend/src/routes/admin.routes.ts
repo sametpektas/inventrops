@@ -2,7 +2,8 @@ import { Router } from 'express';
 import { 
   getVendors, createVendor, 
   getLDAPConfig, updateLDAPConfig,
-  updateModel, deleteModel 
+  updateModel, deleteModel,
+  getIntegrations, createIntegration, deleteIntegration, triggerSync 
 } from '../controllers/admin.controller';
 import { authMiddleware, requireRole } from '../middleware/auth.middleware';
 
@@ -20,5 +21,11 @@ router.patch('/ldap-config/', updateLDAPConfig);
 
 router.patch('/models/:id/', updateModel);
 router.delete('/models/:id/', deleteModel);
+
+// Integrations (Configs)
+router.get('/integrations/configs', getIntegrations);
+router.post('/integrations/configs', createIntegration);
+router.delete('/integrations/configs/:id', deleteIntegration);
+router.post('/integrations/configs/:id/trigger-sync', triggerSync);
 
 export default router;

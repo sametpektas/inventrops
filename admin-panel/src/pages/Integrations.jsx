@@ -23,7 +23,7 @@ export default function Integrations() {
   async function fetchData() {
     setLoading(true);
     try {
-      const data = await api.get('/integrations/configs');
+      const data = await api.get('/admin/integrations/configs');
       setIntegrations(data?.results || []);
     } catch (err) {
       console.error(err);
@@ -49,7 +49,7 @@ export default function Integrations() {
       if (!payload.username) delete payload.username;
       if (!payload.password) delete payload.password;
 
-      await api.post('/integrations/configs', payload);
+      await api.post('/admin/integrations/configs', payload);
       setShowModal(false);
       fetchData();
       showToastMsg('Integration configured successfully');
@@ -62,7 +62,7 @@ export default function Integrations() {
 
   const handleTriggerSync = async (id) => {
     try {
-      await api.post(`/integrations/configs/${id}/trigger-sync`, {});
+      await api.post(`/admin/integrations/configs/${id}/trigger-sync`, {});
       showToastMsg('Sync triggered. Devices will sync in background.');
     } catch (err) {
       showToastMsg(err?.data?.error || 'Failed to trigger sync', 'error');
@@ -72,7 +72,7 @@ export default function Integrations() {
   const handleDelete = async (id) => {
     if (!confirm('Remove this integration?')) return;
     try {
-      await api.del(`/integrations/configs/${id}`);
+      await api.del(`/admin/integrations/configs/${id}`);
       fetchData();
     } catch (err) {
       showToastMsg('Failed to delete integration', 'error');
