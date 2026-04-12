@@ -1,0 +1,249 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  admin
+  manager
+  operator
+  viewer
+}
+
+enum DeviceType {
+  server
+  storage
+  switch
+  firewall
+  pdu
+  ups
+  other
+}
+
+enum ItemStatus {
+  active
+  inactive
+}
+
+enum IntegrationType {
+  dell_openmanage
+  hpe_oneview
+  xormon
+}
+
+enum SyncStatus {
+  success
+  failed
+}
+
+model Team {
+  id          Int       @id @default(autoincrement())
+  name        String    @unique
+  description String?
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+  
+  members             User[]
+  datacenters         Datacenter[]
+  items               InventoryItem[]
+  shareLinks          ShareLink[]
+  integrationConfigs  IntegrationConfig[]
+
+  @@map("accounts_team")
+}
+
+model User {
+  id            Int      @id @default(autoincrement())
+  username      String   @unique
+  password      String
+  email         String   @unique
+  role          String   @default("viewer")
+  first_name    String?
+  last_name     String?
+  is_active     Boolean  @default(true)
+  is_staff      Boolean  @default(false)
+  is_superuser  Boolean  @default(false)
+  date_joined   DateTime @default(now())
+  last_login    DateTime?
+  
+  team_id       Int?
+  team          Team?    @relation(fields: [team_id], references: [id])
+
+  @@map("accounts_user")
+}
+
+model LDAPConfig {
+  id                Int      @id @default(autoincrement())
+  server_uri        String   @default("ldaps://server:636")
+  bind_dn           String?
+  bind_password     String?
+  user_search_base  String   @default("ou=users,dc=example,dc=com")
+  is_active         Boolean  @default(false)
+  ca_certificate    String?
+  updated_at        DateTime @updatedAt
+
+  @@map("accounts_ldapconfig")
+}
+
+model Datacenter {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  location    String?
+  address     String?
+  is_active   Boolean  @default(true)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+  
+  team_id     Int
+  team        Team     @relation(fields: [team_id], references: [id])
+  rooms       Room[]
+
+  @@map("infrastructure_datacenter")
+}
+
+model Room {
+  id            Int      @id @default(autoincrement())
+  name          String
+  floor         String?
+  is_active     Boolean  @default(true)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+  
+  datacenter_id Int
+  datacenter    Datacenter @relation(fields: [datacenter_id], references: [id])
+  racks         Rack[]
+
+  @@unique([datacenter_id, name])
+  @@map("infrastructure_room")
+}
+
+model Rack {
+  id            Int      @id @default(autoincrement())
+  name          String
+  total_units   Int      @default(40)
+  is_active     Boolean  @default(true)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+  
+  room_id       Int
+  room          Room     @relation(fields: [room_id], references: [id])
+  items         InventoryItem[]
+
+  @@unique([room_id, name])
+  @@map("infrastructure_rack")
+}
+
+model Vendor {
+  id            Int      @id @default(autoincrement())
+  name          String   @unique
+  website       String?
+  support_phone String?
+  support_email String?
+  created_at    DateTime @default(now())
+  
+  models        HardwareModel[]
+
+  @@map("inventory_vendor")
+}
+
+model HardwareModel {
+  id            Int         @id @default(autoincrement())
+  name          String
+  device_type   String      @default("server")
+  rack_units    Int         @default(1)
+  part_number   String?
+  created_at    DateTime    @default(now())
+  
+  vendor_id     Int
+  vendor        Vendor      @relation(fields: [vendor_id], references: [id])
+  items         InventoryItem[]
+
+  @@unique([vendor_id, name])
+  @@map("inventory_hardwaremodel")
+}
+
+model InventoryItem {
+  id                Int         @id @default(autoincrement())
+  serial_number     String      @unique
+  asset_tag         String?
+  hostname          String?
+  ip_address        String?
+  rack_unit_start   Int?
+  rack_unit_size    Int         @default(1)
+  status            String      @default("active")
+  purchase_date     DateTime?
+  warranty_expiry   DateTime?
+  storage_location  String?
+  deactivated_at    DateTime?
+  notes             String?
+  discovered_via    String?     @default("manual")
+  created_at        DateTime    @default(now())
+  updated_at        DateTime    @updatedAt
+  
+  hardware_model_id Int
+  hardware_model    HardwareModel @relation(fields: [hardware_model_id], references: [id])
+  
+  rack_id           Int?
+  rack              Rack?         @relation(fields: [rack_id], references: [id])
+  
+  team_id           Int?
+  team              Team?         @relation(fields: [team_id], references: [id])
+
+  @@map("inventory_inventoryitem")
+}
+
+model ShareLink {
+  id          Int      @id @default(autoincrement())
+  token       String   @unique @default(uuid())
+  label       String?
+  expires_at  DateTime?
+  is_active   Boolean  @default(true)
+  created_at  DateTime @default(now())
+  
+  team_id     Int
+  team        Team     @relation(fields: [team_id], references: [id])
+  
+  created_by_id Int
+
+  @@map("inventory_sharelink")
+}
+
+model IntegrationConfig {
+  id                Int             @id @default(autoincrement())
+  name              String
+  integration_type  IntegrationType
+  url               String
+  username          String?
+  password          String?
+  api_key           String?
+  is_active         Boolean         @default(true)
+  last_sync_at      DateTime?
+  created_at        DateTime        @default(now())
+  updated_at        DateTime        @updatedAt
+  
+  team_id           Int
+  team              Team            @relation(fields: [team_id], references: [id])
+  logs              SyncLog[]
+
+  @@map("integrations_integrationconfig")
+}
+
+model SyncLog {
+  id                Int             @id @default(autoincrement())
+  items_discovered  Int             @default(0)
+  items_created     Int             @default(0)
+  items_updated     Int             @default(0)
+  items_skipped     Int             @default(0)
+  status            SyncStatus      @default(success)
+  error_message     String?
+  completed_at      DateTime?
+  created_at        DateTime        @default(now())
+  
+  integration_id    Int
+  integration       IntegrationConfig @relation(fields: [integration_id], references: [id])
+
+  @@map("integrations_synclog")
+}

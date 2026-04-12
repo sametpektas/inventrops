@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+build/
+**/build/
+.next/
+**/.next/
+
+# Environment Variables
+.env
+.env.local
+.env.*.local
+**/.env
+**/.env.*
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+*.log
+
+# Prisma
+backend/prisma/migrations/
+**/prisma/dev.db
+**/prisma/query_engine*
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker
+postgres_data/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Project-specific
+.agent/
+.gemini/
