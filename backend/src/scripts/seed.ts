@@ -3,15 +3,15 @@ import { prisma } from '../lib/prisma';
 import bcrypt from 'bcryptjs';
 
 async function main() {
-  console.log('Seeding mock data for Team-Based Access and Software support...');
+  console.log('--- Generating Comprehensive Mock Data ---');
 
-  const password = await bcrypt.hash('admin123', 10);
+  const password = await bcrypt.hash('admin123', 12);
 
   // 1. Teams
   const teams = [
-    { name: 'Server Team', description: 'Manages server hardware and OS' },
-    { name: 'Storage Team', description: 'Manages storage, backup and SAN infrastructure' },
-    { name: 'Network Team', description: 'Manages switches and firewalls' },
+    { name: 'Server Team', description: 'Enterprise compute and OS management' },
+    { name: 'Storage Team', description: 'SAN, NAS, Backup and Flash Storage' },
+    { name: 'Network Team', description: 'Switching, Routing and Security' },
   ];
 
   const teamMap: Record<string, any> = {};
@@ -25,10 +25,10 @@ async function main() {
 
   // 2. Users
   const users = [
-    { username: 'admin', email: 'admin@inventrops.com', role: 'admin', team: 'Server Team' },
-    { username: 'server_op', email: 'server@inventrops.com', role: 'operator', team: 'Server Team' },
-    { username: 'storage_op', email: 'storage@inventrops.com', role: 'operator', team: 'Storage Team' },
-    { username: 'network_op', email: 'network@inventrops.com', role: 'operator', team: 'Network Team' },
+    { username: 'admin', email: 'admin@inventrops.local', role: 'admin', team: 'Server Team' },
+    { username: 'server_lead', email: 's.lead@inventrops.local', role: 'manager', team: 'Server Team' },
+    { username: 'storage_op', email: 'st.op@inventrops.local', role: 'operator', team: 'Storage Team' },
+    { username: 'network_op', email: 'nw.op@inventrops.local', role: 'operator', team: 'Network Team' },
   ];
 
   for (const u of users) {
@@ -41,118 +41,172 @@ async function main() {
         email: u.email,
         role: u.role,
         team_id: teamMap[u.team].id,
-        require_password_change: u.username !== 'admin',
+        require_password_change: false,
         is_ldap: false
       },
     });
   }
 
-  // 3. Datacenters
-  const dc = await prisma.datacenter.upsert({
-    where: { name: 'Main DC' },
+  // 3. Infrastructure (DCs, Rooms, Racks)
+  const dcIstanbul = await prisma.datacenter.upsert({
+    where: { name: 'Istanbul DC' },
     update: {},
-    create: { name: 'Main DC', team_id: teamMap['Server Team'].id },
+    create: { name: 'Istanbul DC', team_id: teamMap['Server Team'].id },
   });
 
-  const room = await prisma.room.upsert({
-    where: { datacenter_id_name: { datacenter_id: dc.id, name: 'Room 01' } },
-    update: {},
-    create: { name: 'Room 01', datacenter_id: dc.id },
-  });
-
-  const rack = await prisma.rack.upsert({
-    where: { room_id_name: { room_id: room.id, name: 'RACK-01' } },
-    update: {},
-    create: { name: 'RACK-01', total_units: 42, room_id: room.id },
-  });
-
-  // 4. Vendors
-  const vendors = [
-    { name: 'Dell Technologies' },
-    { name: 'HPE' },
-    { name: 'Cisco' },
-    { name: 'Brocade' },
-    { name: 'Palo Alto' },
-  ];
-
-  const vendorMap: Record<string, any> = {};
-  for (const v of vendors) {
-    vendorMap[v.name] = await prisma.vendor.upsert({
-      where: { name: v.name },
+  const rooms = ['System Room A', 'System Room B'];
+  const roomMap: Record<string, any> = {};
+  for (const rName of rooms) {
+    roomMap[rName] = await prisma.room.upsert({
+      where: { datacenter_id_name: { datacenter_id: dcIstanbul.id, name: rName } },
       update: {},
-      create: v,
+      create: { name: rName, datacenter_id: dcIstanbul.id },
     });
   }
 
-  // 5. Models (Corrected naming to 'model')
-  const models = [
-    // Server Team Hardware
-    { name: 'PowerEdge R750', vendor: 'Dell Technologies', category: 'hardware', device_type: 'server', units: 2 },
-    { name: 'ProLiant DL380 Gen10', vendor: 'HPE', category: 'hardware', device_type: 'server', units: 2 },
-    
-    // Storage Team Hardware
-    { name: 'PowerStore 500T', vendor: 'Dell Technologies', category: 'hardware', device_type: 'storage', units: 2 },
-    { name: 'DS-6620B SAN Switch', vendor: 'Brocade', category: 'hardware', device_type: 'san_switch', units: 1 },
-    
-    // Network Team Hardware
-    { name: 'Nexus 93180YC-EX', vendor: 'Cisco', category: 'hardware', device_type: 'network_switch', units: 1 },
-    { name: 'PA-3220 Firewall', vendor: 'Palo Alto', category: 'hardware', device_type: 'firewall', units: 1 },
+  const racks = [
+    { name: 'RACK-A01', room: 'System Room A', units: 42 },
+    { name: 'RACK-A02', room: 'System Room A', units: 42 },
+    { name: 'RACK-B01', room: 'System Room B', units: 47 },
+  ];
 
-    // Software Models
-    { name: 'SANnav Management Portal', vendor: 'Brocade', category: 'software', device_type: 'software', units: 0 },
-    { name: 'Panorama', vendor: 'Palo Alto', category: 'software', device_type: 'software', units: 0 },
+  const rackMap: Record<string, any> = {};
+  for (const r of racks) {
+    rackMap[r.name] = await prisma.rack.upsert({
+      where: { room_id_name: { room_id: roomMap[r.room].id, name: r.name } },
+      update: {},
+      create: { name: r.name, total_units: r.units, room_id: roomMap[r.room].id },
+    });
+  }
+
+  // 4. Vendors
+  const vendors = ['Dell Technologies', 'HPE', 'Cisco', 'Brocade', 'Palo Alto', 'VMware', 'Pure Storage'];
+  const vendorMap: Record<string, any> = {};
+  for (const v of vendors) {
+    vendorMap[v] = await prisma.vendor.upsert({
+      where: { name: v },
+      update: {},
+      create: { name: v },
+    });
+  }
+
+  // 5. Models
+  const models = [
+    // Servers
+    { name: 'PowerEdge R750', vendor: 'Dell Technologies', cat: 'hardware', type: 'server', u: 2 },
+    { name: 'PowerEdge R650', vendor: 'Dell Technologies', cat: 'hardware', type: 'server', u: 1 },
+    { name: 'ProLiant DL380 Gen10', vendor: 'HPE', cat: 'hardware', type: 'server', u: 2 },
+    { name: 'ProLiant DL360 Gen11', vendor: 'HPE', cat: 'hardware', type: 'server', u: 1 },
+    // Storage
+    { name: 'PowerStore 1000T', vendor: 'Dell Technologies', cat: 'hardware', type: 'storage', u: 2 },
+    { name: 'FlashArray //X', vendor: 'Pure Storage', cat: 'hardware', type: 'storage', u: 3 },
+    { name: 'DS-6620B SAN Switch', vendor: 'Brocade', cat: 'hardware', type: 'san_switch', u: 1 },
+    // Network
+    { name: 'Nexus 93180YC-FX', vendor: 'Cisco', cat: 'hardware', type: 'network_switch', u: 1 },
+    { name: 'Catalyst 9300-48P', vendor: 'Cisco', cat: 'hardware', type: 'network_switch', u: 1 },
+    { name: 'PA-3250 Firewall', vendor: 'Palo Alto', cat: 'hardware', type: 'firewall', u: 1 },
+    // Software
+    { name: 'vCenter Server', vendor: 'VMware', cat: 'software', type: 'software', u: 0 },
+    { name: 'Panorama Management', vendor: 'Palo Alto', cat: 'software', type: 'software', u: 0 },
+    { name: 'SANnav Portal', vendor: 'Brocade', cat: 'software', type: 'software', u: 0 },
   ];
 
   const modelMap: Record<string, any> = {};
   for (const m of models) {
     modelMap[m.name] = await prisma.model.upsert({
       where: { vendor_id_name: { vendor_id: vendorMap[m.vendor].id, name: m.name } },
-      update: { category: m.category as any, device_type: m.device_type as any },
+      update: { category: m.cat as any, device_type: m.type as any, rack_units: m.u },
       create: {
         name: m.name,
         vendor_id: vendorMap[m.vendor].id,
-        category: m.category as any,
-        device_type: m.device_type as any,
-        rack_units: m.units,
+        category: m.cat as any,
+        device_type: m.type as any,
+        rack_units: m.u,
       },
     });
   }
 
-  // 6. Inventory Items
-  const items = [
-    // Server Team
-    { serial_number: 'SRV-DL-001', hostname: 'server-app-01', model: 'PowerEdge R750', team: 'Server Team', rack_u: 1 },
-    
-    // Storage Team
-    { serial_number: 'STO-BR-001', hostname: 'san-switch-01', model: 'DS-6620B SAN Switch', team: 'Storage Team', rack_u: 10 },
-    { serial_number: 'SOFT-BR-001', hostname: 'sannav-mgmt-01', model: 'SANnav Management Portal', team: 'Storage Team', rack_u: null },
-    
-    // Network Team
-    { serial_number: 'NET-CS-001', hostname: 'core-switch-01', model: 'Nexus 93180YC-EX', team: 'Network Team', rack_u: 40 },
-  ];
+  // 6. Bulk Inventory Generation
+  console.log('Building inventory items...');
+  const inventoryData = [];
 
-  for (const i of items) {
+  // Server Team Data
+  for (let i = 1; i <= 10; i++) {
+    inventoryData.push({
+      serial_number: `SRV-DELL-L${1000 + i}`,
+      hostname: `prod-app-srv-${i}`,
+      team: 'Server Team',
+      model: i % 2 === 0 ? 'PowerEdge R750' : 'PowerEdge R650',
+      rack: 'RACK-A01',
+      u_start: i * 2,
+      status: 'active'
+    });
+  }
+
+  // Storage Team Data
+  for (let i = 1; i <= 5; i++) {
+    inventoryData.push({
+      serial_number: `STO-PURE-S${5000 + i}`,
+      hostname: `flash-storage-0${i}`,
+      team: 'Storage Team',
+      model: 'FlashArray //X',
+      rack: 'RACK-B01',
+      u_start: i * 4,
+      status: 'active'
+    });
+  }
+
+  // Network Team Data
+  for (let i = 1; i <= 8; i++) {
+    inventoryData.push({
+      serial_number: `NET-CIS-N${9000 + i}`,
+      hostname: `edge-switch-0${i}`,
+      team: 'Network Team',
+      model: 'Catalyst 9300-48P',
+      rack: 'RACK-A02',
+      u_start: i * 2,
+      status: 'active'
+    });
+  }
+
+  // Software Licenses
+  inventoryData.push(
+    { serial_number: 'LIC-VMW-VC-001', hostname: 'vcenter-prod', team: 'Server Team', model: 'vCenter Server', rack: null, u_start: null, status: 'active' },
+    { serial_number: 'LIC-PL-PAN-001', hostname: 'firewall-mgr', team: 'Network Team', model: 'Panorama Management', rack: null, u_start: null, status: 'active' }
+  );
+
+  // Inactive Items (In Warehouse)
+  inventoryData.push(
+    { serial_number: 'OLD-SRV-DELL-01', hostname: 'srv-deprecated-01', team: 'Server Team', model: 'PowerEdge R750', rack: null, u_start: null, status: 'inactive' },
+    { serial_number: 'DEP-SW-CISCO-01', hostname: 'sw-spare-01', team: 'Network Team', model: 'Catalyst 9300-48P', rack: null, u_start: null, status: 'inactive' }
+  );
+
+  for (const item of inventoryData) {
     await prisma.inventoryItem.upsert({
-      where: { serial_number: i.serial_number },
+      where: { serial_number: item.serial_number },
       update: {
-        team_id: teamMap[i.team].id,
-        model_id: modelMap[i.model].id,
-        rack_id: i.rack_u ? rack.id : null,
-        rack_unit_start: i.rack_u,
+        status: item.status as any,
+        team_id: teamMap[item.team].id,
+        model_id: modelMap[item.model].id,
+        rack_id: item.rack ? rackMap[item.rack].id : null,
+        rack_unit_start: item.u_start,
       },
       create: {
-        serial_number: i.serial_number,
-        hostname: i.hostname,
-        team_id: teamMap[i.team].id,
-        model_id: modelMap[i.model].id,
-        rack_id: i.rack_u ? rack.id : null,
-        rack_unit_start: i.rack_u,
-        status: 'active',
+        serial_number: item.serial_number,
+        hostname: item.hostname,
+        team_id: teamMap[item.team].id,
+        model_id: modelMap[item.model].id,
+        rack_id: item.rack ? rackMap[item.rack].id : null,
+        rack_unit_start: item.u_start,
+        rack_unit_size: modelMap[item.model].rack_units,
+        status: item.status as any,
+        ip_address: item.u_start ? `10.10.1.${10 + (item.u_start || 0)}` : null,
+        storage_location: item.status === 'inactive' ? 'Central Warehouse - Shelf B' : null,
       },
     });
   }
 
-  console.log('Seed completed successfully with teams and software.');
+  console.log('--- Mock Data Generation Seed Successful ---');
 }
 
 main()
