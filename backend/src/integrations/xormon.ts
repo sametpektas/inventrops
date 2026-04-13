@@ -108,12 +108,37 @@ export class XormonAdapter {
                return p.value;
              }
           }
-          // Priority 2: Direct object keys (e.g. Isilon)
-          const allKeys = Object.keys(itemDetails);
-          const foundKey = allKeys.find(k => patterns.some(pattern => k.toLowerCase().includes(pattern)));
-          if (foundKey) {
-            console.log(`[Xormon] ${fieldLabel} matched via direct key: ${foundKey} = ${itemDetails[foundKey]}`);
-            return itemDetails[foundKey];
+
+          // Priority 2: Direct or Nested object keys
+          const scanObject = (obj: any, depth: number = 0): any => {
+            if (!obj || depth > 2) return undefined;
+            const keys = Object.keys(obj);
+            
+            // Try direct keys first at this level
+            const foundKey = keys.find(k => patterns.some(pattern => k.toLowerCase().includes(pattern)));
+            if (foundKey && typeof obj[foundKey] !== 'object') return obj[foundKey];
+
+            // Special case: dive into 'configuration' or other likely sub-objects
+            for (const key of ['configuration', 'config', 'details', 'data']) {
+                if (obj[key]) {
+                    let subObj = obj[key];
+                    // Try to parse if it's a JSON string
+                    if (typeof subObj === 'string' && subObj.trim().startsWith('{')) {
+                        try { subObj = JSON.parse(subObj); } catch(e) {}
+                    }
+                    if (typeof subObj === 'object') {
+                        const val = scanObject(subObj, depth + 1);
+                        if (val) return val;
+                    }
+                }
+            }
+            return undefined;
+          };
+
+          const resultVal = scanObject(itemDetails);
+          if (resultVal) {
+              console.log(`[Xormon] ${fieldLabel} matched via scanning: ${resultVal}`);
+              return resultVal;
           }
           return undefined;
         };
