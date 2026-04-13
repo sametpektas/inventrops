@@ -94,12 +94,11 @@ export class XormonAdapter {
       const detailsArray = this.extractItems(detailsRaw);
 
       // 3. Map with Universal Heuristics
-      return items.map((d: any) => {
+      const finalDevices = items.map((d: any) => {
         const itemId = String(d.item_id || d.id);
         
-        // Find details by ID match in array, OR check if the raw details was an object keyed by itemId
         let itemDetails = detailsArray.find((p: any) => String(p.item_id || p.id) === itemId);
-        if (!itemDetails && typeof detailsRaw === 'object' && detailsRaw[itemId]) {
+        if (!itemDetails && typeof detailsRaw === 'object' && detailsRaw !== null && detailsRaw[itemId]) {
             itemDetails = { item_id: itemId, ...detailsRaw[itemId] };
         }
         itemDetails = itemDetails || {};
@@ -107,19 +106,17 @@ export class XormonAdapter {
         const properties = Array.isArray(itemDetails.properties) ? itemDetails.properties : [];
         
         const getValue = (patterns: string[]) => {
-          // Mode A: Search in 'properties' array
           for (const p of properties) {
              const name = p.property_name?.toLowerCase() || '';
              const label = p.label?.toLowerCase() || '';
              if (patterns.some(pattern => name.includes(pattern) || label.includes(pattern))) return p.value;
           }
-          // Mode B: Search in top-level object keys (Isilon uses this)
           const allKeys = Object.keys(itemDetails);
           const foundKey = allKeys.find(k => patterns.some(pattern => k.toLowerCase().includes(pattern)));
           return foundKey ? itemDetails[foundKey] : undefined;
         };
 
-        const serial = getValue(['guid', 'serial', 'sn', 'wwn', 'key', 'no', 'identifier']) || itemId;
+        const serial = getValue(['guid', 'serial', 'sn', 'wwn', 'uuid', 'key', 'no', 'identifier']) || itemId;
         const ip = getValue(['ip_address', 'ip', 'addr', 'address', 'mgmt', 'host']) || '0.0.0.0';
         const model = getValue(['model', 'product', 'hardware', 'version', 'type']) || d.hw_type || 'Unknown';
         const hostname = getValue(['cluster_name', 'hostname', 'name', 'label', 'display']) || d.label || d.name || 'Unnamed';
@@ -133,12 +130,17 @@ export class XormonAdapter {
         return {
           serial_number: String(serial),
           hostname: String(hostname),
-          vendor_name: vendor,
+          vendor_name: String(vendor),
           model_name: String(model),
-          device_type: d.class || 'storage',
+          device_type: String(d.class || 'storage'),
           ip_address: String(ip)
         };
       });
+
+      console.log(`[Xormon] Adapter returning ${finalDevices.length} items. First item preview:`, 
+        finalDevices.length > 0 ? JSON.stringify(finalDevices[0], null, 2) : 'NONE');
+
+      return finalDevices;
     } catch (error: any) {
       console.error(`[Xormon] Deep sync failed: ${error.message}`);
       throw new Error(`Xormon Deep Sync Failed: ${error.message}`);
@@ -151,14 +153,13 @@ export class XormonAdapter {
     if (data.data && Array.isArray(data.data)) return data.data;
     if (data.items && Array.isArray(data.items)) return data.items;
     
-    // If it's an object with keys (ID-indexed), convert to array of values
-    if (typeof data === 'object') {
+    if (typeof data === 'object' && data !== null) {
        return Object.entries(data).map(([key, val]: [string, any]) => {
          if (typeof val === 'object' && val !== null) {
             return { item_id: key, ...val };
          }
          return val;
-       }).filter(v => typeof v === 'object');
+       }).filter(v => typeof v === 'object' && v !== null);
     }
     
     return [];
