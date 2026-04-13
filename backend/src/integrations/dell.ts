@@ -45,39 +45,33 @@ export class DellOpenManageAdapter {
     console.log(`[Dell] Syncing from OpenManage at ${this.config.url}...`);
     
     try {
-      // In a real environment, this would hit the Dell OME API
-      // Example endpoint: /api/DeviceService/Devices
-      // const response = await this.client.get('/api/DeviceService/Devices');
-      // return response.data.map((d: any) => this.mapDevice(d));
-
-      // For demonstration, we simulate a successful but validated response
-      return [
-        {
-          serial_number: 'DELL-SRV-001',
-          hostname: 'srv-production-01',
-          vendor_name: 'Dell',
-          model_name: 'PowerEdge R740',
-          device_type: 'server',
-          ip_address: '10.0.50.10'
-        }
-      ];
+      // Dell OpenManage Enterprise API for fetching devices
+      // Documentation typically points to: /api/DeviceService/Devices
+      const response = await this.client.get('/api/DeviceService/Devices');
+      
+      const devices = Array.isArray(response.data) ? response.data : (response.data.value || []);
+      
+      console.log(`[Dell] Found ${devices.length} raw devices from OME.`);
+      
+      return devices.map((d: any) => this.mapDevice(d));
     } catch (error: any) {
       console.error(`[Dell] Sync failed: ${error.message}`);
+      if (error.response) {
+        console.error(`[Dell] OME API Error: ${JSON.stringify(error.response.data)}`);
+      }
       throw new Error(`Dell Sync Failed: ${error.message}`);
     }
   }
 
-  private mapDevice(externalData: any): DiscoveredDevice {
-    // Validation Layer
-    if (!externalData.SerialNumber) throw new Error('Invalid external data: Missing SerialNumber');
-    
+  private mapDevice(d: any): DiscoveredDevice {
+    // Mapping based on Dell OME API standard response fields
     return {
-      serial_number: externalData.SerialNumber,
-      hostname: externalData.HostName,
+      serial_number: d.SerialNumber || d.Identifier || `DELL-UNKNOWN-${Date.now()}`,
+      hostname: d.Hostname || d.DeviceName,
       vendor_name: 'Dell',
-      model_name: externalData.Model || 'Unknown PowerEdge',
-      device_type: 'server',
-      ip_address: externalData.IPAddress
+      model_name: d.Model || 'Unknown PowerEdge',
+      device_type: (d.Type && d.Type === 1000) ? 'server' : 'chassis', // Example mapping
+      ip_address: d.IpAddress || (d.NetworkAddress && d.NetworkAddress[0])
     };
   }
 }

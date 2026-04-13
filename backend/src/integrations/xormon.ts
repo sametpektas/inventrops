@@ -72,26 +72,44 @@ export class XormonAdapter {
 
     try {
       const key = await this.authenticate();
+      const headers = { 'apiKey': key };
 
+      // 1. Fetch Compute Devices
       console.log(`[Xormon] Fetching devices from /api/public/v1/architecture/devices...`);
-      const response = await this.client.get('/api/public/v1/architecture/devices', {
-        headers: { 'apiKey': key }
-      });
+      const devResponse = await this.client.get('/api/public/v1/architecture/devices', { headers });
+      const devItems = this.extractItems(devResponse.data);
 
-      // Handle nested data or direct array
-      const items = Array.isArray(response.data) ? response.data : (response.data.data || response.data.items || []);
+      // 2. Fetch Storage Systems (Isilon, etc.)
+      console.log(`[Xormon] Fetching storage from /api/public/v1/architecture/storage...`);
+      let storageItems: any[] = [];
+      try {
+        const storageResponse = await this.client.get('/api/public/v1/architecture/storage', { headers });
+        storageItems = this.extractItems(storageResponse.data);
+      } catch (e: any) {
+        console.warn(`[Xormon] Storage fetch failed or not supported: ${e.message}`);
+      }
 
-      return items.map((d: any) => ({
-        serial_number: d.serial || d.serial_number || d.id,
-        hostname: d.name || d.hostname,
-        vendor_name: d.vendor || 'Unknown',
-        model_name: d.model || 'Unknown',
-        device_type: d.type || 'server',
-        ip_address: d.ip || d.ip_address
+      const allItems = [...devItems, ...storageItems];
+      console.log(`[Xormon] Found total ${allItems.length} items (${devItems.length} devices, ${storageItems.length} storage).`);
+
+      return allItems.map((d: any) => ({
+        serial_number: d.serial || d.serial_number || d.serial_no || d.id || `XRM-${d.name || Date.now()}`,
+        hostname: d.name || d.hostname || d.display_name,
+        vendor_name: d.vendor || d.manufacturer || 'Unknown',
+        model_name: d.model || d.product || 'Unknown',
+        device_type: d.type || (storageItems.includes(d) ? 'storage' : 'server'),
+        ip_address: d.ip || d.ip_address || (d.management_ip)
       }));
     } catch (error: any) {
       console.error(`[Xormon] Sync failed: ${error.message}`);
       throw new Error(`Xormon Sync Failed: ${error.message}`);
     }
+  }
+
+  private extractItems(data: any): any[] {
+    if (Array.isArray(data)) return data;
+    if (data.data && Array.isArray(data.data)) return data.data;
+    if (data.items && Array.isArray(data.items)) return data.items;
+    return [];
   }
 }
