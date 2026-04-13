@@ -16,21 +16,10 @@ export class XormonAdapter {
     });
   }
 
-  /**
-   * Authenticate with Xormon to get an API Key
-   * Priority: 
-   * 1. Use static API Key if provided in config
-   * 2. Use existing session apiKey if already fetched
-   * 3. Perform Login with Username/Password
-   */
   private async authenticate(): Promise<string> {
-    // 1. Check if a permanent API Key is already in the config
     if (this.config.api_key) return this.config.api_key;
-
-    // 2. Already have a session key?
     if (this.apiKey) return this.apiKey;
 
-    // 3. Fallback to Username/Password login
     try {
       console.log(`[Xormon] Attempting login on ${this.config.url}/api/public/v1/auth...`);
       const response = await this.client.post('/api/public/v1/auth', {
@@ -38,12 +27,10 @@ export class XormonAdapter {
         password: this.config.password
       });
 
-      // Handle nested structure: response.data.data.apiKey
       const dataObj = response.data.data || response.data;
       const key = dataObj.apiKey || dataObj.api_key || dataObj.apikey;
 
       if (!key) {
-        console.error('[Xormon] Response data structure:', JSON.stringify(response.data));
         throw new Error('Xormon authentication failed: No API Key found in response');
       }
 
@@ -51,7 +38,6 @@ export class XormonAdapter {
       return this.apiKey!;
     } catch (error: any) {
       const msg = error.response?.data?.message || error.message;
-      console.error(`[Xormon] Auth failed: ${msg}`);
       throw new Error(`Xormon Authentication Failed: ${msg}`);
     }
   }
@@ -59,8 +45,6 @@ export class XormonAdapter {
   async testConnection(): Promise<boolean> {
     try {
       await this.authenticate();
-      // If we got here, auth worked. Let's try a quick health/info check if possible
-      // but usually auth is enough for a "test"
       return true;
     } catch (err) {
       return false;
@@ -74,7 +58,6 @@ export class XormonAdapter {
       const key = await this.authenticate();
       const headers = { 'apiKey': key };
 
-      // 1. Fetch all items
       const devResponse = await this.client.get('/api/public/v1/architecture/devices', { headers });
       const items = this.extractItems(devResponse.data);
       
@@ -83,25 +66,35 @@ export class XormonAdapter {
       const uuids = items.map((i: any) => i.item_id || i.id).filter(Boolean);
       console.log(`[Xormon] Found ${items.length} items. Fetching detailed configuration...`);
 
-      // 2. Fetch all configuration properties
       const configResponse = await this.client.post('/api/public/v1/exporter/configuration', {
         uuids: uuids,
         format: 'json'
       }, { headers });
 
-      // configResponse.data.data can be an array OR an object keyed by ID
       const detailsRaw = configResponse.data?.data || configResponse.data || [];
       const detailsArray = this.extractItems(detailsRaw);
 
-      // 3. Map with Universal Heuristics
-      const finalDevices = items.map((d: any) => {
+      console.log(`[Xormon DEBUG] Details search space: ${detailsArray.length} records. Target IDs: ${uuids.join(', ')}`);
+
+      return items.map((d: any) => {
         const itemId = String(d.item_id || d.id);
         
         let itemDetails = detailsArray.find((p: any) => String(p.item_id || p.id) === itemId);
-        if (!itemDetails && typeof detailsRaw === 'object' && detailsRaw !== null && detailsRaw[itemId]) {
-            itemDetails = { item_id: itemId, ...detailsRaw[itemId] };
+        
+        if (!itemDetails && typeof detailsRaw === 'object' && detailsRaw !== null && !Array.isArray(detailsRaw)) {
+            const rawItem = detailsRaw[itemId];
+            if (rawItem) itemDetails = { item_id: itemId, ...rawItem };
         }
+
+        if (!itemDetails && items.length === 1 && detailsArray.length === 1) {
+            console.log(`[Xormon DEBUG] Emergency fallback triggered for ${itemId}`);
+            itemDetails = detailsArray[0];
+        }
+
         itemDetails = itemDetails || {};
+        if (Object.keys(itemDetails).length > 0) {
+            console.log(`[Xormon DEBUG] DATA MATCHED for ${itemId}`);
+        }
 
         const properties = Array.isArray(itemDetails.properties) ? itemDetails.properties : [];
         
@@ -121,26 +114,15 @@ export class XormonAdapter {
         const model = getValue(['model', 'product', 'hardware', 'version', 'type']) || d.hw_type || 'Unknown';
         const hostname = getValue(['cluster_name', 'hostname', 'name', 'label', 'display']) || d.label || d.name || 'Unnamed';
 
-        let vendor = d.vendor || d.manufacturer || 'Unknown';
-        if (d.hw_type === 'isilon') vendor = 'Dell EMC';
-        else if (d.hw_type?.toLowerCase().includes('huawei')) vendor = 'Huawei';
-        else if (d.hw_type === 'pure') vendor = 'Pure Storage';
-        else if (d.hw_type === 'netapp') vendor = 'NetApp';
-
         return {
           serial_number: String(serial),
           hostname: String(hostname),
-          vendor_name: String(vendor),
+          vendor_name: String(d.vendor || d.manufacturer || 'Dell EMC'),
           model_name: String(model),
           device_type: String(d.class || 'storage'),
           ip_address: String(ip)
         };
       });
-
-      console.log(`[Xormon] Adapter returning ${finalDevices.length} items. First item preview:`, 
-        finalDevices.length > 0 ? JSON.stringify(finalDevices[0], null, 2) : 'NONE');
-
-      return finalDevices;
     } catch (error: any) {
       console.error(`[Xormon] Deep sync failed: ${error.message}`);
       throw new Error(`Xormon Deep Sync Failed: ${error.message}`);
