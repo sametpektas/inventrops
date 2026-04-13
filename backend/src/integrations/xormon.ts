@@ -99,35 +99,24 @@ export class XormonAdapter {
         const properties = Array.isArray(itemDetails.properties) ? itemDetails.properties : [];
         
         const getValue = (patterns: string[], fieldLabel: string) => {
-          // Priority 1: Properties array
-          for (const p of properties) {
-             const name = p.property_name?.toLowerCase() || '';
-             const label = p.label?.toLowerCase() || '';
-             if (patterns.some(pattern => name.includes(pattern) || label.includes(pattern))) {
-               console.log(`[Xormon] ${fieldLabel} matched via properties array: ${name} = ${p.value}`);
-               return p.value;
-             }
-          }
-
-          // Priority 2: Direct or Nested object keys
-          const scanObject = (obj: any, depth: number = 0): any => {
+          // Inner function to scan for a SINGLE pattern at any depth
+          const scanForPattern = (obj: any, pattern: string, depth: number = 0): any => {
             if (!obj || depth > 2) return undefined;
             const keys = Object.keys(obj);
             
-            // Try direct keys first at this level
-            const foundKey = keys.find(k => patterns.some(pattern => k.toLowerCase().includes(pattern)));
+            // 1. Check direct keys at this level
+            const foundKey = keys.find(k => k.toLowerCase().includes(pattern.toLowerCase()));
             if (foundKey && typeof obj[foundKey] !== 'object') return obj[foundKey];
 
-            // Special case: dive into 'configuration' or other likely sub-objects
+            // 2. Dive into sub-objects
             for (const key of ['configuration', 'config', 'details', 'data']) {
                 if (obj[key]) {
                     let subObj = obj[key];
-                    // Try to parse if it's a JSON string
                     if (typeof subObj === 'string' && subObj.trim().startsWith('{')) {
                         try { subObj = JSON.parse(subObj); } catch(e) {}
                     }
                     if (typeof subObj === 'object') {
-                        const val = scanObject(subObj, depth + 1);
+                        const val = scanForPattern(subObj, pattern, depth + 1);
                         if (val) return val;
                     }
                 }
@@ -135,17 +124,32 @@ export class XormonAdapter {
             return undefined;
           };
 
-          const resultVal = scanObject(itemDetails);
-          if (resultVal) {
-              console.log(`[Xormon] ${fieldLabel} matched via scanning: ${resultVal}`);
-              return resultVal;
+          // Priority 1: Properties array (Xormon default style)
+          for (const pattern of patterns) {
+              for (const p of properties) {
+                 const name = p.property_name?.toLowerCase() || '';
+                 const label = p.label?.toLowerCase() || '';
+                 if (name.includes(pattern) || label.includes(pattern)) {
+                   console.log(`[Xormon] ${fieldLabel} matched via properties: ${name} = ${p.value}`);
+                   return p.value;
+                 }
+              }
+          }
+
+          // Priority 2: Scan object/nested keys using pattern priority
+          for (const pattern of patterns) {
+              const val = scanForPattern(itemDetails, pattern);
+              if (val) {
+                  console.log(`[Xormon] ${fieldLabel} matched via deep scan (pattern: ${pattern}): ${val}`);
+                  return val;
+              }
           }
           return undefined;
         };
 
         const serial = getValue(['cluster_guid', 'guid', 'serial', 'sn', 'wwn', 'uuid', 'key', 'no'], 'Serial');
         const ip = getValue(['ip_address', 'ip', 'addr', 'address', 'mgmt', 'host'], 'IP');
-        const model = getValue(['model', 'product', 'hardware', 'version', 'machine', 'type'], 'Model');
+        const model = getValue(['model', 'product', 'hardware', 'machine', 'type', 'version'], 'Model');
         const hostname = getValue(['cluster_name', 'hostname', 'name', 'label', 'display', 'title'], 'Hostname');
 
         let vendorStr = d.vendor || d.manufacturer || 'Dell EMC';
