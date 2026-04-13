@@ -89,6 +89,9 @@ export class XormonAdapter {
         console.warn(`[Xormon] Storage fetch failed or not supported: ${e.message}`);
       }
 
+      const allItems = [...devItems, ...storageItems];
+      console.log(`[Xormon] Found total ${allItems.length} items (${devItems.length} devices, ${storageItems.length} storage).`);
+
       return allItems.map((d: any) => {
         // Advanced mapping for various Xormon device types (Isilon, etc.)
         const serial = d.serial || d.serial_number || d.serial_no || d.item_id || d.id || `XRM-${Date.now()}`;
@@ -104,7 +107,7 @@ export class XormonAdapter {
           hostname: name,
           vendor_name: vendor,
           model_name: d.model || d.product || d.hw_type || 'Unknown',
-          device_type: d.class || (storageItems.includes(d) ? 'storage' : 'server'),
+          device_type: d.class || (storageItems.some((s: any) => s === d) ? 'storage' : 'server'),
           ip_address: d.ip || d.ip_address || d.management_ip || '0.0.0.0'
         };
       });
