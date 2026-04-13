@@ -93,35 +93,54 @@ export class XormonAdapter {
 
         itemDetails = itemDetails || {};
         if (Object.keys(itemDetails).length > 0) {
-            console.log(`[Xormon DEBUG] DATA MATCHED for ${itemId}`);
+            console.log(`[Xormon DEBUG] Raw Match Data Keys:`, Object.keys(itemDetails));
         }
 
         const properties = Array.isArray(itemDetails.properties) ? itemDetails.properties : [];
         
-        const getValue = (patterns: string[]) => {
+        const getValue = (patterns: string[], fieldLabel: string) => {
+          // Priority 1: Properties array
           for (const p of properties) {
              const name = p.property_name?.toLowerCase() || '';
              const label = p.label?.toLowerCase() || '';
-             if (patterns.some(pattern => name.includes(pattern) || label.includes(pattern))) return p.value;
+             if (patterns.some(pattern => name.includes(pattern) || label.includes(pattern))) {
+               console.log(`[Xormon] ${fieldLabel} matched via properties array: ${name} = ${p.value}`);
+               return p.value;
+             }
           }
+          // Priority 2: Direct object keys (e.g. Isilon)
           const allKeys = Object.keys(itemDetails);
           const foundKey = allKeys.find(k => patterns.some(pattern => k.toLowerCase().includes(pattern)));
-          return foundKey ? itemDetails[foundKey] : undefined;
+          if (foundKey) {
+            console.log(`[Xormon] ${fieldLabel} matched via direct key: ${foundKey} = ${itemDetails[foundKey]}`);
+            return itemDetails[foundKey];
+          }
+          return undefined;
         };
 
-        const serial = getValue(['guid', 'serial', 'sn', 'wwn', 'uuid', 'key', 'no', 'identifier']) || itemId;
-        const ip = getValue(['ip_address', 'ip', 'addr', 'address', 'mgmt', 'host']) || '0.0.0.0';
-        const model = getValue(['model', 'product', 'hardware', 'version', 'type']) || d.hw_type || 'Unknown';
-        const hostname = getValue(['cluster_name', 'hostname', 'name', 'label', 'display']) || d.label || d.name || 'Unnamed';
+        const serial = getValue(['cluster_guid', 'guid', 'serial', 'sn', 'wwn', 'uuid', 'key', 'no'], 'Serial');
+        const ip = getValue(['ip_address', 'ip', 'addr', 'address', 'mgmt', 'host'], 'IP');
+        const model = getValue(['model', 'product', 'hardware', 'version', 'machine', 'type'], 'Model');
+        const hostname = getValue(['cluster_name', 'hostname', 'name', 'label', 'display', 'title'], 'Hostname');
 
-        return {
-          serial_number: String(serial),
-          hostname: String(hostname),
-          vendor_name: String(d.vendor || d.manufacturer || 'Dell EMC'),
-          model_name: String(model),
+        let vendorStr = d.vendor || d.manufacturer || 'Dell EMC';
+        if (d.hw_type === 'isilon') vendorStr = 'Dell EMC';
+        else if (d.hw_type?.toLowerCase().includes('huawei')) vendorStr = 'Huawei';
+        else if (d.hw_type === 'pure') vendorStr = 'Pure Storage';
+        else if (d.hw_type === 'netapp') vendorStr = 'NetApp';
+        else if (d.hw_type === 'vmware') vendorStr = 'VMware';
+
+        const result = {
+          serial_number: String(serial || itemId),
+          hostname: String(hostname || d.label || d.name || 'Unnamed'),
+          vendor_name: String(vendorStr),
+          model_name: String(model || d.hw_type || 'Unknown'),
           device_type: String(d.class || 'storage'),
-          ip_address: String(ip)
+          ip_address: String(ip || '0.0.0.0')
         };
+        
+        console.log(`[Xormon] FINAL SYNC ITEM for ${itemId}:`, JSON.stringify(result, null, 2));
+        return result;
       });
     } catch (error: any) {
       console.error(`[Xormon] Deep sync failed: ${error.message}`);
