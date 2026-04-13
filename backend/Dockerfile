@@ -19,4 +19,4 @@ COPY --from=builder /app/prisma.config.ts ./
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 
 EXPOSE 8000
-CMD ["sh", "-c", "npx prisma db push --force-reset --accept-data-loss && node dist/index.js"]
+CMD ["sh", "-c", "npx prisma db push && node dist/index.js"]
