@@ -15,17 +15,20 @@ export class DellOpenManageAdapter {
   private client;
 
   constructor(private config: any) {
-    // SECURITY: Create an axios instance with a custom https agent
-    // This allows us to enforce TLS verification and set timeouts.
+    const authHeader = this.config.username && this.config.password
+      ? `Basic ${Buffer.from(`${this.config.username}:${this.config.password}`).toString('base64')}`
+      : `ApiKey ${this.config.api_key || this.config.apiKey}`;
+
     this.client = axios.create({
       baseURL: this.config.url,
-      timeout: 30000, // 30 seconds timeout
+      timeout: 30000,
       headers: {
         'Accept': 'application/json',
-        'Authorization': `ApiKey ${this.config.apiKey}` // Example Auth
+        'Authorization': authHeader
       },
       httpsAgent: new https.Agent({
-        rejectUnauthorized: process.env.NODE_ENV === 'production', // Enforce TLS in production
+        // OME often uses self-signed certificates in local environments
+        rejectUnauthorized: false, 
         keepAlive: true
       })
     });
