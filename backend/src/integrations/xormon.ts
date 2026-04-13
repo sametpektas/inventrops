@@ -92,23 +92,33 @@ export class XormonAdapter {
 
       const detailsMap = this.extractItems(configResponse.data);
 
+      // DEBUG: Log the first item's properties to see the real structure
+      if (detailsMap.length > 0) {
+        console.log(`[Xormon DEBUG] First item properties:`, JSON.stringify(detailsMap[0].properties, null, 2));
+      }
+
       // 3. Map with Universal Heuristics
       return items.map((d: any) => {
         const itemId = d.item_id || d.id;
-        const properties = detailsMap.find((p: any) => (p.item_id || p.id) === itemId)?.properties || [];
+        const itemDetails = detailsMap.find((p: any) => (p.item_id || p.id) === itemId);
+        const properties = itemDetails?.properties || [];
         
         // Find values from property list using common naming patterns
         const getValue = (patterns: string[]) => {
           const match = properties.find((p: any) => 
-            patterns.some(pattern => p.property_name?.toLowerCase().includes(pattern))
+            patterns.some(pattern => {
+              const name = p.property_name?.toLowerCase() || '';
+              const label = p.label?.toLowerCase() || '';
+              return name.includes(pattern) || label.includes(pattern);
+            })
           );
           return match?.value;
         };
 
-        const serial = getValue(['serial', 'wwn', 'uuid', 'identifier']) || itemId;
-        const ip = getValue(['ip', 'address', 'mgmt']) || '0.0.0.0';
-        const model = getValue(['model', 'product', 'machine']) || d.hw_type || 'Unknown';
-        const hostname = d.label || d.name || getValue(['hostname', 'label', 'display']) || 'Unnamed';
+        const serial = getValue(['serial', 'wwn', 'uuid', 'identifier', 'key']) || itemId;
+        const ip = getValue(['ip', 'address', 'mgmt', 'network', 'host']) || '0.0.0.0';
+        const model = getValue(['model', 'product', 'machine', 'hardware']) || d.hw_type || 'Unknown';
+        const hostname = d.label || d.name || getValue(['hostname', 'label', 'display', 'title']) || 'Unnamed';
 
         let vendor = d.vendor || d.manufacturer || 'Unknown';
         if (d.hw_type === 'isilon') vendor = 'Dell EMC';
@@ -121,7 +131,7 @@ export class XormonAdapter {
           hostname: hostname,
           vendor_name: vendor,
           model_name: model,
-          device_type: d.class || 'server',
+          device_type: d.class || 'storage',
           ip_address: ip
         };
       });
