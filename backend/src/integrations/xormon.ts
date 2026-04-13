@@ -100,25 +100,35 @@ export class XormonAdapter {
       // 3. Map with Universal Heuristics
       return items.map((d: any) => {
         const itemId = d.item_id || d.id;
-        const itemDetails = detailsMap.find((p: any) => (p.item_id || p.id) === itemId);
-        const properties = itemDetails?.properties || [];
+        const itemDetails = detailsMap.find((p: any) => (p.item_id || p.id) === itemId) || {};
+        const properties = Array.isArray(itemDetails.properties) ? itemDetails.properties : [];
         
-        // Find values from property list using common naming patterns
+        // Find values from property list OR direct object keys using patterns
         const getValue = (patterns: string[]) => {
-          const match = properties.find((p: any) => 
-            patterns.some(pattern => {
-              const name = p.property_name?.toLowerCase() || '';
-              const label = p.label?.toLowerCase() || '';
-              return name.includes(pattern) || label.includes(pattern);
-            })
+          // Mode A: Search in 'properties' array
+          if (properties.length > 0) {
+            const match = properties.find((p: any) => 
+              patterns.some(pattern => {
+                const name = p.property_name?.toLowerCase() || '';
+                const label = p.label?.toLowerCase() || '';
+                return name.includes(pattern) || label.includes(pattern);
+              })
+            );
+            if (match?.value) return match.value;
+          }
+
+          // Mode B: Search in top-level object keys (Dynamic fallback)
+          const allKeys = Object.keys(itemDetails);
+          const foundKey = allKeys.find(k => 
+            patterns.some(pattern => k.toLowerCase().includes(pattern))
           );
-          return match?.value;
+          return foundKey ? itemDetails[foundKey] : undefined;
         };
 
-        const serial = getValue(['serial', 'wwn', 'uuid', 'identifier', 'key']) || itemId;
-        const ip = getValue(['ip', 'address', 'mgmt', 'network', 'host']) || '0.0.0.0';
-        const model = getValue(['model', 'product', 'machine', 'hardware']) || d.hw_type || 'Unknown';
-        const hostname = d.label || d.name || getValue(['hostname', 'label', 'display', 'title']) || 'Unnamed';
+        const serial = getValue(['guid', 'serial', 'wwn', 'uuid', 'key']) || itemId;
+        const ip = getValue(['ip_address', 'ip', 'address', 'mgmt', 'host']) || '0.0.0.0';
+        const model = getValue(['model', 'product', 'hardware', 'version']) || d.hw_type || 'Unknown';
+        const hostname = getValue(['cluster_name', 'hostname', 'label', 'display']) || d.label || d.name || 'Unnamed';
 
         let vendor = d.vendor || d.manufacturer || 'Unknown';
         if (d.hw_type === 'isilon') vendor = 'Dell EMC';
@@ -127,12 +137,12 @@ export class XormonAdapter {
         else if (d.hw_type === 'vmware') vendor = 'VMware';
 
         return {
-          serial_number: serial,
-          hostname: hostname,
+          serial_number: String(serial),
+          hostname: String(hostname),
           vendor_name: vendor,
-          model_name: model,
+          model_name: String(model),
           device_type: d.class || 'storage',
-          ip_address: ip
+          ip_address: String(ip)
         };
       });
     } catch (error: any) {
