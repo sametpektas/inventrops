@@ -79,12 +79,7 @@ It consolidates systems from multiple vendors (Dell, Huawei, HPE, etc.) into a s
 ## 🏗️ Architecture
 
 ```text
-                +----------------------+
-                |   External Systems   |
-                | (Dell / HPE / Xormon)|
-                +----------+-----------+
-                           |
-                           v
+
 +----------------+    +----------------+    +----------------+
 |   Frontend     | -> |   Backend API  | -> |   PostgreSQL   |
 | (React + Vite) |    | (Node.js)      |    |   (Prisma)     |
@@ -126,12 +121,6 @@ cd inventrops
 
 Create a `.env` file inside the `backend` directory:
 
-```env
-DATABASE_URL=postgresql://postgres:postgres@db:5432/inventrops
-REDIS_HOST=redis
-JWT_SECRET=supersecret
-```
-
 ---
 
 ### 3. Run with Docker
@@ -161,11 +150,6 @@ docker compose exec backend node dist/scripts/seed.js
 ---
 
 ## 👤 Default Credentials
-
-```text
-username: admin
-password: admin123
-```
 
 ---
 
