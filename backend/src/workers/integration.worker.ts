@@ -58,6 +58,18 @@ async function syncDevice(device: DiscoveredDevice, integration: any) {
       updateData.ip_address = device.ip_address;
       updated = true;
     }
+    if (hwModel.id && existing.model_id !== hwModel.id) {
+      updateData.model_id = hwModel.id;
+      updated = true;
+    }
+    if (device.asset_tag && existing.asset_tag !== device.asset_tag) {
+      updateData.asset_tag = device.asset_tag;
+      updated = true;
+    }
+    if (existing.discovered_via !== integration.integration_type) {
+      updateData.discovered_via = integration.integration_type;
+      updated = true;
+    }
 
     if (updated) {
       await prisma.inventoryItem.update({
