@@ -89,17 +89,25 @@ export class XormonAdapter {
         console.warn(`[Xormon] Storage fetch failed or not supported: ${e.message}`);
       }
 
-      const allItems = [...devItems, ...storageItems];
-      console.log(`[Xormon] Found total ${allItems.length} items (${devItems.length} devices, ${storageItems.length} storage).`);
+      return allItems.map((d: any) => {
+        // Advanced mapping for various Xormon device types (Isilon, etc.)
+        const serial = d.serial || d.serial_number || d.serial_no || d.item_id || d.id || `XRM-${Date.now()}`;
+        const name = d.label || d.name || d.hostname || d.display_name || 'Unnamed Device';
+        
+        let vendor = d.vendor || d.manufacturer || 'Unknown';
+        if (d.hw_type === 'isilon') vendor = 'Dell EMC';
+        else if (d.hw_type === 'pure') vendor = 'Pure Storage';
+        else if (d.hw_type === 'netapp') vendor = 'NetApp';
 
-      return allItems.map((d: any) => ({
-        serial_number: d.serial || d.serial_number || d.serial_no || d.id || `XRM-${d.name || Date.now()}`,
-        hostname: d.name || d.hostname || d.display_name,
-        vendor_name: d.vendor || d.manufacturer || 'Unknown',
-        model_name: d.model || d.product || 'Unknown',
-        device_type: d.type || (storageItems.includes(d) ? 'storage' : 'server'),
-        ip_address: d.ip || d.ip_address || (d.management_ip)
-      }));
+        return {
+          serial_number: serial,
+          hostname: name,
+          vendor_name: vendor,
+          model_name: d.model || d.product || d.hw_type || 'Unknown',
+          device_type: d.class || (storageItems.includes(d) ? 'storage' : 'server'),
+          ip_address: d.ip || d.ip_address || d.management_ip || '0.0.0.0'
+        };
+      });
     } catch (error: any) {
       console.error(`[Xormon] Sync failed: ${error.message}`);
       throw new Error(`Xormon Sync Failed: ${error.message}`);
