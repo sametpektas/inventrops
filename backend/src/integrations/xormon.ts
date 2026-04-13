@@ -92,9 +92,9 @@ export class XormonAdapter {
 
       const detailsMap = this.extractItems(configResponse.data);
 
-      // DEBUG: Log the first item's properties to see the real structure
+      // DEBUG: Log the ENTIRE first element to see the actual keys
       if (detailsMap.length > 0) {
-        console.log(`[Xormon DEBUG] First item properties:`, JSON.stringify(detailsMap[0].properties, null, 2));
+        console.log(`[Xormon DEBUG] First item full data:`, JSON.stringify(detailsMap[0], null, 2));
       }
 
       // 3. Map with Universal Heuristics
