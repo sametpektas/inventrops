@@ -68,52 +68,66 @@ export class XormonAdapter {
   }
 
   async fetchInventory(): Promise<DiscoveredDevice[]> {
-    console.log(`[Xormon] Syncing from ${this.config.url}...`);
+    console.log(`[Xormon] Starting deep discovery from ${this.config.url}...`);
 
     try {
       const key = await this.authenticate();
       const headers = { 'apiKey': key };
 
-      // 1. Fetch Compute Devices
-      console.log(`[Xormon] Fetching devices from /api/public/v1/architecture/devices...`);
+      // 1. Fetch all items to get UUIDs
       const devResponse = await this.client.get('/api/public/v1/architecture/devices', { headers });
-      const devItems = this.extractItems(devResponse.data);
+      const items = this.extractItems(devResponse.data);
+      
+      if (items.length === 0) return [];
 
-      // 2. Fetch Storage Systems (Isilon, etc.)
-      console.log(`[Xormon] Fetching storage from /api/public/v1/architecture/storage...`);
-      let storageItems: any[] = [];
-      try {
-        const storageResponse = await this.client.get('/api/public/v1/architecture/storage', { headers });
-        storageItems = this.extractItems(storageResponse.data);
-      } catch (e: any) {
-        console.warn(`[Xormon] Storage fetch failed or not supported: ${e.message}`);
-      }
+      const uuids = items.map((i: any) => i.item_id || i.id).filter(Boolean);
+      console.log(`[Xormon] Found ${items.length} items. Fetching detailed configuration for ${uuids.length} devices...`);
 
-      const allItems = [...devItems, ...storageItems];
-      console.log(`[Xormon] Found total ${allItems.length} items (${devItems.length} devices, ${storageItems.length} storage).`);
+      // 2. Fetch all configuration properties in one bulk call
+      // Based on PDF Page 37: /api/public/v1/exporter/configuration
+      const configResponse = await this.client.post('/api/public/v1/exporter/configuration', {
+        uuids: uuids,
+        format: 'json'
+      }, { headers });
 
-      return allItems.map((d: any) => {
-        // Advanced mapping for various Xormon device types (Isilon, etc.)
-        const serial = d.serial || d.serial_number || d.serial_no || d.item_id || d.id || `XRM-${Date.now()}`;
-        const name = d.label || d.name || d.hostname || d.display_name || 'Unnamed Device';
+      const detailsMap = this.extractItems(configResponse.data);
+
+      // 3. Map with Universal Heuristics
+      return items.map((d: any) => {
+        const itemId = d.item_id || d.id;
+        const properties = detailsMap.find((p: any) => (p.item_id || p.id) === itemId)?.properties || [];
         
+        // Find values from property list using common naming patterns
+        const getValue = (patterns: string[]) => {
+          const match = properties.find((p: any) => 
+            patterns.some(pattern => p.property_name?.toLowerCase().includes(pattern))
+          );
+          return match?.value;
+        };
+
+        const serial = getValue(['serial', 'wwn', 'uuid', 'identifier']) || itemId;
+        const ip = getValue(['ip', 'address', 'mgmt']) || '0.0.0.0';
+        const model = getValue(['model', 'product', 'machine']) || d.hw_type || 'Unknown';
+        const hostname = d.label || d.name || getValue(['hostname', 'label', 'display']) || 'Unnamed';
+
         let vendor = d.vendor || d.manufacturer || 'Unknown';
         if (d.hw_type === 'isilon') vendor = 'Dell EMC';
         else if (d.hw_type === 'pure') vendor = 'Pure Storage';
         else if (d.hw_type === 'netapp') vendor = 'NetApp';
+        else if (d.hw_type === 'vmware') vendor = 'VMware';
 
         return {
           serial_number: serial,
-          hostname: name,
+          hostname: hostname,
           vendor_name: vendor,
-          model_name: d.model || d.product || d.hw_type || 'Unknown',
-          device_type: d.class || (storageItems.some((s: any) => s === d) ? 'storage' : 'server'),
-          ip_address: d.ip || d.ip_address || d.management_ip || '0.0.0.0'
+          model_name: model,
+          device_type: d.class || 'server',
+          ip_address: ip
         };
       });
     } catch (error: any) {
-      console.error(`[Xormon] Sync failed: ${error.message}`);
-      throw new Error(`Xormon Sync Failed: ${error.message}`);
+      console.error(`[Xormon] Deep sync failed: ${error.message}`);
+      throw new Error(`Xormon Deep Sync Failed: ${error.message}`);
     }
   }
 
