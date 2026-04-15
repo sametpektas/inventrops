@@ -16,31 +16,46 @@ export interface DiscoveredDevice {
 
 export class DellOpenManageAdapter {
   private client;
+  private authToken: string | null = null;
 
   constructor(private config: any) {
-    const authHeader = this.config.username && this.config.password
-      ? `Basic ${Buffer.from(`${this.config.username}:${this.config.password}`).toString('base64')}`
-      : `ApiKey ${this.config.api_key || this.config.apiKey}`;
-
     this.client = axios.create({
       baseURL: this.config.url,
       timeout: 30000,
       headers: {
         'Accept': 'application/json',
-        'Authorization': authHeader
+        'Content-Type': 'application/json'
       },
       httpsAgent: new https.Agent({
-        // OME often uses self-signed certificates in local environments
         rejectUnauthorized: false, 
         keepAlive: true
       })
     });
   }
 
+  private async login(): Promise<string> {
+    try {
+      const response = await this.client.post('/api/SessionService/Sessions', {
+        UserName: this.config.username,
+        Password: this.config.password,
+        SessionType: 'API'
+      });
+
+      const token = response.headers['x-auth-token'];
+      if (!token) throw new Error('X-Auth-Token not found in login response');
+      
+      this.authToken = token;
+      this.client.defaults.headers.common['X-Auth-Token'] = token;
+      return token;
+    } catch (err: any) {
+      console.error(`[Dell] Authentication failed: ${err.message}`);
+      throw new Error(`Dell OME Auth Failed: ${err.message}`);
+    }
+  }
+
   async testConnection(): Promise<boolean> {
     try {
-      // Small check to see if the URL is reachable and auth is accepted
-      // Example: await this.client.get('/api/v1/health');
+      await this.login();
       return true;
     } catch (err) {
       return false;
@@ -51,33 +66,68 @@ export class DellOpenManageAdapter {
     console.log(`[Dell] Syncing from OpenManage at ${this.config.url}...`);
     
     try {
-      // Dell OpenManage Enterprise API for fetching devices
-      // Documentation typically points to: /api/DeviceService/Devices
-      const response = await this.client.get('/api/DeviceService/Devices');
+      if (!this.authToken) await this.login();
+
+      // First check the total count
+      const initialResponse = await this.client.get('/api/DeviceService/Devices?$top=1');
+      const totalCount = initialResponse.data['@odata.count'] || 0;
       
-      const devices = Array.isArray(response.data) ? response.data : (response.data.value || []);
+      const pageSize = 200;
+      const pages = Math.ceil(totalCount / pageSize) || 1;
+      let allDevices: any[] = [];
+
+      for (let i = 0; i < pages; i++) {
+        const skip = i * pageSize;
+        const response = await this.client.get(`/api/DeviceService/Devices?$top=${pageSize}&$skip=${skip}`);
+        const pageDevices = response.data.value || (Array.isArray(response.data) ? response.data : []);
+        allDevices = [...allDevices, ...pageDevices];
+      }
+
+      console.log(`[Dell] Found ${allDevices.length} devices from OME (Total: ${totalCount}).`);
       
-      console.log(`[Dell] Found ${devices.length} raw devices from OME.`);
-      
-      return devices.map((d: any) => this.mapDevice(d));
+      return allDevices.map((d: any) => this.mapDevice(d));
     } catch (error: any) {
       console.error(`[Dell] Sync failed: ${error.message}`);
-      if (error.response) {
-        console.error(`[Dell] OME API Error: ${JSON.stringify(error.response.data)}`);
+      if (error.response?.status === 401) {
+        // Token might have expired, clear it for next attempt
+        this.authToken = null;
       }
-      throw new Error(`Dell Sync Failed: ${error.message}`);
+      throw error;
     }
   }
 
   private mapDevice(d: any): DiscoveredDevice {
-    // Mapping based on Dell OME API standard response fields
+    // Extract metadata from OME response
+    const metadata = {
+      Id: d.Id,
+      Type: d.Type,
+      Status: d.Status,
+      LastKnownIP: d.IpAddress,
+      AssetTag: d.AssetTag,
+      GlobalStatus: d.Health
+    };
+
     return {
-      serial_number: d.SerialNumber || d.Identifier || `DELL-UNKNOWN-${Date.now()}`,
+      serial_number: d.SerialNumber || d.Identifier || `DELL-UNKNOWN-${d.Id}`,
       hostname: d.Hostname || d.DeviceName,
       vendor_name: 'Dell',
-      model_name: d.Model || 'Unknown PowerEdge',
-      device_type: (d.Type && d.Type === 1000) ? 'server' : 'chassis', // Example mapping
-      ip_address: d.IpAddress || (d.NetworkAddress && d.NetworkAddress[0])
+      model_name: d.Model || 'Generic Dell Device',
+      device_type: this.mapDeviceType(d.Type),
+      ip_address: d.IpAddress,
+      asset_tag: d.AssetTag,
+      firmware_version: d.FirmwareVersion,
+      metadata: metadata
     };
+  }
+
+  private mapDeviceType(typeId: number): string {
+    // OME Device Type Mapping (Common ones)
+    switch (typeId) {
+      case 1000: return 'server';
+      case 2000: return 'chassis';
+      case 3000: return 'storage';
+      case 4000: return 'network';
+      default: return 'infrastructure';
+    }
   }
 }
