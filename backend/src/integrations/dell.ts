@@ -10,6 +10,8 @@ export interface DiscoveredDevice {
   ip_address?: string;
   asset_tag?: string;
   firmware_version?: string;
+  purchase_date?: string;
+  warranty_expiry?: string;
   metadata?: Record<string, any>;
   sync_error?: string;
 }
@@ -85,7 +87,22 @@ export class DellOpenManageAdapter {
 
       console.log(`[Dell] Found ${allDevices.length} devices from OME (Total: ${totalCount}).`);
       
-      return allDevices.map((d: any) => this.mapDevice(d));
+      // Fetch Warranties
+      let warrantyMap: Record<number, any> = {};
+      try {
+        const warrantyResponse = await this.client.get('/api/WarrantyService/Warranties');
+        const warranties = warrantyResponse.data.value || (Array.isArray(warrantyResponse.data) ? warrantyResponse.data : []);
+        warranties.forEach((w: any) => {
+          // Store the latest warranty for each device
+          if (!warrantyMap[w.DeviceId] || new Date(w.EndDate) > new Date(warrantyMap[w.DeviceId].EndDate)) {
+            warrantyMap[w.DeviceId] = w;
+          }
+        });
+      } catch (wErr) {
+        console.warn('[Dell] Could not fetch warranty information.');
+      }
+
+      return allDevices.map((d: any) => this.mapDevice(d, warrantyMap[d.Id]));
     } catch (error: any) {
       console.error(`[Dell] Sync failed: ${error.message}`);
       if (error.response?.status === 401) {
@@ -96,7 +113,7 @@ export class DellOpenManageAdapter {
     }
   }
 
-  private mapDevice(d: any): DiscoveredDevice {
+  private mapDevice(d: any, warranty?: any): DiscoveredDevice {
     // Extract metadata from OME response
     const metadata = {
       Id: d.Id,
@@ -104,7 +121,8 @@ export class DellOpenManageAdapter {
       Status: d.Status,
       LastKnownIP: d.IpAddress,
       AssetTag: d.AssetTag,
-      GlobalStatus: d.Health
+      GlobalStatus: d.Health,
+      ServiceLevel: warranty?.ServiceLevelDescription
     };
 
     return {
@@ -116,6 +134,8 @@ export class DellOpenManageAdapter {
       ip_address: d.IpAddress,
       asset_tag: d.AssetTag,
       firmware_version: d.FirmwareVersion,
+      purchase_date: warranty?.SystemShipDate ? new Date(warranty.SystemShipDate).toISOString().split('T')[0] : undefined,
+      warranty_expiry: warranty?.EndDate ? new Date(warranty.EndDate).toISOString().split('T')[0] : undefined,
       metadata: metadata
     };
   }

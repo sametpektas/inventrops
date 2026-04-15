@@ -87,6 +87,15 @@ async function syncDevice(device: DiscoveredDevice, integration: any) {
       updated = true;
     }
 
+    if (device.warranty_expiry && existing.warranty_expiry?.toISOString().split('T')[0] !== device.warranty_expiry) {
+      updateData.warranty_expiry = new Date(device.warranty_expiry);
+      updated = true;
+    }
+    if (device.purchase_date && existing.purchase_date?.toISOString().split('T')[0] !== device.purchase_date) {
+      updateData.purchase_date = new Date(device.purchase_date);
+      updated = true;
+    }
+
     if (updated) {
       await prisma.inventoryItem.update({
         where: { id: existing.id },
@@ -107,6 +116,8 @@ async function syncDevice(device: DiscoveredDevice, integration: any) {
       team_id: integration.team_id,
       ip_address: device.ip_address,
       asset_tag: device.asset_tag,
+      purchase_date: device.purchase_date ? new Date(device.purchase_date) : null,
+      warranty_expiry: device.warranty_expiry ? new Date(device.warranty_expiry) : null,
       firmware_version: device.firmware_version,
       firmware_updated_at: device.firmware_version ? new Date() : null,
       metadata: device.metadata as any,
