@@ -12,7 +12,7 @@ export default function Integrations() {
   // Form State
   const [form, setForm] = useState({
     name: '', integration_type: 'dell_openmanage', base_url: '', 
-    username: '', password: '', api_key: '', team: '', is_active: true
+    username: '', password: '', team: '', is_active: true
   });
 
   useEffect(() => {
@@ -45,7 +45,6 @@ export default function Integrations() {
       if (!payload.team) delete payload.team;
       
       // Cleanup empty optional fields
-      if (!payload.api_key) delete payload.api_key;
       if (!payload.username) delete payload.username;
       if (!payload.password) delete payload.password;
 
@@ -211,11 +210,6 @@ export default function Integrations() {
                   </div>
                 </div>
 
-                {/* API Key Section (Always available, but especially for Xormon) */}
-                <div className="form-group">
-                  <label className="form-label">API Key {form.integration_type === 'xormon' ? '(Optional if using Credentials)' : '(Optional)'}</label>
-                  <input className="form-input" type="password" value={form.api_key} onChange={e => setForm({...form, api_key: e.target.value})} placeholder="Direct API Key / Secret" />
-                </div>
                 
                 <div className="form-group">
                   <label className="form-label">Default Fallback Team</label>
