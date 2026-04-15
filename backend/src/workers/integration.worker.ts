@@ -68,6 +68,7 @@ async function syncDevice(device: DiscoveredDevice, integration: any) {
     }
     if (device.firmware_version && existing.firmware_version !== device.firmware_version) {
       updateData.firmware_version = device.firmware_version;
+      updateData.firmware_updated_at = new Date();
       updated = true;
     }
     if (device.metadata) {
@@ -107,6 +108,7 @@ async function syncDevice(device: DiscoveredDevice, integration: any) {
       ip_address: device.ip_address,
       asset_tag: device.asset_tag,
       firmware_version: device.firmware_version,
+      firmware_updated_at: device.firmware_version ? new Date() : null,
       metadata: device.metadata as any,
       discovered_via: integration.integration_type,
       last_sync_at: new Date(),

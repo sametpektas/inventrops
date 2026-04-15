@@ -240,6 +240,7 @@ export default function Inventory() {
                   </th>
                   <th>Model</th>
                   <th>Category</th>
+                  <th>Firmware</th>
                   <th>IP Address</th>
                   <th>Location</th>
                   <th>Status</th>
@@ -261,6 +262,7 @@ export default function Inventory() {
                       {item.model_name}
                     </td>
                     <td><span className="badge badge--secondary">{item.category}</span></td>
+                    <td><span style={{ fontSize: '0.75rem', fontFamily: 'monospace' }}>{item.firmware_version || '—'}</span></td>
                     <td className="mono">{item.ip_address || '—'}</td>
                     <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                       {item.status === 'inactive' && item.storage_location

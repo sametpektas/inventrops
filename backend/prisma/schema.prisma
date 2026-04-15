@@ -193,6 +193,7 @@ model InventoryItem {
   notes             String?
   discovered_via    String?     @default("manual")
   firmware_version  String?
+  firmware_updated_at DateTime?
   metadata          Json?
   last_sync_status  SyncStatus? @default(success)
   last_sync_error   String?

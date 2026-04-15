@@ -367,6 +367,14 @@ export default function InventoryDetail() {
                   <div className="detail-field__label">Firmware Version</div>
                   <div className="detail-field__value detail-field__value--mono">{item.firmware_version || '—'}</div>
                 </div>
+                {item.firmware_updated_at && (
+                  <div className="detail-field">
+                    <div className="detail-field__label">Firmware Updated At</div>
+                    <div className="detail-field__value" style={{ fontSize: '0.85rem', color: 'var(--teal)' }}>
+                      {item.firmware_updated_at}
+                    </div>
+                  </div>
+                )}
                 <div className="detail-field">
                   <div className="detail-field__label">Location</div>
                   <div className="detail-field__value">
