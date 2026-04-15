@@ -364,6 +364,10 @@ export default function InventoryDetail() {
                   <div className="detail-field__value">{item.warranty_expiry || '—'}</div>
                 </div>
                 <div className="detail-field">
+                  <div className="detail-field__label">Firmware Version</div>
+                  <div className="detail-field__value detail-field__value--mono">{item.firmware_version || '—'}</div>
+                </div>
+                <div className="detail-field">
                   <div className="detail-field__label">Location</div>
                   <div className="detail-field__value">
                     {item.status === 'inactive' && item.storage_location

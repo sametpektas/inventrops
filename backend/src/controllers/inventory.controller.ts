@@ -69,6 +69,7 @@ export const getItems = async (req: Request, res: Response) => {
       updated_at: item.updated_at.toISOString().split('T')[0],
       purchase_date: item.purchase_date?.toISOString().split('T')[0],
       warranty_expiry: item.warranty_expiry?.toISOString().split('T')[0],
+      firmware_version: item.firmware_version,
       location_display: item.rack 
         ? `${item.rack.room.datacenter.name} / ${item.rack.room.name} / ${item.rack.name}`
         : (item.model.category === 'software' ? 'Cloud / Licensing' : 'Storage/Depot')
@@ -121,6 +122,7 @@ export const exportInventory = async (req: Request, res: Response) => {
       'Category': i.model.category,
       'Type': i.model.device_type,
       'Status': i.status,
+      'Firmware': i.firmware_version || '',
       'Purchase Date': i.purchase_date?.toISOString().split('T')[0] || '',
       'Warranty Expiry': i.warranty_expiry?.toISOString().split('T')[0] || '',
       'Team': i.team?.name || ''
@@ -238,6 +240,7 @@ export const getItemDetail = async (req: Request, res: Response) => {
        updated_at: item.updated_at?.toISOString().split('T')[0],
        purchase_date: item.purchase_date?.toISOString().split('T')[0],
        warranty_expiry: item.warranty_expiry?.toISOString().split('T')[0],
+       firmware_version: item.firmware_version,
        location_display: item.rack 
          ? `${item.rack.room.datacenter.name} / ${item.rack.room.name} / ${item.rack.name}`
          : (item.model.category === 'software' ? 'Cloud / Licensing' : 'Storage/Depot')
