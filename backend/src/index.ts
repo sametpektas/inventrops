@@ -9,7 +9,7 @@ import infrastructureRoutes from './routes/infrastructure.routes';
 import inventoryRoutes from './routes/inventory.routes';
 import adminRoutes from './routes/admin.routes';
 import { hashPassword } from './utils/auth';
-import { startIntegrationWorker } from './workers/integration.worker';
+import { startIntegrationWorker, startIntegrationScheduler } from './workers/integration.worker';
 
 dotenv.config();
 
@@ -55,6 +55,7 @@ app.get('/api/setup-admin', async (req, res) => {
 // Initialize Workers
 // startWarrantyWorker();
 startIntegrationWorker();
+startIntegrationScheduler();
 
 // Schedule Repeats (Daily at midnight)
 // warrantyQueue.add('daily-check', {}, {

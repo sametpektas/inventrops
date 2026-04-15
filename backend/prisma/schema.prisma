@@ -44,6 +44,7 @@ enum IntegrationType {
 
 enum SyncStatus {
   success
+  warning
   failed
 }
 
@@ -191,6 +192,11 @@ model InventoryItem {
   deactivated_at    DateTime?
   notes             String?
   discovered_via    String?     @default("manual")
+  firmware_version  String?
+  metadata          Json?
+  last_sync_status  SyncStatus? @default(success)
+  last_sync_error   String?
+  last_sync_at      DateTime?
   created_at        DateTime    @default(now())
   updated_at        DateTime    @updatedAt
   

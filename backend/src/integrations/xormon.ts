@@ -147,25 +147,40 @@ export class XormonAdapter {
           return undefined;
         };
 
-        const serial = getValue(['cluster_guid', 'guid', 'serial', 'sn', 'wwn', 'uuid', 'key', 'no'], 'Serial');
-        const ip = getValue(['ip_address', 'ip', 'addr', 'address', 'mgmt', 'host'], 'IP');
-        const model = getValue(['model', 'product', 'hardware', 'machine', 'type', 'version'], 'Model');
-        const hostname = getValue(['cluster_name', 'hostname', 'name', 'label', 'display', 'title'], 'Hostname');
+        const details = itemDetails.configuration || itemDetails.config || itemDetails || {};
+        const hasDetails = Object.keys(details).length > 0;
+        
+        const serial = details.serial || details.id || getValue(['cluster_guid', 'guid', 'serial', 'sn', 'wwn', 'uuid', 'key', 'no'], 'Serial');
+        const ip = details.ip_address || getValue(['ip_address', 'ip', 'addr', 'address', 'mgmt', 'host'], 'IP');
+        const model = details.model || getValue(['model', 'product', 'hardware', 'machine', 'type', 'version'], 'Model');
+        const hostname = details.node_name || details.label || d.label || getValue(['cluster_name', 'hostname', 'name', 'label', 'display', 'title'], 'Hostname');
+        const firmware = details.version || details.patch_version;
 
-        let vendorStr = d.vendor || d.manufacturer || 'Dell EMC';
+        let vendorStr = d.vendor || d.manufacturer || 'Unknown';
         if (d.hw_type === 'isilon') vendorStr = 'Dell EMC';
-        else if (d.hw_type?.toLowerCase().includes('huawei')) vendorStr = 'Huawei';
-        else if (d.hw_type === 'pure') vendorStr = 'Pure Storage';
+        else if (d.hw_type?.toLowerCase().includes('huawei') || d.hw_type === 'oceanstor' || d.hw_type === 'oceanstorpacific') vendorStr = 'Huawei';
+        else if (d.hw_type === 'pure' || d.hw_type === 'pureblade') vendorStr = 'Pure Storage';
         else if (d.hw_type === 'netapp') vendorStr = 'NetApp';
         else if (d.hw_type === 'vmware') vendorStr = 'VMware';
+        else if (d.hw_type === 'sanbrcd') vendorStr = 'Brocade';
+        else if (d.hw_type === 'commvault') vendorStr = 'Commvault';
+        else if (d.hw_type === 'openshift') vendorStr = 'Red Hat';
 
-        const result = {
+        const result: DiscoveredDevice = {
           serial_number: String(serial || itemId),
-          hostname: String(hostname || d.label || d.name || 'Unnamed'),
+          hostname: String(hostname || 'Unnamed'),
           vendor_name: String(vendorStr),
           model_name: String(model || d.hw_type || 'Unknown'),
           device_type: String(d.class || 'storage'),
-          ip_address: String(ip || '0.0.0.0')
+          ip_address: String(ip || '0.0.0.0'),
+          firmware_version: firmware ? String(firmware) : undefined,
+          sync_error: !hasDetails ? 'Deep configuration could not be fetched for this device.' : undefined,
+          metadata: {
+            hw_type: d.hw_type,
+            class: d.class,
+            subsystem: d.subsystem,
+            ...details
+          }
         };
         
         console.log(`[Xormon] FINAL SYNC ITEM for ${itemId}:`, JSON.stringify(result, null, 2));

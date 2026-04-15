@@ -66,6 +66,21 @@ async function syncDevice(device: DiscoveredDevice, integration: any) {
       updateData.asset_tag = device.asset_tag;
       updated = true;
     }
+    if (device.firmware_version && existing.firmware_version !== device.firmware_version) {
+      updateData.firmware_version = device.firmware_version;
+      updated = true;
+    }
+    if (device.metadata) {
+      updateData.metadata = device.metadata;
+      updated = true;
+    }
+    
+    // Always update sync metadata
+    updateData.last_sync_at = new Date();
+    updateData.last_sync_status = device.sync_error ? 'warning' : 'success';
+    updateData.last_sync_error = device.sync_error || null;
+    updated = true;
+
     if (existing.discovered_via !== integration.integration_type) {
       updateData.discovered_via = integration.integration_type;
       updated = true;
@@ -91,7 +106,12 @@ async function syncDevice(device: DiscoveredDevice, integration: any) {
       team_id: integration.team_id,
       ip_address: device.ip_address,
       asset_tag: device.asset_tag,
-      discovered_via: integration.integration_type
+      firmware_version: device.firmware_version,
+      metadata: device.metadata as any,
+      discovered_via: integration.integration_type,
+      last_sync_at: new Date(),
+      last_sync_status: device.sync_error ? 'warning' : 'success',
+      last_sync_error: device.sync_error || null
     }
   });
 
@@ -100,6 +120,17 @@ async function syncDevice(device: DiscoveredDevice, integration: any) {
 
 export const startIntegrationWorker = () => {
   const worker = new Worker('integration-sync', async (job) => {
+    if (job.name === 'sync-all') {
+      console.log('[Worker] Starting global sync for all active integrations...');
+      const activeIntegrations = await prisma.integrationConfig.findMany({
+        where: { is_active: true }
+      });
+      for (const integration of activeIntegrations) {
+        await integrationQueue.add('sync-one', { integrationId: integration.id });
+      }
+      return;
+    }
+
     const { integrationId } = job.data;
     console.log(`[Worker] Syncing integration ${integrationId}...`);
 
@@ -167,4 +198,17 @@ export const startIntegrationWorker = () => {
       });
     }
   }, { connection });
+};
+
+export const startIntegrationScheduler = async () => {
+  // Add repeatable job for global sync (Every day at 00:00)
+  const jobs = await integrationQueue.getRepeatableJobs();
+  const exists = jobs.some(j => j.name === 'sync-all');
+  
+  if (!exists) {
+    console.log('[Scheduler] Initializing global integration sync schedule (Daily at 00:00)');
+    await integrationQueue.add('sync-all', {}, {
+      repeat: { pattern: '0 0 * * *' }
+    });
+  }
 };

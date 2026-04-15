@@ -9,6 +9,9 @@ export interface DiscoveredDevice {
   device_type: string;
   ip_address?: string;
   asset_tag?: string;
+  firmware_version?: string;
+  metadata?: Record<string, any>;
+  sync_error?: string;
 }
 
 export class DellOpenManageAdapter {
