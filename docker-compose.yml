@@ -24,11 +24,12 @@ services:
   backend:
     build:
       context: ./backend
+    env_file: .env
     environment:
-      - DATABASE_URL=postgresql://${DB_USER:-inventrops}:${DB_PASSWORD}@db:5432/${DB_NAME:-inventrops}?schema=public
+      - DATABASE_URL=postgresql://${DB_USER:-inventrops}:${DB_PASSWORD:-inventrops_secret}@db:5432/${DB_NAME:-inventrops}?schema=public
       - REDIS_URL=redis://redis:6379/0
       - PORT=8000
-      - JWT_SECRET=${JWT_SECRET}
+      - JWT_SECRET=${JWT_SECRET:-inventrops_jwt_secret_2026}
     depends_on:
       db:
         condition: service_healthy
