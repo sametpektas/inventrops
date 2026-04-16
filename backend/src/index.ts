@@ -106,37 +106,45 @@ app.get('/', (req, res) => {
 
 // Basic health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', engine: 'Node.js' });
+  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-app.listen(Number(port), '0.0.0.0', async () => {
+// Start server
+app.listen(Number(port), '0.0.0.0', () => {
   console.log(`[server]: Server is running at http://0.0.0.0:${port}`);
   
-  // Optimized Setup: Only hash if admin missing or needs update
-  try {
-    const adminExists = await prisma.user.findUnique({ where: { username: 'admin' } });
-    if (!adminExists) {
-      const hp = await hashPassword('admin123');
-      await prisma.user.create({
-        data: { 
-          username: 'admin', 
-          password: hp, 
-          email: 'admin@inventrops.com', 
-          role: 'admin',
-          is_active: true
-        }
-      });
-      console.log('[Setup] Default admin "admin" created.');
-    } else if (!adminExists.is_active) {
-      await prisma.user.update({
-        where: { username: 'admin' },
-        data: { is_active: true }
-      });
-      console.log('[Setup] Admin "admin" activated.');
+  // Run background initialization without blocking the main event loop
+  setImmediate(async () => {
+    try {
+      // 1. Initial Integration Setup
+      startIntegrationWorker();
+      await startIntegrationScheduler();
+      
+      // 2. Admin User Verification
+      const adminExists = await prisma.user.findUnique({ where: { username: 'admin' } });
+      if (!adminExists) {
+        const hp = await hashPassword('admin123');
+        await prisma.user.create({
+          data: { 
+            username: 'admin', 
+            password: hp, 
+            email: 'admin@inventrops.com', 
+            role: 'admin',
+            is_active: true
+          }
+        });
+        console.log('[Setup] Default admin "admin" created.');
+      } else if (!adminExists.is_active) {
+        await prisma.user.update({
+          where: { username: 'admin' },
+          data: { is_active: true }
+        });
+        console.log('[Setup] Admin "admin" activated.');
+      }
+    } catch (err: any) {
+      console.warn(`[Setup] Background initialization warning: ${err.message}`);
     }
-  } catch (err: any) {
-    console.warn(`[Setup] Admin check skipped: ${err.message}`);
-  }
+  });
 });
 
 export { app };

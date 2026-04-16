@@ -31,7 +31,7 @@ services:
       - DB_NAME=${DB_NAME:-inventrops}
       - DB_HOST=db
       - DB_PORT=5432
-      - DATABASE_URL=postgresql://${DB_USER:-inventrops}:${DB_PASSWORD:-inventrops_secret}@db:5432/${DB_NAME:-inventrops}?schema=public
+      - DATABASE_URL=postgresql://${DB_USER:-inventrops}:${DB_PASSWORD:-inventrops_secret}@db:5432/${DB_NAME:-inventrops}?schema=public&connect_timeout=10
       - REDIS_URL=redis://redis:6379/0
       - PORT=8000
       - JWT_SECRET=${JWT_SECRET:-inventrops_jwt_secret_2026}
@@ -41,11 +41,11 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:8000/api/health', (r) => { if (r.statusCode !== 200) process.exit(1); })"]
-      interval: 10s
-      timeout: 5s
+      test: ["CMD-SHELL", "node -e \"const http = require('http'); const req = http.get('http://127.0.0.1:8000/api/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1); }); req.on('error', () => process.exit(1));\""]
+      interval: 5s
+      timeout: 3s
       retries: 5
-      start_period: 20s
+      start_period: 5s
 
   frontend:
     build:
