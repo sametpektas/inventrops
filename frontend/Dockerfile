@@ -1,8 +1,7 @@
 FROM node:22-alpine AS builder
 WORKDIR /app
-COPY package*.json ./
-RUN npm install
 COPY . .
+# Note: node_modules must exist on host for offline builds
 RUN npm run build
 
 FROM nginx:stable-alpine

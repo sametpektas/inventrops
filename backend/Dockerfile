@@ -1,12 +1,8 @@
 # Build Stage
 FROM node:22-alpine AS builder
 WORKDIR /app
-COPY package*.json ./
-RUN npm install
 COPY . .
-# Bust cache to ensure the new schema.prisma is used
-ARG CACHE_BUST=1
-
+# Note: node_modules must exist on host for offline builds
 RUN ./node_modules/.bin/prisma generate
 RUN npm run build
 
