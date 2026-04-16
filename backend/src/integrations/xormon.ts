@@ -87,11 +87,16 @@ export class XormonAdapter {
       return items.map((d: any) => {
         const itemId = String(d.item_id || d.id);
         
-        let itemDetails = detailsArray.find((p: any) => String(p.item_id || p.id) === itemId);
+        // Aggressive matching: Check itemId in root, id, or hostcfg_id
+        let itemDetails = detailsArray.find((p: any) => 
+            String(p.item_id || p.id || '') === itemId || 
+            String(p.hostcfg_id || '') === itemId
+        );
         
+        // Secondary fallback: Map indexing if detailsRaw is an object
         if (!itemDetails && typeof detailsRaw === 'object' && detailsRaw !== null && !Array.isArray(detailsRaw)) {
-            const rawItem = detailsRaw[itemId];
-            if (rawItem) itemDetails = { item_id: itemId, ...rawItem };
+            const rawItem = (detailsRaw as any).data ? (detailsRaw as any).data[itemId] : detailsRaw[itemId];
+            if (rawItem) itemDetails = { item_id: itemId, ...(typeof rawItem === 'object' ? rawItem : {}) };
         }
 
         if (!itemDetails && items.length === 1 && detailsArray.length === 1) {
@@ -158,11 +163,21 @@ export class XormonAdapter {
         const details = itemDetails.configuration || itemDetails.config || itemDetails || {};
         const hasDetails = Object.keys(details).length > 0;
         
-        const serial = details.serial || details.id || getValue(['cluster_guid', 'guid', 'serial', 'sn', 'wwn', 'uuid', 'key', 'no'], 'Serial');
-        const ip = details.ip_address || getValue(['ip_address', 'ip', 'addr', 'address', 'mgmt', 'host'], 'IP');
-        const model = details.model || getValue(['model', 'product', 'hardware', 'machine', 'type', 'version'], 'Model');
-        const hostname = details.node_name || details.label || d.label || getValue(['cluster_name', 'hostname', 'name', 'label', 'display', 'title'], 'Hostname');
+        // 1. Direct Field Mapping (Highest Priority - based on user provided JSON)
+        let serial = details.serial || details.id || details.serial_number;
+        let ip = details.ip_address || details.mgmt_ip || details.ip;
+        const model = details.model || details.model_name || getValue(['model', 'product', 'hardware'], 'Model');
+        const hostname = details.node_name || details.label || d.label || getValue(['hostname', 'name', 'label'], 'Hostname');
         const firmware = details.version || details.patch_version;
+
+        // 2. Heuristic Heuristic Fallback if direct fields are missing
+        if (!serial) serial = getValue(['serial', 'sn', 'guid', 'uuid', 'id'], 'Serial');
+        if (!ip) ip = getValue(['ip_address', 'ip', 'addr', 'host'], 'IP');
+
+        // Cleanup: Handle multi-IP strings (take first or keep as is)
+        if (typeof ip === 'string' && ip.includes(',')) {
+          ip = ip.split(',')[0].trim();
+        }
 
         let vendorStr = d.vendor || d.manufacturer || 'Unknown';
         if (d.hw_type === 'isilon') vendorStr = 'Dell EMC';
