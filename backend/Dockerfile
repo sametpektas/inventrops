@@ -17,4 +17,4 @@ COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/src ./src
 
 EXPOSE 8000
-CMD ["sh", "-c", "./node_modules/.bin/prisma db push && node dist/index.js"]
+CMD ["sh", "-c", "until ./node_modules/.bin/prisma db push; do echo 'Waiting for database...'; sleep 2; done && node dist/index.js"]
