@@ -19,6 +19,35 @@ async function getOrCreateVendor(name: string) {
   return vendor;
 }
 
+function mapDeviceType(rawType?: string): any {
+  if (!rawType) return 'other';
+  const typeMap: Record<string, string> = {
+    'server': 'server',
+    'host': 'server',
+    'compute': 'server',
+    'storage': 'storage',
+    'array': 'storage',
+    'disk': 'storage',
+    'backup': 'backup',
+    'san': 'san_switch',
+    'fabric': 'san_switch',
+    'network': 'network_switch',
+    'switch': 'network_switch',
+    'router': 'network_switch',
+    'firewall': 'firewall',
+    'software': 'software',
+    'vm': 'software',
+    'pdu': 'pdu',
+    'ups': 'ups'
+  };
+  
+  const normalized = rawType.toLowerCase().trim();
+  for (const [key, value] of Object.entries(typeMap)) {
+    if (normalized.includes(key)) return value;
+  }
+  return 'other';
+}
+
 async function getOrCreateModel(device: DiscoveredDevice, vendorId: number) {
   let model = await prisma.model.findFirst({
     where: { vendor_id: vendorId, name: device.model_name || 'Unknown' }
@@ -28,7 +57,7 @@ async function getOrCreateModel(device: DiscoveredDevice, vendorId: number) {
       data: {
         vendor_id: vendorId,
         name: device.model_name || 'Unknown',
-        device_type: device.device_type as any,
+        device_type: mapDeviceType(device.device_type),
         rack_units: 1
       }
     });
