@@ -66,12 +66,20 @@ export class XormonAdapter {
       const uuids = items.map((i: any) => i.item_id || i.id).filter(Boolean);
       console.log(`[Xormon] Found ${items.length} items. Fetching detailed configuration...`);
 
-      const configResponse = await this.client.post('/api/public/v1/exporter/configuration', {
-        uuids: uuids,
-        format: 'json'
-      }, { headers });
-
-      const detailsRaw = configResponse.data?.data || configResponse.data || [];
+      let detailsRaw: any = [];
+      try {
+        const configResponse = await this.client.post('/api/public/v1/exporter/configuration', {
+          uuids: uuids,
+          format: 'json'
+        }, { headers });
+        detailsRaw = configResponse.data?.data || configResponse.data || [];
+      } catch (err: any) {
+        if (err.response?.status === 402) {
+          console.warn(`[Xormon] Deep Configuration requires Enterprise License (402). Falling back to basic discovery...`);
+        } else {
+          console.warn(`[Xormon] Deep Configuration endpoint failed: ${err.message}. Proceeding with basic discovery.`);
+        }
+      }
       const detailsArray = this.extractItems(detailsRaw);
 
       console.log(`[Xormon DEBUG] Details search space: ${detailsArray.length} records. Target IDs: ${uuids.join(', ')}`);
