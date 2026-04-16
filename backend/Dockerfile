@@ -21,4 +21,4 @@ COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 COPY --from=builder /app/src ./src
 
 EXPOSE 8000
-CMD ["sh", "-c", "echo 'Applying database migrations...'; for i in $(seq 1 10); do ./node_modules/.bin/prisma db push --schema=prisma/schema.prisma --accept-data-loss && break; echo \"Database retry $i/10...\"; sleep 5; done && node dist/index.js"]
+CMD ["sh", "-c", "echo 'Syncing database...'; ./node_modules/.bin/prisma db push --schema=prisma/schema.prisma --accept-data-loss && node dist/index.js"]
