@@ -57,8 +57,8 @@ export class HPEOneViewAdapter {
     try {
       if (!this.sessionID) await this.login();
 
-      // Fetch Server Hardware
-      const response = await this.client.get('/rest/server-hardware');
+      // Fetch All Server Hardware (count=-1 ensures we bypass default pagination)
+      const response = await this.client.get('/rest/server-hardware?count=-1');
       const members = response.data.members || [];
       
       console.log(`[HPE] Found ${members.length} members from OneView.`);

@@ -179,30 +179,39 @@ export class XormonAdapter {
           ip = ip.split(',')[0].trim();
         }
 
-        let vendorStr = d.vendor || d.manufacturer || 'Unknown';
-        if (d.hw_type === 'isilon') vendorStr = 'Dell EMC';
-        else if (d.hw_type?.toLowerCase().includes('huawei') || d.hw_type === 'oceanstor' || d.hw_type === 'oceanstorpacific') vendorStr = 'Huawei';
-        else if (d.hw_type === 'pure' || d.hw_type === 'pureblade') vendorStr = 'Pure Storage';
-        else if (d.hw_type === 'netapp') vendorStr = 'NetApp';
-        else if (d.hw_type === 'vmware') vendorStr = 'VMware';
-        else if (d.hw_type === 'sanbrcd') vendorStr = 'Brocade';
-        else if (d.hw_type === 'commvault') vendorStr = 'Commvault';
-        else if (d.hw_type === 'openshift') vendorStr = 'Red Hat';
+
+        if (!config || !config.configuration) {
+          console.warn(`[Xormon] No deep configuration found for ${itemId} (${d.label}).`);
+        }
+
+        const conf = config?.configuration || {};
+        
+        // Extraction priority: configuration.serial > configuration.id > itemId
+        const serial = String(conf.serial || conf.id || itemId);
+        
+        // IP Extraction: Handle comma-separated lists and prioritize configuration.ip_address
+        let ip = "0.0.0.0";
+        const rawIp = conf.ip_address || conf.ip || d.ip_address;
+        if (rawIp && typeof rawIp === 'string') {
+          ip = rawIp.split(',')[0].trim();
+        }
 
         const result: DiscoveredDevice = {
-          serial_number: String(serial || itemId),
-          hostname: String(hostname || 'Unnamed'),
-          vendor_name: String(vendorStr),
-          model_name: String(model || d.hw_type || 'Unknown'),
-          device_type: String(d.class || 'storage'),
-          ip_address: String(ip || '0.0.0.0'),
-          firmware_version: firmware ? String(firmware) : undefined,
-          sync_error: !hasDetails ? 'Deep configuration could not be fetched for this device.' : undefined,
+          serial_number: serial,
+          hostname: d.label,
+          vendor_name: d.hw_vendor || (conf.model?.toLowerCase().includes('huawei') ? 'Huawei' : 
+                       d.hw_type?.toLowerCase().includes('isilon') ? 'Dell EMC' : 'Generic Storage'),
+          model_name: conf.model || d.hw_type || 'storage',
+          device_type: 'storage',
+          ip_address: ip === '0.0.0.0' ? undefined : ip,
+          sync_error: !config ? 'Deep configuration could not be fetched for this device.' : undefined,
           metadata: {
             hw_type: d.hw_type,
             class: d.class,
             subsystem: d.subsystem,
-            ...details
+            version: conf.version,
+            wwn: conf.wwn,
+            xormon_id: itemId
           }
         };
         
