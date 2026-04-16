@@ -94,7 +94,15 @@ export const getIntegrations = async (req: Request, res: Response) => {
       },
       orderBy: { created_at: 'desc' }
     });
-    res.json({ results: configs });
+
+    // Mask secrets
+    const results = configs.map(c => ({
+      ...c,
+      password: c.password ? '********' : null,
+      api_key: c.api_key ? '********' : null
+    }));
+
+    res.json({ results });
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch integrations' });
   }
@@ -119,6 +127,36 @@ export const createIntegration = async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error(err);
     res.status(400).json({ error: 'Failed to create integration config' });
+  }
+};
+
+export const updateIntegration = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { name, integration_type, url, username, password, api_key, team_id, is_active } = req.body;
+  
+  try {
+    const data: any = {
+      name,
+      integration_type,
+      url,
+      username,
+      is_active,
+      team_id: team_id ? parseInt(team_id) : null
+    };
+
+    // Only update secrets if they are changed and NOT masked placeholders
+    if (password && password !== '********') data.password = password;
+    if (api_key && api_key !== '********') data.api_key = api_key;
+
+    const config = await prisma.integrationConfig.update({
+      where: { id: parseInt(id as string) },
+      data
+    });
+
+    res.json(config);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: 'Failed to update integration' });
   }
 };
 

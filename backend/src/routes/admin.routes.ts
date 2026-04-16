@@ -3,7 +3,7 @@ import {
   getVendors, createVendor, 
   getLDAPConfig, updateLDAPConfig,
   updateModel, deleteModel,
-  getIntegrations, createIntegration, deleteIntegration, triggerSync,
+  getIntegrations, createIntegration, updateIntegration, deleteIntegration, triggerSync,
   testIntegrationConnection 
 } from '../controllers/admin.controller';
 import { authMiddleware, requireRole } from '../middleware/auth.middleware';
@@ -26,6 +26,7 @@ router.delete('/models/:id/', deleteModel);
 // Integrations (Configs)
 router.get('/integrations/configs', getIntegrations);
 router.post('/integrations/configs', createIntegration);
+router.patch('/integrations/configs/:id', updateIntegration);
 router.delete('/integrations/configs/:id', deleteIntegration);
 router.post('/integrations/configs/:id/trigger-sync', triggerSync);
 router.post('/integrations/test-connection', testIntegrationConnection);

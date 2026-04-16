@@ -261,7 +261,7 @@ model SyncLog {
   created_at        DateTime        @default(now())
   
   integration_id    Int
-  integration       IntegrationConfig @relation(fields: [integration_id], references: [id])
+  integration       IntegrationConfig @relation(fields: [integration_id], references: [id], onDelete: Cascade)
 
   @@map("integrations_synclog")
 }
