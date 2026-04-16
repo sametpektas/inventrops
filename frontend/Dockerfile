@@ -6,9 +6,14 @@ RUN npm install --prefer-offline --no-audit
 COPY . .
 RUN npm run build
 
-FROM nginx:stable-alpine
+# Production Stage
+FROM node:22-alpine
 USER root
-COPY --from=builder /app/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+WORKDIR /app
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/server.js ./server.js
+
 EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["node", "server.js"]
