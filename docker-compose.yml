@@ -60,7 +60,7 @@ services:
     build:
       context: ./admin-panel
     ports:
-      - "3001:80"
+      - "5174:80"
     depends_on:
       backend:
         condition: service_healthy
