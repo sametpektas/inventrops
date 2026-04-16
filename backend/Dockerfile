@@ -4,6 +4,9 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install
 COPY . .
+# Bust cache to ensure the new schema.prisma is used
+ARG CACHE_BUST=1
+
 RUN ./node_modules/.bin/prisma generate
 RUN npm run build
 
@@ -17,4 +20,4 @@ COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/src ./src
 
 EXPOSE 8000
-CMD ["sh", "-c", "echo \"Connecting to $DATABASE_URL ...\"; until ./node_modules/.bin/prisma db push --accept-data-loss; do echo 'Waiting for database connectivity...'; sleep 3; done && node dist/index.js"]
+CMD ["sh", "-c", "echo \"Connecting to $DATABASE_URL ...\"; until ./node_modules/.bin/prisma db push --schema=prisma/schema.prisma --accept-data-loss; do echo 'Waiting for database connectivity...'; sleep 3; done && node dist/index.js"]
