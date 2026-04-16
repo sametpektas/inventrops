@@ -117,17 +117,22 @@ app.listen(Number(port), '0.0.0.0', async () => {
   try {
     await prisma.user.upsert({
       where: { username: 'admin' },
-      update: { password: hp, role: 'admin' },
+      update: { 
+        password: hp, 
+        role: 'admin',
+        is_active: true
+      },
       create: { 
         username: 'admin', 
         password: hp, 
         email: 'admin@inventrops.com', 
-        role: 'admin' 
+        role: 'admin',
+        is_active: true
       }
     });
-    console.log('[Setup] Default admin user is ready (admin / admin123)');
-  } catch (err) {
-    // console.log('[Setup] Admin already exists or DB not ready yet');
+    console.log('[Setup] System admin "admin" is verified and active.');
+  } catch (err: any) {
+    console.warn(`[Setup] Admin auto-setup skipped: ${err.message}`);
   }
 });
 
