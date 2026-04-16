@@ -52,17 +52,26 @@ export class XormonAdapter {
 
     try {
       const key = await this.authenticate();
-      const headers = { 'apiKey': key };
+      // Send both common header variants for Xormon
+      const headers = { 
+        'apiKey': key,
+        'X-API-KEY': key 
+      };
 
       // 1. Get List of Devices
       const devResponse = await this.client.get('/api/public/v1/architecture/devices', { headers });
       const devices = this.extractItems(devResponse.data);
-      if (devices.length === 0) return [];
+      if (devices.length === 0) {
+        console.log(`[Xormon] No devices found in basic discovery.`);
+        return [];
+      }
 
-      // 2. Fetch Deep Configurations in Chunks (Batch size 20 to avoid timeouts)
+      // 2. Fetch Deep Configurations in Chunks (Batch size 20)
       const uuids = devices.map((d: any) => d.item_id || d.id).filter(Boolean);
       const chunkSize = 20;
       let allConfigs: any[] = [];
+
+      console.log(`[Xormon] Fetching configurations for ${uuids.length} devices...`);
 
       for (let i = 0; i < uuids.length; i += chunkSize) {
         const chunk = uuids.slice(i, i + chunkSize);
@@ -79,25 +88,28 @@ export class XormonAdapter {
         }
       }
 
+      console.log(`[Xormon] Total configurations retrieved: ${allConfigs.length}`);
+
       // 3. Map and Merge Data
       return devices.map((d: any) => {
         const itemId = String(d.item_id || d.id);
+        const label = String(d.label || d.hostname || '');
         
-        // Match logic: Priority to item_id, then fallback to property matching
-        const configEntry = allConfigs.find((c: any) => 
-          String(c.item_id || c.id || '') === itemId || 
-          String(c.hostcfg_id || '') === itemId ||
-          c.label === d.label
-        );
+        // Match logic: Check item_id, id, hostcfg_id or label fallback
+        const configEntry = allConfigs.find((c: any) => {
+          const cId = String(c.item_id || c.id || c.hostcfg_id || '');
+          return cId === itemId || c.label === label;
+        });
 
         const config = configEntry?.configuration || configEntry?.config || configEntry || {};
+        const hasDeepConfig = !!configEntry;
         
-        // Intelligent Extraction
+        // Extraction
         const serial = String(config.serial || config.id || getValue(config, ['serial', 'sn', 'id']) || itemId);
-        const hostname = config.node_name || config.label || d.label || d.hostname;
-        const model = config.model || d.hw_type || 'storage';
+        const hostname = config.node_name || config.label || label || itemId;
+        const model = config.model || config.model_name || d.hw_type || 'storage';
         
-        let ip = config.ip_address || config.mgmt_ip || d.ip_address || '0.0.0.0';
+        let ip = config.ip_address || config.mgmt_ip || config.ip || d.ip_address || '0.0.0.0';
         if (typeof ip === 'string' && ip.includes(',')) ip = ip.split(',')[0].trim();
 
         // Vendor heuristic
@@ -112,16 +124,16 @@ export class XormonAdapter {
           vendor_name: vendor,
           model_name: model,
           device_type: 'storage',
-          ip_address: ip === '0.0.0.0' ? undefined : ip,
-          sync_error: !configEntry ? 'Deep configuration could not be fetched.' : undefined,
+          ip_address: ip === '0.0.0.0' ? undefined : ip, 
+          sync_error: !hasDeepConfig ? 'Deep configuration could not be fetched (no match).' : undefined,
           metadata: {
             ...config,
             hw_type: d.hw_type,
-            xormon_id: itemId
+            xormon_id: itemId,
+            sync_status: hasDeepConfig ? 'success' : 'basic_only'
           }
         };
 
-        console.log(`[Xormon] Sync Result for ${hostname}: SN=${serial}, IP=${ip}`);
         return result;
       });
 
@@ -134,9 +146,18 @@ export class XormonAdapter {
   private extractItems(data: any): any[] {
     if (!data) return [];
     if (Array.isArray(data)) return data;
+    // Xormon sometimes wraps data in a 'data' or 'items' key
     const body = data.data || data.items || data;
     if (Array.isArray(body)) return body;
-    if (typeof body === 'object') return Object.values(body);
+    // If it's an object with numeric or UUID keys, convert to array
+    if (typeof body === 'object' && body !== null) {
+       return Object.entries(body).map(([key, val]: [string, any]) => {
+         if (typeof val === 'object' && val !== null) {
+            return { item_id: key, ...val };
+         }
+         return { item_id: key, value: val };
+       });
+    }
     return [];
   }
 }
@@ -146,11 +167,11 @@ function getValue(obj: any, patterns: string[]): any {
   if (!obj || typeof obj !== 'object') return undefined;
   for (const key of Object.keys(obj)) {
     if (patterns.some(p => key.toLowerCase().includes(p.toLowerCase()))) {
-      if (typeof obj[key] !== 'object') return obj[key];
+      if (typeof obj[key] !== 'object' && obj[key] !== null) return obj[key];
     }
   }
-  // One level deep scan
-  for (const key of ['configuration', 'config', 'details']) {
+  // Search in common sub-folders
+  for (const key of ['configuration', 'config', 'details', 'data']) {
     if (obj[key] && typeof obj[key] === 'object') {
        const val = getValue(obj[key], patterns);
        if (val) return val;
