@@ -20,4 +20,4 @@ COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/src ./src
 
 EXPOSE 8000
-CMD ["sh", "-c", "echo \"Connecting to $DATABASE_URL ...\"; until ./node_modules/.bin/prisma db push --schema=prisma/schema.prisma --accept-data-loss; do echo 'Waiting for database connectivity...'; sleep 3; done && node dist/index.js"]
+CMD ["sh", "-c", "echo \"Connecting to $DATABASE_URL ...\"; cat prisma/schema.prisma; until ./node_modules/.bin/prisma db push --schema=prisma/schema.prisma --accept-data-loss; do echo 'Waiting for database connectivity...'; sleep 3; done && node dist/index.js"]
