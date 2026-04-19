@@ -170,6 +170,7 @@ export class XormonAdapter {
 
         // Vendor heuristic based on hw_type and model
         let vendor = d.hw_vendor || 'Unknown';
+        let finalModel = String(model);
         const hwType = String(d.hw_type || '').toLowerCase();
         const modelLower = String(model).toLowerCase();
 
@@ -180,7 +181,10 @@ export class XormonAdapter {
         else if (hwType === 'sanbrcd' || modelLower.includes('brocade')) vendor = 'Brocade';
         else if (hwType === 'vmware') vendor = 'VMware';
         else if (hwType === 'commvault') vendor = 'Commvault';
-        else if (hwType === 'swiz') vendor = 'Hitachi';
+        else if (hwType === 'swiz') {
+          vendor = 'IBM';
+          finalModel = 'Flashsystem';
+        }
         else if (modelLower.includes('ibm') || modelLower.includes('flashsystem')) vendor = 'IBM';
         else if (modelLower.includes('hitachi') || modelLower.includes('vsp')) vendor = 'Hitachi';
 
@@ -191,7 +195,7 @@ export class XormonAdapter {
           serial_number: String(serial),
           hostname: String(hostname),
           vendor_name: vendor,
-          model_name: String(model),
+          model_name: finalModel,
           device_type: deviceType,
           ip_address: (ip === '0.0.0.0' || !ip) ? undefined : String(ip),
           firmware_version: version ? String(version) : undefined,
