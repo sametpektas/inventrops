@@ -123,7 +123,11 @@ export const createIntegration = async (req: Request, res: Response) => {
         is_active: true
       }
     });
-    res.status(201).json(config);
+    res.status(201).json({
+      ...config,
+      password: config.password ? '********' : null,
+      api_key: config.api_key ? '********' : null
+    });
   } catch (err: any) {
     console.error(err);
     res.status(400).json({ error: 'Failed to create integration config' });
@@ -153,7 +157,11 @@ export const updateIntegration = async (req: Request, res: Response) => {
       data
     });
 
-    res.json(config);
+    res.json({
+      ...config,
+      password: config.password ? '********' : null,
+      api_key: config.api_key ? '********' : null
+    });
   } catch (err) {
     console.error(err);
     res.status(400).json({ error: 'Failed to update integration' });

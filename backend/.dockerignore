@@ -2,3 +2,4 @@
 dist
 .env
 Dockerfile
+package-lock.json

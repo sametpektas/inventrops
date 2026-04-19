@@ -12,7 +12,11 @@ export class XormonAdapter {
       timeout: 60000,
       httpsAgent: new https.Agent({
         rejectUnauthorized: false
-      })
+      }),
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      }
     });
   }
 
@@ -27,14 +31,21 @@ export class XormonAdapter {
         password: this.config.password
       });
 
-      const dataObj = response.data.data || response.data;
-      const key = dataObj.apiKey || dataObj.api_key || dataObj.apikey;
+      const dataObj = response.data?.data || response.data;
+      const key = dataObj?.apiKey || dataObj?.api_key || dataObj?.apikey;
 
-      if (!key) throw new Error('No API Key found in response');
+      if (!key) {
+        console.error(`[Xormon] Auth response structure:`, JSON.stringify(response.data).substring(0, 500));
+        throw new Error('No API Key found in auth response');
+      }
+
       this.apiKey = key;
+      console.log(`[Xormon] Authentication successful.`);
       return key;
     } catch (error: any) {
-      throw new Error(`Xormon Auth Failed: ${error.message}`);
+      const status = error.response?.status || 'N/A';
+      const body = JSON.stringify(error.response?.data || {}).substring(0, 300);
+      throw new Error(`Xormon Auth Failed (HTTP ${status}): ${error.message} | Body: ${body}`);
     }
   }
 
@@ -52,88 +63,150 @@ export class XormonAdapter {
 
     try {
       const key = await this.authenticate();
-      // Send both common header variants for Xormon
-      const headers = { 
+      const headers = {
         'apiKey': key,
-        'X-API-KEY': key 
+        'X-API-KEY': key,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
       };
 
-      // 1. Get List of Devices
+      // === STEP 1: Get List of Devices ===
       const devResponse = await this.client.get('/api/public/v1/architecture/devices', { headers });
       const devices = this.extractItems(devResponse.data);
+
       if (devices.length === 0) {
-        console.log(`[Xormon] No devices found in basic discovery.`);
+        console.log(`[Xormon] No devices found.`);
         return [];
       }
 
-      // 2. Fetch Deep Configurations in Chunks (Batch size 20)
       const uuids = devices.map((d: any) => d.item_id || d.id).filter(Boolean);
-      const chunkSize = 20;
-      let allConfigs: any[] = [];
+      console.log(`[Xormon] Found ${devices.length} devices. UUIDs: ${uuids.length}`);
 
-      console.log(`[Xormon] Fetching configurations for ${uuids.length} devices...`);
+      // === STEP 2: Fetch Deep Configurations in Chunks of 10 ===
+      const chunkSize = 10;
+      let allConfigs: any[] = [];
 
       for (let i = 0; i < uuids.length; i += chunkSize) {
         const chunk = uuids.slice(i, i + chunkSize);
+        const chunkNum = Math.floor(i / chunkSize) + 1;
+
         try {
-          const configResponse = await this.client.post('/api/public/v1/exporter/configuration', {
-            uuids: chunk,
-            format: 'json'
-          }, { headers });
-          
-          const chunkData = this.extractItems(configResponse.data);
-          allConfigs = [...allConfigs, ...chunkData];
+          console.log(`[Xormon] Fetching config chunk ${chunkNum} (${chunk.length} UUIDs)...`);
+
+          const configResponse = await this.client.post(
+            '/api/public/v1/exporter/configuration',
+            { uuids: chunk, format: 'json' },
+            { headers }
+          );
+
+          // VERBOSE DEBUG: Log exactly what the API returns
+          const rawData = configResponse.data;
+          const rawType = typeof rawData;
+          const isArr = Array.isArray(rawData);
+
+          console.log(`[Xormon] Chunk ${chunkNum} response → type: ${rawType}, isArray: ${isArr}, status: ${configResponse.status}`);
+
+          if (isArr) {
+            console.log(`[Xormon] Chunk ${chunkNum} returned ${rawData.length} items directly as array.`);
+            allConfigs = [...allConfigs, ...rawData];
+          } else if (rawData && typeof rawData === 'object') {
+            // Try to extract nested data
+            const nested = rawData.data || rawData.items || rawData.results;
+            if (Array.isArray(nested)) {
+              console.log(`[Xormon] Chunk ${chunkNum} returned ${nested.length} items via nested key.`);
+              allConfigs = [...allConfigs, ...nested];
+            } else {
+              // Maybe it's a keyed object { uuid: config, uuid: config }
+              const keys = Object.keys(rawData);
+              console.log(`[Xormon] Chunk ${chunkNum} returned object with keys: ${keys.slice(0, 5).join(', ')}...`);
+              const items = keys.map(k => {
+                const val = rawData[k];
+                if (typeof val === 'object' && val !== null) {
+                  return { item_id: k, ...val };
+                }
+                return null;
+              }).filter(Boolean);
+              allConfigs = [...allConfigs, ...items];
+            }
+          } else {
+            console.warn(`[Xormon] Chunk ${chunkNum} returned unexpected data: ${JSON.stringify(rawData).substring(0, 200)}`);
+          }
         } catch (err: any) {
-          console.error(`[Xormon] Chunk ${i/chunkSize + 1} failed: ${err.message}`);
+          const status = err.response?.status || 'N/A';
+          const errBody = JSON.stringify(err.response?.data || {}).substring(0, 300);
+          console.error(`[Xormon] Chunk ${chunkNum} FAILED (HTTP ${status}): ${err.message} | Body: ${errBody}`);
         }
       }
 
-      console.log(`[Xormon] Total configurations retrieved: ${allConfigs.length}`);
+      console.log(`[Xormon] Total configurations retrieved: ${allConfigs.length} / ${uuids.length} devices`);
 
-      // 3. Map and Merge Data
+      // === STEP 3: Map Device + Configuration ===
       return devices.map((d: any) => {
-        const itemId = String(d.item_id || d.id);
+        const itemId = String(d.item_id || d.id || '');
         const label = String(d.label || d.hostname || '');
-        
-        // Match logic: Check item_id, id, hostcfg_id or label fallback
+
+        // Match: item_id or label (case-insensitive)
         const configEntry = allConfigs.find((c: any) => {
-          const cId = String(c.item_id || c.id || c.hostcfg_id || '');
-          return cId === itemId || c.label === label;
+          const cId = String(c.item_id || '');
+          const cLabel = String(c.label || '');
+          return (cId.toLowerCase() === itemId.toLowerCase() && itemId !== '') ||
+                 (cLabel.toLowerCase() === label.toLowerCase() && label !== '');
         });
 
-        const config = configEntry?.configuration || configEntry?.config || configEntry || {};
-        const hasDeepConfig = !!configEntry;
-        
-        // Extraction
-        const serial = String(config.serial || config.id || getValue(config, ['serial', 'sn', 'id']) || itemId);
-        const hostname = config.node_name || config.label || label || itemId;
-        const model = config.model || config.model_name || d.hw_type || 'storage';
-        
-        let ip = config.ip_address || config.mgmt_ip || config.ip || d.ip_address || '0.0.0.0';
-        if (typeof ip === 'string' && ip.includes(',')) ip = ip.split(',')[0].trim();
+        const conf = configEntry?.configuration || configEntry?.config || {};
+        const hasConfig = !!configEntry && Object.keys(conf).length > 0;
 
-        // Vendor heuristic
+        // Extract fields from configuration (matching real Xormon API response structure)
+        const serial = conf.serial || conf.id || itemId;
+        const hostname = conf.node_name || conf.cluster_name || conf.machine_name || conf.chassis_name || conf.name || label;
+        const model = conf.model || conf.product_name || d.hw_type || 'Unknown';
+        const version = conf.version || conf.patch_version;
+
+        // IP extraction: handle comma-separated IPs
+        let ip = conf.ip_address || conf.mgmt_ip || conf.ctla || d.ip_address || '0.0.0.0';
+        if (typeof ip === 'string' && ip.includes(',')) {
+          ip = ip.split(',')[0].trim();
+        }
+
+        // Vendor heuristic based on hw_type and model
         let vendor = d.hw_vendor || 'Unknown';
+        const hwType = String(d.hw_type || '').toLowerCase();
         const modelLower = String(model).toLowerCase();
-        if (modelLower.includes('oceanstor') || modelLower.includes('huawei')) vendor = 'Huawei';
-        if (modelLower.includes('isilon') || d.hw_type === 'isilon') vendor = 'Dell EMC';
+
+        if (hwType === 'isilon') vendor = 'Dell EMC';
+        else if (hwType === 'oceanstor' || hwType === 'oceanstorpacific' || modelLower.includes('oceanstor')) vendor = 'Huawei';
+        else if (hwType === 'pure' || hwType === 'pureblade' || modelLower.includes('flashblade') || modelLower.includes('purestorage')) vendor = 'Pure Storage';
+        else if (hwType === 'netapp') vendor = 'NetApp';
+        else if (hwType === 'sanbrcd' || modelLower.includes('brocade')) vendor = 'Brocade';
+        else if (hwType === 'vmware') vendor = 'VMware';
+        else if (hwType === 'commvault') vendor = 'Commvault';
+        else if (hwType === 'swiz') vendor = 'Hitachi';
+        else if (modelLower.includes('ibm') || modelLower.includes('flashsystem')) vendor = 'IBM';
+        else if (modelLower.includes('hitachi') || modelLower.includes('vsp')) vendor = 'Hitachi';
+
+        // Device type from class field
+        const deviceType = d.class || 'storage';
 
         const result: DiscoveredDevice = {
-          serial_number: serial,
-          hostname: hostname,
+          serial_number: String(serial),
+          hostname: String(hostname),
           vendor_name: vendor,
-          model_name: model,
-          device_type: 'storage',
-          ip_address: ip === '0.0.0.0' ? undefined : ip, 
-          sync_error: !hasDeepConfig ? 'Deep configuration could not be fetched (no match).' : undefined,
+          model_name: String(model),
+          device_type: deviceType,
+          ip_address: (ip === '0.0.0.0' || !ip) ? undefined : String(ip),
+          firmware_version: version ? String(version) : undefined,
+          sync_error: !hasConfig ? 'Deep configuration could not be fetched.' : undefined,
           metadata: {
-            ...config,
             hw_type: d.hw_type,
             xormon_id: itemId,
-            sync_status: hasDeepConfig ? 'success' : 'basic_only'
+            wwn: conf.wwn,
+            capacity_total: conf.capacity_total,
+            health_status: conf.health_status || conf.running_status,
+            sync_mode: hasConfig ? 'full' : 'basic'
           }
         };
 
+        console.log(`[Xormon] ${hostname} → SN: ${serial}, IP: ${ip}, Vendor: ${vendor}, Config: ${hasConfig ? 'YES' : 'NO'}`);
         return result;
       });
 
@@ -146,36 +219,14 @@ export class XormonAdapter {
   private extractItems(data: any): any[] {
     if (!data) return [];
     if (Array.isArray(data)) return data;
-    // Xormon sometimes wraps data in a 'data' or 'items' key
-    const body = data.data || data.items || data;
+    const body = data.data || data.items || data.members;
     if (Array.isArray(body)) return body;
-    // If it's an object with numeric or UUID keys, convert to array
-    if (typeof body === 'object' && body !== null) {
-       return Object.entries(body).map(([key, val]: [string, any]) => {
-         if (typeof val === 'object' && val !== null) {
-            return { item_id: key, ...val };
-         }
-         return { item_id: key, value: val };
-       });
+    if (body && typeof body === 'object') {
+      return Object.entries(body).map(([key, val]: [string, any]) => {
+        if (typeof val === 'object' && val !== null) return { item_id: key, ...val };
+        return { item_id: key, _value: val };
+      });
     }
     return [];
   }
-}
-
-// Utility to find values in nested objects by key patterns
-function getValue(obj: any, patterns: string[]): any {
-  if (!obj || typeof obj !== 'object') return undefined;
-  for (const key of Object.keys(obj)) {
-    if (patterns.some(p => key.toLowerCase().includes(p.toLowerCase()))) {
-      if (typeof obj[key] !== 'object' && obj[key] !== null) return obj[key];
-    }
-  }
-  // Search in common sub-folders
-  for (const key of ['configuration', 'config', 'details', 'data']) {
-    if (obj[key] && typeof obj[key] === 'object') {
-       const val = getValue(obj[key], patterns);
-       if (val) return val;
-    }
-  }
-  return undefined;
 }
