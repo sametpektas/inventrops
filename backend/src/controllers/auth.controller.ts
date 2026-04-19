@@ -17,7 +17,7 @@ export const login = async (req: Request, res: Response) => {
     console.log(`[Auth] User found: ${!!user}, isActive: ${user?.is_active}`);
     if (user) console.log(`[Auth] Stored hash: ${user.password.substring(0, 10)}...`);
 
-    let authenticatedUser = null;
+    let authenticatedUser: any = null;
 
     if (user && user.is_active) {
       const isValid = await comparePassword(password, user.password);
