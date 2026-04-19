@@ -37,6 +37,8 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - PORT=8007
       - JWT_SECRET=${JWT_SECRET:-inventrops_jwt_secret_2026}
+    ports:
+      - "8007:8007"
     depends_on:
       db:
         condition: service_healthy

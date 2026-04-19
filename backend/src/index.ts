@@ -26,10 +26,11 @@ const port = process.env.PORT || 8000;
 app.use(helmet());
 app.use(rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  max: 5000, // Limit each IP to 5000 requests per windowMs
   standardHeaders: true,
   legacyHeaders: false,
-  message: 'Too many requests from this IP, please try again later.'
+  message: 'Too many requests from this IP, please try again later.',
+  skip: (req: any) => req.path === '/api/health' // Don't count healthchecks
 }));
 
 // Emergency Admin Setup (Remove in production)
