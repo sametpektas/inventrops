@@ -242,7 +242,7 @@ export const getItemDetail = async (req: Request, res: Response) => {
        purchase_date: item.purchase_date?.toISOString().split('T')[0],
        warranty_expiry: item.warranty_expiry?.toISOString().split('T')[0],
        firmware_version: item.firmware_version,
-       firmware_updated_at: item.firmware_updated_at?.toISOString().split('T')[0],
+       firmware_updated_at: (item as any).firmware_updated_at?.toISOString().split('T')[0],
        location_display: item.rack 
          ? `${item.rack.room.datacenter.name} / ${item.rack.room.name} / ${item.rack.name}`
          : (item.model.category === 'software' ? 'Cloud / Licensing' : 'Storage/Depot')

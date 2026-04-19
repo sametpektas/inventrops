@@ -62,7 +62,7 @@ export class HPEOneViewAdapter {
 
       // Robust pagination loop
       while (nextUri) {
-        const response = await this.client.get(nextUri);
+        const response: any = await this.client.get(nextUri);
         const pageMembers = response.data.members || [];
         members = [...members, ...pageMembers];
         nextUri = response.data.nextPageUri || null;
