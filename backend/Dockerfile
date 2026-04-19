@@ -1,5 +1,5 @@
 # Build Stage
-FROM node:22-alpine AS builder
+FROM registry.access.redhat.com/ubi9/nodejs-20 AS builder
 USER root
 WORKDIR /app
 COPY package*.json ./
@@ -9,7 +9,7 @@ RUN ./node_modules/.bin/prisma generate
 RUN npm run build
 
 # Production Stage
-FROM node:22-alpine
+FROM registry.access.redhat.com/ubi9/nodejs-20
 USER root
 WORKDIR /app
 COPY --from=builder /app/package*.json ./
