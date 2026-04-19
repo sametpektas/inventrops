@@ -82,8 +82,8 @@ export class XormonAdapter {
       const uuids = devices.map((d: any) => d.item_id || d.id).filter(Boolean);
       console.log(`[Xormon] Found ${devices.length} devices. UUIDs: ${uuids.length}`);
 
-      // === STEP 2: Fetch Deep Configurations in Chunks of 10 ===
-      const chunkSize = 10;
+      // === STEP 2: Fetch Deep Configurations one by one (Xormon API fails on chunks) ===
+      const chunkSize = 1;
       let allConfigs: any[] = [];
 
       for (let i = 0; i < uuids.length; i += chunkSize) {

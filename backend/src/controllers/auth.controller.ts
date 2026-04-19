@@ -102,11 +102,11 @@ export const refreshToken = async (req: Request, res: Response) => {
 
     if (!user || !user.is_active) return res.status(401).json({ error: 'User inactive' });
 
-    const access = generateToken({ 
-      id: user.id, 
-      username: user.username, 
-      role: user.role, 
-      team_id: user.team_id 
+    const access = generateToken({
+      id: user.id,
+      username: user.username,
+      role: user.role,
+      team_id: user.team_id
     });
 
     res.json({ access });
@@ -121,10 +121,12 @@ export const getUsers = async (req: Request, res: Response) => {
       include: { team: true },
       orderBy: { date_joined: 'desc' }
     });
-    res.json({ results: users.map(u => ({
-      ...u,
-      team_name: u.team?.name
-    })) });
+    res.json({
+      results: users.map(u => ({
+        ...u,
+        team_name: u.team?.name
+      }))
+    });
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch users' });
   }
@@ -144,7 +146,7 @@ export const getTeams = async (req: Request, res: Response) => {
 export const patchUser = async (req: any, res: Response) => {
   const { id } = req.params;
   const { email, first_name, last_name, role, team_id } = req.body;
-  
+
   try {
     // RBAC: Only admin can change roles or other people's data
     if (req.user.role !== 'admin' && parseInt(id as string) !== req.user.id) {
@@ -154,7 +156,7 @@ export const patchUser = async (req: any, res: Response) => {
     // prevent role escalation if not admin
     const { is_active, require_password_change, is_ldap } = req.body;
     const updateData: any = { email, first_name, last_name };
-    
+
     if (is_active !== undefined) updateData.is_active = is_active;
 
     if (req.user.role === 'admin') {
