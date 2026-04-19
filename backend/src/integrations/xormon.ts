@@ -171,6 +171,7 @@ export class XormonAdapter {
         // Vendor heuristic based on hw_type and model
         let vendor = d.hw_vendor || 'Unknown';
         let finalModel = String(model);
+        let finalHostname = String(hostname);
         const hwType = String(d.hw_type || '').toLowerCase();
         const modelLower = String(model).toLowerCase();
 
@@ -183,7 +184,10 @@ export class XormonAdapter {
         else if (hwType === 'commvault') vendor = 'Commvault';
         else if (hwType === 'swiz') {
           vendor = 'IBM';
-          finalModel = 'Flashsystem';
+          // Use product_name if available (e.g., "IBM FlashSystem 7200" -> "FlashSystem 7200"), else fallback to "Flashsystem"
+          finalModel = conf.product_name ? String(conf.product_name).replace(/^IBM\s+/i, '') : 'Flashsystem';
+          // IBM nodes often report "node1, node2" for node_name, so we force label or machine_name
+          finalHostname = String(label || conf.machine_name || hostname);
         }
         else if (modelLower.includes('ibm') || modelLower.includes('flashsystem')) vendor = 'IBM';
         else if (modelLower.includes('hitachi') || modelLower.includes('vsp')) vendor = 'Hitachi';
@@ -193,7 +197,7 @@ export class XormonAdapter {
 
         const result: DiscoveredDevice = {
           serial_number: String(serial),
-          hostname: String(hostname),
+          hostname: finalHostname,
           vendor_name: vendor,
           model_name: finalModel,
           device_type: deviceType,
