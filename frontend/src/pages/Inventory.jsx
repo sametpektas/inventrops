@@ -239,7 +239,7 @@ export default function Inventory() {
                     Hostname {ordering.includes('hostname') ? (ordering.startsWith('-') ? '↓' : '↑') : ''}
                   </th>
                   <th>Model</th>
-                  <th>Category</th>
+                  <th>Asset Tag</th>
                   <th>Firmware</th>
                   <th>IP Address</th>
                   <th>Location</th>
@@ -261,7 +261,7 @@ export default function Inventory() {
                     <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                       {item.model_name}
                     </td>
-                    <td><span className="badge badge--secondary">{item.category}</span></td>
+                    <td><span className="mono" style={{fontSize: '0.75rem'}}>{item.asset_tag || '—'}</span></td>
                     <td><span style={{ fontSize: '0.75rem', fontFamily: 'monospace' }}>{item.firmware_version || '—'}</span></td>
                     <td className="mono">{item.ip_address || '—'}</td>
                     <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
@@ -486,7 +486,7 @@ export default function Inventory() {
             </div>
             <div className="modal__body">
               <p style={{ fontSize: '0.85rem', marginBottom: 15, color: 'var(--text-secondary)' }}>
-                Upload an XLSX file. Columns should include: <strong>Serial Number, Vendor, Model, Hostname, IP Address, Status, Purchase Date, Warranty Expiry</strong>.
+                Upload an XLSX file. Columns should include: <strong>Serial Number, Asset Tag, Vendor, Model, Hostname, IP Address, Status, Purchase Date, Warranty Expiry</strong>.
               </p>
               
               {!importReport ? (
@@ -500,8 +500,8 @@ export default function Inventory() {
               ) : (
                 <div className="report-panel">
                    <h4 style={{ color: 'var(--teal)', marginBottom: 8 }}>Import Complete!</h4>
-                   <p style={{ fontSize: '0.9rem' }}>Created: <strong>{importReport.createdCount}</strong> / Total Rows: <strong>{importReport.totalRows}</strong></p>
-                   {importReport.errors.length > 0 && (
+                   <p style={{ fontSize: '0.9rem' }}>{importReport.message}</p>
+                   {importReport.errors && importReport.errors.length > 0 && (
                      <div style={{ marginTop: 12, padding: 12, background: 'rgba(248, 81, 73, 0.1)', borderRadius: 4 }}>
                        <p style={{ fontSize: '0.78rem', color: 'var(--red)', fontWeight: 600 }}>Conflicts or Issues:</p>
                        <ul style={{ fontSize: '0.75rem', marginTop: 5, maxHeight: 150, overflowY: 'auto' }}>

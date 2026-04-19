@@ -116,11 +116,11 @@ export const exportInventory = async (req: Request, res: Response) => {
 
     const data = items.map(i => ({
       'Serial Number': i.serial_number,
+      'Asset Tag': i.asset_tag || '',
       'Hostname': i.hostname || '',
       'IP Address': i.ip_address || '',
       'Vendor': i.model.vendor.name,
       'Model': i.model.name,
-      'Category': i.model.category,
       'Type': i.model.device_type,
       'Status': i.status,
       'Firmware': i.firmware_version || '',
@@ -576,6 +576,96 @@ export const setStatus = async (req: Request, res: Response) => {
     res.json(updated);
   } catch (err) {
     res.status(500).json({ error: 'Failed to set status' });
+  }
+};
+
+export const importInventory = async (req: Request, res: Response) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No Excel file uploaded' });
+  }
+
+  try {
+    const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
+    const sheetName = wb.SheetNames[0];
+    const data: any[] = XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
+
+    let created = 0, updated = 0, skipped = 0;
+
+    for (const row of data) {
+      const serial = String(row['Serial Number'] || row['SerialNumber'] || row['serial_number'] || '').trim();
+      const assetTag = String(row['Asset Tag'] || row['AssetTag'] || row['asset_tag'] || '').trim();
+      const purchaseDate = row['Purchase Date'] ? new Date(row['Purchase Date']) : undefined;
+      const warrantyExpiry = row['Warranty Expiry'] ? new Date(row['Warranty Expiry']) : undefined;
+      const vendorName = String(row['Vendor'] || 'Unknown Vendor').trim();
+      const modelName = String(row['Model'] || 'Generic Device').trim();
+
+      if (!serial) {
+         skipped++;
+         continue;
+      }
+
+      // Prepare date validation
+      const safePurchase: Date | undefined = purchaseDate && !isNaN(purchaseDate.getTime()) ? purchaseDate : undefined;
+      const safeWarranty: Date | undefined = warrantyExpiry && !isNaN(warrantyExpiry.getTime()) ? warrantyExpiry : undefined;
+      const safeAssetTag = assetTag === 'undefined' || !assetTag ? null : assetTag;
+
+      const existing = await prisma.inventoryItem.findUnique({ where: { serial_number: serial } });
+
+      if (existing) {
+        // OVERWRITE with excel data
+        await prisma.inventoryItem.update({
+          where: { id: existing.id },
+          data: {
+            asset_tag: safeAssetTag !== null ? safeAssetTag : existing.asset_tag,
+            ...(safePurchase && { purchase_date: safePurchase }),
+            ...(safeWarranty && { warranty_expiry: safeWarranty })
+          }
+        });
+        updated++;
+      } else {
+        // CREATE NEW DEVICE
+        // Ensure Vendor exists
+        let vendor = await prisma.vendor.findUnique({ where: { name: vendorName } });
+        if (!vendor) {
+          vendor = await prisma.vendor.create({ data: { name: vendorName } });
+        }
+
+        // Ensure Model exists
+        let modelObj = await prisma.model.findUnique({ where: { vendor_id_name: { vendor_id: vendor.id, name: modelName } } });
+        if (!modelObj) {
+          let dt: any = 'server';
+          const typeStr = String(row['Type'] || '').toLowerCase();
+          if (['server', 'storage', 'network', 'chassis', 'infrastructure'].includes(typeStr)) dt = typeStr;
+
+          modelObj = await prisma.model.create({
+            data: {
+              name: modelName,
+              vendor_id: vendor.id,
+              device_type: dt
+            }
+          });
+        }
+
+        await prisma.inventoryItem.create({
+          data: {
+            serial_number: serial,
+            asset_tag: safeAssetTag,
+            purchase_date: safePurchase,
+            warranty_expiry: safeWarranty,
+            model_id: modelObj.id,
+            hostname: row['Hostname'] || null,
+            ip_address: row['IP Address'] || null,
+            discovered_via: 'excel_import'
+          }
+        });
+        created++;
+      }
+    }
+
+    res.json({ message: `Excel import complete. Created: ${created}, Updated: ${updated}, Skipped: ${skipped}` });
+  } catch (err: any) {
+    console.error('Excel Import Error:', err);
+    res.status(500).json({ error: 'Failed to process Excel file', details: err.message });
   }
 };
 
