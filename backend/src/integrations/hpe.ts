@@ -57,9 +57,16 @@ export class HPEOneViewAdapter {
     try {
       if (!this.sessionID) await this.login();
 
-      // Fetch All Server Hardware (count=-1 ensures we bypass default pagination)
-      const response = await this.client.get('/rest/server-hardware?count=-1');
-      const members = response.data.members || [];
+      let members: any[] = [];
+      let nextUri: string | null = '/rest/server-hardware';
+
+      // Robust pagination loop
+      while (nextUri) {
+        const response = await this.client.get(nextUri);
+        const pageMembers = response.data.members || [];
+        members = [...members, ...pageMembers];
+        nextUri = response.data.nextPageUri || null;
+      }
       
       console.log(`[HPE] Found ${members.length} members from OneView.`);
 
@@ -74,6 +81,13 @@ export class HPEOneViewAdapter {
   }
 
   private mapDevice(m: any): DiscoveredDevice {
+    // Extract IP from iLO / mpHostInfo dynamically
+    let ip = undefined;
+    if (m.mpHostInfo && Array.isArray(m.mpHostInfo.mpIpAddresses) && m.mpHostInfo.mpIpAddresses.length > 0) {
+      ip = m.mpHostInfo.mpIpAddresses[0].address;
+    }
+    ip = ip || m.ipv4Address || m.shortName;
+
     // OneView Server Hardware Mapping
     const metadata = {
       uri: m.uri,
@@ -82,7 +96,8 @@ export class HPEOneViewAdapter {
       powerState: m.powerState,
       processorCount: m.processorCount,
       memoryMb: m.memoryMb,
-      uuid: m.uuid
+      uuid: m.uuid,
+      partNumber: m.partNumber
     };
 
     return {
@@ -91,7 +106,7 @@ export class HPEOneViewAdapter {
       vendor_name: 'HPE',
       model_name: m.model || 'ProLiant Server',
       device_type: 'server',
-      ip_address: m.shortName || (m.ipv4Address ? m.ipv4Address : undefined),
+      ip_address: ip,
       firmware_version: m.romVersion,
       metadata: metadata
     };
