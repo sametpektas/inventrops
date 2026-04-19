@@ -70,7 +70,7 @@ export const getItems = async (req: Request, res: Response) => {
       purchase_date: item.purchase_date?.toISOString().split('T')[0],
       warranty_expiry: item.warranty_expiry?.toISOString().split('T')[0],
       firmware_version: item.firmware_version,
-      firmware_updated_at: item.firmware_updated_at?.toISOString().split('T')[0],
+      firmware_updated_at: (item as any).firmware_updated_at?.toISOString().split('T')[0],
       location_display: item.rack 
         ? `${item.rack.room.datacenter.name} / ${item.rack.room.name} / ${item.rack.name}`
         : (item.model.category === 'software' ? 'Cloud / Licensing' : 'Storage/Depot')
@@ -143,72 +143,7 @@ export const exportInventory = async (req: Request, res: Response) => {
   }
 };
 
-export const importInventory = async (req: Request, res: Response) => {
-  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-  const { team_id, role } = (req as any).user || {};
-
-  try {
-    const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
-    const data: any[] = XLSX.utils.sheet_to_json(sheet);
-
-    let createdCount = 0;
-    let errors = [];
-
-    // Pre-fetch for mapping
-    const models = await prisma.model.findMany({ include: { vendor: true } });
-
-    for (const row of data) {
-      const serial = String(row['Serial Number'] || '').trim();
-      const vendorName = String(row['Vendor'] || '').trim();
-      const modelName = String(row['Model'] || '').trim();
-      
-      if (!serial || !vendorName || !modelName) {
-        errors.push(`Skipping row - Missing Serial/Vendor/Model`);
-        continue;
-      }
-
-      let model = models.find(m => 
-        m.name.toLowerCase() === modelName.toLowerCase() && 
-        m.vendor.name.toLowerCase() === vendorName.toLowerCase()
-      );
-
-      if (!model) {
-        errors.push(`Model "${vendorName} ${modelName}" not found. Please create it in settings first.`);
-        continue;
-      }
-
-      try {
-        await prisma.inventoryItem.create({
-          data: {
-            serial_number: serial,
-            hostname: row['Hostname'] || null,
-            ip_address: row['IP Address'] || null,
-            model_id: model.id,
-            status: (row['Status'] || 'active').toLowerCase(),
-            purchase_date: row['Purchase Date'] ? new Date(row['Purchase Date']) : null,
-            warranty_expiry: row['Warranty Expiry'] ? new Date(row['Warranty Expiry']) : null,
-            team_id: role === 'admin' && row['Team ID'] ? parseInt(row['Team ID']) : (team_id || null),
-            notes: row['Notes'] || null
-          }
-        });
-        createdCount++;
-      } catch (err: any) {
-        if (err.code === 'P2002') {
-          errors.push(`Serial ${serial} already exists.`);
-        } else {
-          errors.push(`Serial ${serial}: ${err.message}`);
-        }
-      }
-    }
-
-    res.json({ createdCount, totalRows: data.length, errors });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Import failed' });
-  }
-};
-
+// Old importInventory deleted to avoid duplicate block-scoped variable
 export const getItemDetail = async (req: Request, res: Response) => {
   const { id } = req.params;
   const { team_id, role } = (req as any).user || {};
