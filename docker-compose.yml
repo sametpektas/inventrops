@@ -43,7 +43,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: [ "CMD-SHELL", "node -e \"const http = require('http'); const req = http.get('http://127.0.0.1:8000/api/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1); }); req.on('error', () => process.exit(1));\"" ]
+      test: [ "CMD-SHELL", "node -e \"const http = require('http'); const req = http.get('http://127.0.0.1:8007/api/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1); }); req.on('error', () => process.exit(1));\"" ]
       interval: 5s
       timeout: 3s
       retries: 5

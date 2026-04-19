@@ -52,10 +52,7 @@ app.get('/api/setup-admin', async (req, res) => {
   }
 });
 
-// Initialize Workers
-// startWarrantyWorker();
-startIntegrationWorker();
-startIntegrationScheduler();
+// Workers are initialized inside app.listen() callback below
 
 // Schedule Repeats (Daily at midnight)
 // warrantyQueue.add('daily-check', {}, {
