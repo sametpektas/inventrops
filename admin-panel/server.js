@@ -12,7 +12,7 @@ const backendUrl = process.env.BACKEND_URL || 'http://backend:8007';
 
 // Proxy /api requests to backend
 app.use('/api', createProxyMiddleware({
-  target: backendUrl,
+  target: backendUrl + '/api',
   changeOrigin: true,
 }));
 
