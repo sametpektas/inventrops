@@ -114,26 +114,38 @@ export class DellOpenManageAdapter {
   }
 
   private mapDevice(d: any, warranty?: any): DiscoveredDevice {
+    // Extract IP dynamically from nested structures if top-level is missing
+    let ip = d.IpAddress || d.ManagementIp || d.RemoteAccessIp;
+    if (!ip && Array.isArray(d.DeviceManagement) && d.DeviceManagement.length > 0) {
+      ip = d.DeviceManagement[0].NetworkAddress || d.DeviceManagement[0].IpAddress;
+    }
+
+    // Extract Firmware dynamically
+    let firmware = d.FirmwareVersion || d.OsVersion || d.OSVersion;
+    if (!firmware && Array.isArray(d.DeviceTypes) && d.DeviceTypes.length > 0) {
+      firmware = d.DeviceTypes[0].FirmwareVersion || d.DeviceTypes[0].Version;
+    }
+
     // Extract metadata from OME response
     const metadata = {
       Id: d.Id,
       Type: d.Type,
       Status: d.Status,
-      LastKnownIP: d.IpAddress,
+      LastKnownIP: ip,
       AssetTag: d.AssetTag,
       GlobalStatus: d.Health,
       ServiceLevel: warranty?.ServiceLevelDescription
     };
 
     return {
-      serial_number: d.SerialNumber || d.Identifier || `DELL-UNKNOWN-${d.Id}`,
+      serial_number: d.SerialNumber || d.Identifier || d.ServiceTag || `DELL-UNKNOWN-${d.Id}`,
       hostname: d.Hostname || d.DeviceName,
-      vendor_name: 'Dell',
+      vendor_name: 'Dell EMC',
       model_name: d.Model || 'Generic Dell Device',
       device_type: this.mapDeviceType(d.Type),
-      ip_address: d.IpAddress,
+      ip_address: ip,
       asset_tag: d.AssetTag,
-      firmware_version: d.FirmwareVersion,
+      firmware_version: firmware,
       purchase_date: warranty?.SystemShipDate ? new Date(warranty.SystemShipDate).toISOString().split('T')[0] : undefined,
       warranty_expiry: warranty?.EndDate ? new Date(warranty.EndDate).toISOString().split('T')[0] : undefined,
       metadata: metadata
