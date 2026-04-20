@@ -375,6 +375,18 @@ export default function InventoryDetail() {
                     </div>
                   </div>
                 )}
+                {item.cpu_model && (
+                  <div className="detail-field">
+                    <div className="detail-field__label">CPU Model</div>
+                    <div className="detail-field__value detail-field__value--mono">{item.cpu_model}</div>
+                  </div>
+                )}
+                {item.ram_gb != null && (
+                  <div className="detail-field">
+                    <div className="detail-field__label">RAM</div>
+                    <div className="detail-field__value">{item.ram_gb} GB</div>
+                  </div>
+                )}
                 <div className="detail-field">
                   <div className="detail-field__label">Location</div>
                   <div className="detail-field__value">

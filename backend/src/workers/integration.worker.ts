@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma';
 import { DellOpenManageAdapter, DiscoveredDevice } from '../integrations/dell';
 import { HPEOneViewAdapter } from '../integrations/hpe';
 import { XormonAdapter } from '../integrations/xormon';
+import { decrypt } from '../utils/crypto';
 
 const connection = new IORedis(process.env.REDIS_URL || 'redis://localhost:6379/0', {
   maxRetriesPerRequest: null
@@ -100,6 +101,14 @@ async function syncDevice(device: DiscoveredDevice, integration: any) {
       updateData.firmware_updated_at = new Date();
       updated = true;
     }
+    if (device.cpu_model && existing.cpu_model !== device.cpu_model) {
+      updateData.cpu_model = device.cpu_model;
+      updated = true;
+    }
+    if (device.ram_gb != null && existing.ram_gb !== device.ram_gb) {
+      updateData.ram_gb = device.ram_gb;
+      updated = true;
+    }
     if (device.metadata) {
       updateData.metadata = device.metadata;
       updated = true;
@@ -149,6 +158,8 @@ async function syncDevice(device: DiscoveredDevice, integration: any) {
       warranty_expiry: device.warranty_expiry ? new Date(device.warranty_expiry) : null,
       firmware_version: device.firmware_version,
       firmware_updated_at: device.firmware_version ? new Date() : null,
+      cpu_model: device.cpu_model,
+      ram_gb: device.ram_gb,
       metadata: device.metadata as any,
       discovered_via: integration.integration_type,
       last_sync_at: new Date(),
@@ -193,14 +204,21 @@ export const startIntegrationWorker = () => {
 
     try {
       let devices: DiscoveredDevice[] = [];
+      // Decrypt credentials before passing to adapters
+      const adapterConfig = {
+        ...integration,
+        password: integration.password ? decrypt(integration.password) : null,
+        api_key: integration.api_key ? decrypt(integration.api_key) : null
+      };
+
       if (integration.integration_type === 'dell_openmanage') {
-        const adapter = new DellOpenManageAdapter(integration);
+        const adapter = new DellOpenManageAdapter(adapterConfig);
         devices = await adapter.fetchInventory();
       } else if (integration.integration_type === 'hpe_oneview') {
-        const adapter = new HPEOneViewAdapter(integration);
+        const adapter = new HPEOneViewAdapter(adapterConfig);
         devices = await adapter.fetchInventory();
       } else if (integration.integration_type === 'xormon') {
-        const adapter = new XormonAdapter(integration);
+        const adapter = new XormonAdapter(adapterConfig);
         devices = await adapter.fetchInventory();
       }
 

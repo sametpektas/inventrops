@@ -4,6 +4,7 @@ import { integrationQueue } from '../workers/integration.worker';
 import { HPEOneViewAdapter } from '../integrations/hpe';
 import { DellOpenManageAdapter } from '../integrations/dell';
 import { XormonAdapter } from '../integrations/xormon';
+import { encrypt, decrypt } from '../utils/crypto';
 
 // Vendors
 export const getVendors = async (req: Request, res: Response) => {
@@ -117,8 +118,8 @@ export const createIntegration = async (req: Request, res: Response) => {
         integration_type,
         url: base_url,
         username,
-        password,
-        api_key,
+        password: password ? encrypt(password) : null,
+        api_key: api_key ? encrypt(api_key) : null,
         team_id: parseInt(team),
         is_active: true
       }
@@ -148,9 +149,9 @@ export const updateIntegration = async (req: Request, res: Response) => {
       team_id: team_id ? parseInt(team_id) : null
     };
 
-    // Only update secrets if they are changed and NOT masked placeholders
-    if (password && password !== '********') data.password = password;
-    if (api_key && api_key !== '********') data.api_key = api_key;
+    // Only update secrets if they are changed and NOT masked placeholders — encrypt before saving
+    if (password && password !== '********') data.password = encrypt(password);
+    if (api_key && api_key !== '********') data.api_key = encrypt(api_key);
 
     const config = await prisma.integrationConfig.update({
       where: { id: parseInt(id as string) },
@@ -199,7 +200,7 @@ export const triggerSync = async (req: Request, res: Response) => {
 export const testIntegrationConnection = async (req: Request, res: Response) => {
   const { integration_type, base_url, username, password, api_key } = req.body;
   
-  // Mock config for adapter
+  // Credentials from the test form are plain text (not yet stored), pass directly
   const config = { url: base_url, username, password, api_key };
   
   try {

@@ -194,6 +194,8 @@ model InventoryItem {
   discovered_via    String?     @default("manual")
   firmware_version  String?
   firmware_updated_at DateTime?
+  cpu_model         String?
+  ram_gb            Int?
   metadata          Json?
   last_sync_status  SyncStatus? @default(success)
   last_sync_error   String?

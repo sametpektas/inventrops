@@ -1,5 +1,6 @@
 import ldap from 'ldapjs';
 import { prisma } from '../lib/prisma';
+import { decrypt } from '../utils/crypto';
 
 export const authenticateLDAP = async (username: string, password: string) => {
   const config = await prisma.lDAPConfig.findFirst({ where: { is_active: true } });
@@ -11,7 +12,7 @@ export const authenticateLDAP = async (username: string, password: string) => {
   });
 
   return new Promise((resolve, reject) => {
-    client.bind(config.bind_dn || '', config.bind_password || '', (err) => {
+    client.bind(config.bind_dn || '', config.bind_password ? decrypt(config.bind_password) : '', (err) => {
       if (err) {
         client.destroy();
         return resolve(null);

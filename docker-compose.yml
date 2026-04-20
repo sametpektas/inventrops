@@ -37,6 +37,7 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - PORT=8007
       - JWT_SECRET=${JWT_SECRET:-inventrops_jwt_secret_2026}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-change_this_to_a_secure_32char_key!}
     ports:
       - "8007:8007"
     depends_on:

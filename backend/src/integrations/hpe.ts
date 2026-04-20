@@ -100,6 +100,13 @@ export class HPEOneViewAdapter {
       partNumber: m.partNumber
     };
 
+    // Parse RAM: OneView returns totalMemoryGB or memoryMb
+    const ramGb = m.memoryMb
+      ? Math.round(m.memoryMb / 1024)
+      : m.totalMemoryGB
+      ? Math.round(m.totalMemoryGB)
+      : undefined;
+
     return {
       serial_number: m.serialNumber || m.uuid || `HPE-UNKNOWN-${m.uri.split('/').pop()}`,
       hostname: m.name,
@@ -108,6 +115,8 @@ export class HPEOneViewAdapter {
       device_type: 'server',
       ip_address: ip,
       firmware_version: m.romVersion,
+      cpu_model: m.processorModel || m.processorType || undefined,
+      ram_gb: ramGb,
       metadata: metadata
     };
   }

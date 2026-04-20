@@ -10,6 +10,8 @@ export interface DiscoveredDevice {
   ip_address?: string;
   asset_tag?: string;
   firmware_version?: string;
+  cpu_model?: string;
+  ram_gb?: number;
   purchase_date?: string;
   warranty_expiry?: string;
   metadata?: Record<string, any>;
@@ -86,7 +88,7 @@ export class DellOpenManageAdapter {
       }
 
       console.log(`[Dell] Found ${allDevices.length} devices from OME (Total: ${totalCount}).`);
-      
+
       // Fetch Warranties
       let warrantyMap: Record<number, any> = {};
       try {
@@ -102,7 +104,36 @@ export class DellOpenManageAdapter {
         console.warn('[Dell] Could not fetch warranty information.');
       }
 
-      return allDevices.map((d: any) => this.mapDevice(d, warrantyMap[d.Id]));
+      // Fetch CPU info per device (batch with limited concurrency to avoid overloading OME)
+      const cpuMap: Record<number, { model?: string; ramMb?: number }> = {};
+      const BATCH_SIZE = 10;
+      for (let i = 0; i < allDevices.length; i += BATCH_SIZE) {
+        const batch = allDevices.slice(i, i + BATCH_SIZE);
+        await Promise.all(batch.map(async (d: any) => {
+          try {
+            const cpuRes = await this.client.get(`/api/DeviceService/Devices(${d.Id})/InventoryDetails?inventoryType=cpuInfo`);
+            const cpuItems = cpuRes.data.value || (Array.isArray(cpuRes.data) ? cpuRes.data : []);
+            if (cpuItems.length > 0) {
+              cpuMap[d.Id] = { model: cpuItems[0].Model || cpuItems[0].BrandName };
+            }
+          } catch {
+            // CPU fetch failure is non-fatal — skip silently
+          }
+          try {
+            const memRes = await this.client.get(`/api/DeviceService/Devices(${d.Id})/InventoryDetails?inventoryType=memoryInfo`);
+            const memItems = memRes.data.value || (Array.isArray(memRes.data) ? memRes.data : []);
+            if (memItems.length > 0) {
+              const totalMb = memItems.reduce((sum: number, m: any) => sum + (parseInt(m.Size) || 0), 0);
+              if (cpuMap[d.Id]) cpuMap[d.Id].ramMb = totalMb;
+              else cpuMap[d.Id] = { ramMb: totalMb };
+            }
+          } catch {
+            // Memory fetch failure is non-fatal — skip silently
+          }
+        }));
+      }
+
+      return allDevices.map((d: any) => this.mapDevice(d, warrantyMap[d.Id], cpuMap[d.Id]));
     } catch (error: any) {
       console.error(`[Dell] Sync failed: ${error.message}`);
       if (error.response?.status === 401) {
@@ -113,7 +144,7 @@ export class DellOpenManageAdapter {
     }
   }
 
-  private mapDevice(d: any, warranty?: any): DiscoveredDevice {
+  private mapDevice(d: any, warranty?: any, cpuInfo?: { model?: string; ramMb?: number }): DiscoveredDevice {
     // Extract IP dynamically from nested structures if top-level is missing
     let ip = d.IpAddress || d.ManagementIp || d.RemoteAccessIp;
     if (!ip && Array.isArray(d.DeviceManagement) && d.DeviceManagement.length > 0) {
@@ -125,6 +156,9 @@ export class DellOpenManageAdapter {
     if (!firmware && Array.isArray(d.DeviceTypes) && d.DeviceTypes.length > 0) {
       firmware = d.DeviceTypes[0].FirmwareVersion || d.DeviceTypes[0].Version;
     }
+
+    // Calculate RAM in GB from MB (round to nearest GB)
+    const ramGb = cpuInfo?.ramMb ? Math.round(cpuInfo.ramMb / 1024) : undefined;
 
     // Extract metadata from OME response
     const metadata = {
@@ -146,6 +180,8 @@ export class DellOpenManageAdapter {
       ip_address: ip,
       asset_tag: d.AssetTag,
       firmware_version: firmware,
+      cpu_model: cpuInfo?.model,
+      ram_gb: ramGb,
       purchase_date: warranty?.SystemShipDate ? new Date(warranty.SystemShipDate).toISOString().split('T')[0] : undefined,
       warranty_expiry: warranty?.EndDate ? new Date(warranty.EndDate).toISOString().split('T')[0] : undefined,
       metadata: metadata
