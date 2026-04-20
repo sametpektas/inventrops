@@ -110,26 +110,44 @@ export class DellOpenManageAdapter {
       for (let i = 0; i < allDevices.length; i += BATCH_SIZE) {
         const batch = allDevices.slice(i, i + BATCH_SIZE);
         await Promise.all(batch.map(async (d: any) => {
-          try {
-            const cpuRes = await this.client.get(`/api/DeviceService/Devices(${d.Id})/InventoryDetails?inventoryType=cpuInfo`);
-            const cpuItems = cpuRes.data.value || (Array.isArray(cpuRes.data) ? cpuRes.data : []);
-            if (cpuItems.length > 0) {
-              cpuMap[d.Id] = { model: cpuItems[0].Model || cpuItems[0].BrandName };
+          // OME 4.x uses 'serverProcessors' and 'serverMemoryDevices'
+          // OME 3.x uses 'centralProcessor' and 'memory'
+          const cpuTypes = ['serverProcessors', 'centralProcessor'];
+          const memTypes = ['serverMemoryDevices', 'memory'];
+
+          let cpuFound = false;
+          for (const type of cpuTypes) {
+            try {
+              const cpuRes = await this.client.get(`/api/DeviceService/Devices(${d.Id})/InventoryDetails?inventoryType=${type}`);
+              const cpuItems = cpuRes.data.value || (Array.isArray(cpuRes.data) ? cpuRes.data : []);
+              if (cpuItems.length > 0) {
+                cpuMap[d.Id] = { model: cpuItems[0].Model || cpuItems[0].BrandName || cpuItems[0].Brand };
+                cpuFound = true;
+                break;
+              }
+            } catch {
+              // Try next type
             }
-          } catch {
-            // CPU fetch failure is non-fatal — skip silently
           }
-          try {
-            const memRes = await this.client.get(`/api/DeviceService/Devices(${d.Id})/InventoryDetails?inventoryType=memoryInfo`);
-            const memItems = memRes.data.value || (Array.isArray(memRes.data) ? memRes.data : []);
-            if (memItems.length > 0) {
-              const totalMb = memItems.reduce((sum: number, m: any) => sum + (parseInt(m.Size) || 0), 0);
-              if (cpuMap[d.Id]) cpuMap[d.Id].ramMb = totalMb;
-              else cpuMap[d.Id] = { ramMb: totalMb };
+          if (!cpuFound) console.warn(`[Dell] Could not fetch CPU for device ${d.Id} using ${cpuTypes.join(', ')}`);
+
+          let memFound = false;
+          for (const type of memTypes) {
+            try {
+              const memRes = await this.client.get(`/api/DeviceService/Devices(${d.Id})/InventoryDetails?inventoryType=${type}`);
+              const memItems = memRes.data.value || (Array.isArray(memRes.data) ? memRes.data : []);
+              if (memItems.length > 0) {
+                const totalMb = memItems.reduce((sum: number, m: any) => sum + (parseInt(m.Size) || 0), 0);
+                if (cpuMap[d.Id]) cpuMap[d.Id].ramMb = totalMb;
+                else cpuMap[d.Id] = { ramMb: totalMb };
+                memFound = true;
+                break;
+              }
+            } catch {
+              // Try next type
             }
-          } catch {
-            // Memory fetch failure is non-fatal — skip silently
           }
+          if (!memFound) console.warn(`[Dell] Could not fetch RAM for device ${d.Id} using ${memTypes.join(', ')}`);
         }));
       }
 
