@@ -110,10 +110,9 @@ export class DellOpenManageAdapter {
       for (let i = 0; i < allDevices.length; i += BATCH_SIZE) {
         const batch = allDevices.slice(i, i + BATCH_SIZE);
         await Promise.all(batch.map(async (d: any) => {
-          // OME 4.x uses 'serverProcessors' and 'serverMemoryDevices'
-          // OME 3.x uses 'centralProcessor' and 'memory'
-          const cpuTypes = ['serverProcessors', 'centralProcessor'];
-          const memTypes = ['serverMemoryDevices', 'memory'];
+          // Expanded inventory types for wider OME version support
+          const cpuTypes = ['serverProcessors', 'centralProcessor', 'Processors', 'processors', 'processor'];
+          const memTypes = ['serverMemoryDevices', 'memory', 'Memory', 'memoryDevices', 'MemoryDevices'];
 
           let cpuFound = false;
           for (const type of cpuTypes) {
@@ -121,12 +120,20 @@ export class DellOpenManageAdapter {
               const cpuRes = await this.client.get(`/api/DeviceService/Devices(${d.Id})/InventoryDetails?inventoryType=${type}`);
               const cpuItems = cpuRes.data.value || (Array.isArray(cpuRes.data) ? cpuRes.data : []);
               if (cpuItems.length > 0) {
-                cpuMap[d.Id] = { model: cpuItems[0].Model || cpuItems[0].BrandName || cpuItems[0].Brand };
-                cpuFound = true;
-                break;
+                // Try multiple field names for CPU model
+                const firstCpu = cpuItems[0];
+                const model = firstCpu.Model || firstCpu.BrandName || firstCpu.Brand || firstCpu.Name || firstCpu.ProcessorModel;
+                if (model) {
+                  cpuMap[d.Id] = { model: model.toString().trim() };
+                  cpuFound = true;
+                  break;
+                }
               }
-            } catch {
-              // Try next type
+            } catch (err: any) {
+              // Silently try next if 404, but log if it's a critical error
+              if (err.response?.status !== 404 && err.response?.status !== 400) {
+                console.debug(`[Dell] Call to ${type} for device ${d.Id} returned ${err.response?.status}`);
+              }
             }
           }
           if (!cpuFound) console.warn(`[Dell] Could not fetch CPU for device ${d.Id} using ${cpuTypes.join(', ')}`);
@@ -137,14 +144,25 @@ export class DellOpenManageAdapter {
               const memRes = await this.client.get(`/api/DeviceService/Devices(${d.Id})/InventoryDetails?inventoryType=${type}`);
               const memItems = memRes.data.value || (Array.isArray(memRes.data) ? memRes.data : []);
               if (memItems.length > 0) {
-                const totalMb = memItems.reduce((sum: number, m: any) => sum + (parseInt(m.Size) || 0), 0);
-                if (cpuMap[d.Id]) cpuMap[d.Id].ramMb = totalMb;
-                else cpuMap[d.Id] = { ramMb: totalMb };
-                memFound = true;
-                break;
+                const totalMb = memItems.reduce((sum: number, m: any) => {
+                  let sizeStr = (m.Size || m.Capacity || m.MemorySize || '0').toString().toUpperCase();
+                  let size = parseFloat(sizeStr);
+                  if (sizeStr.includes('GB')) size *= 1024;
+                  else if (sizeStr.includes('TB')) size *= 1024 * 1024;
+                  return sum + (isNaN(size) ? 0 : size);
+                }, 0);
+
+                if (totalMb > 0) {
+                  if (cpuMap[d.Id]) cpuMap[d.Id].ramMb = totalMb;
+                  else cpuMap[d.Id] = { ramMb: totalMb };
+                  memFound = true;
+                  break;
+                }
               }
-            } catch {
-              // Try next type
+            } catch (err: any) {
+              if (err.response?.status !== 404 && err.response?.status !== 400) {
+                console.debug(`[Dell] Call to ${type} for device ${d.Id} returned ${err.response?.status}`);
+              }
             }
           }
           if (!memFound) console.warn(`[Dell] Could not fetch RAM for device ${d.Id} using ${memTypes.join(', ')}`);
@@ -198,8 +216,8 @@ export class DellOpenManageAdapter {
       ip_address: ip,
       asset_tag: d.AssetTag,
       firmware_version: firmware,
-      cpu_model: cpuInfo?.model,
-      ram_gb: ramGb,
+      cpu_model: cpuInfo?.model || d.ProcessorModel || d.ProcessorSummary || d.ProcessorType,
+      ram_gb: ramGb || (d.MemoryMb ? Math.round(d.MemoryMb / 1024) : (d.TotalMemoryGb ? Math.round(d.TotalMemoryGb) : undefined)),
       purchase_date: warranty?.SystemShipDate ? new Date(warranty.SystemShipDate).toISOString().split('T')[0] : undefined,
       warranty_expiry: warranty?.EndDate ? new Date(warranty.EndDate).toISOString().split('T')[0] : undefined,
       metadata: metadata
