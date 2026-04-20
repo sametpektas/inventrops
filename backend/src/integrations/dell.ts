@@ -114,17 +114,25 @@ export class DellOpenManageAdapter {
           // Expanded inventory types for wider OME version support
           const cpuTypes = ['serverProcessors', 'centralProcessor', 'Processors', 'processors', 'processor'];
           const memTypes = ['serverMemoryDevices', 'memory', 'Memory', 'memoryDevices', 'MemoryDevices'];
-          const osTypes = ['operatingSystem', 'operatingSystemDetails'];
+          const osTypes = ['operatingSystem', 'operatingSystemDetails', 'system', 'ServerOperatingSystem'];
 
           let cpuFound = false;
           for (const type of cpuTypes) {
             try {
               const cpuRes = await this.client.get(`/api/DeviceService/Devices(${d.Id})/InventoryDetails?inventoryType=${type}`);
-              // Support both 'value' and 'InventoryInfo' (OME 4.x/3.x variants)
-              const cpuItems = cpuRes.data.InventoryInfo || cpuRes.data.value || (Array.isArray(cpuRes.data) ? cpuRes.data : []);
-              if (cpuItems.length > 0) {
-                // Try multiple field names for CPU model
-                const firstCpu = cpuItems[0];
+              // Support nested structures: cpuRes.data.value[0].InventoryInfo
+              const data = cpuRes.data;
+              let items: any[] = [];
+              if (data.InventoryInfo) items = data.InventoryInfo;
+              else if (Array.isArray(data.value) && data.value.length > 0) {
+                 const first = data.value[0];
+                 items = first.InventoryInfo || first.InventoryDetails || data.value;
+              } else if (Array.isArray(data)) {
+                 items = data;
+              }
+
+              if (items.length > 0) {
+                const firstCpu = Array.isArray(items[0]) ? items[0][0] : items[0];
                 const model = firstCpu.Model || firstCpu.BrandName || firstCpu.Brand || firstCpu.Name || firstCpu.ProcessorModel;
                 if (model) {
                   cpuMap[d.Id] = { ...cpuMap[d.Id], model: model.toString().trim() };
@@ -134,7 +142,7 @@ export class DellOpenManageAdapter {
               }
             } catch (err: any) {
               if (err.response?.status !== 404 && err.response?.status !== 400) {
-                console.debug(`[Dell] Call to ${type} for device ${d.Id} returned ${err.response?.status}`);
+                 console.warn(`[Dell] CPU Fetch (${type}) for device ${d.Id} failed: ${err.message}`);
               }
             }
           }
@@ -144,9 +152,18 @@ export class DellOpenManageAdapter {
           for (const type of memTypes) {
             try {
               const memRes = await this.client.get(`/api/DeviceService/Devices(${d.Id})/InventoryDetails?inventoryType=${type}`);
-              const memItems = memRes.data.InventoryInfo || memRes.data.value || (Array.isArray(memRes.data) ? memRes.data : []);
-              if (memItems.length > 0) {
-                const totalMb = memItems.reduce((sum: number, m: any) => {
+              const data = memRes.data;
+              let items: any[] = [];
+              if (data.InventoryInfo) items = data.InventoryInfo;
+              else if (Array.isArray(data.value) && data.value.length > 0) {
+                 const first = data.value[0];
+                 items = first.InventoryInfo || first.InventoryDetails || data.value;
+              } else if (Array.isArray(data)) {
+                 items = data;
+              }
+
+              if (items.length > 0) {
+                const totalMb = items.reduce((sum: number, m: any) => {
                   let sizeStr = (m.Size || m.Capacity || m.MemorySize || '0').toString().toUpperCase();
                   let size = parseFloat(sizeStr);
                   if (sizeStr.includes('GB')) size *= 1024;
@@ -163,7 +180,7 @@ export class DellOpenManageAdapter {
               }
             } catch (err: any) {
               if (err.response?.status !== 404 && err.response?.status !== 400) {
-                console.debug(`[Dell] Call to ${type} for device ${d.Id} returned ${err.response?.status}`);
+                 console.warn(`[Dell] RAM Fetch (${type}) for device ${d.Id} failed: ${err.message}`);
               }
             }
           }
@@ -173,16 +190,26 @@ export class DellOpenManageAdapter {
           for (const type of osTypes) {
             try {
               const osRes = await this.client.get(`/api/DeviceService/Devices(${d.Id})/InventoryDetails?inventoryType=${type}`);
-              const osItems = osRes.data.InventoryInfo || osRes.data.value || (Array.isArray(osRes.data) ? osRes.data : []);
-              if (osItems.length > 0) {
-                const osName = osItems[0].OsName || osItems[0].Description || osItems[0].Name;
-                if (osName) {
+              const data = osRes.data;
+              let items: any[] = [];
+              if (data.InventoryInfo) items = data.InventoryInfo;
+              else if (Array.isArray(data.value) && data.value.length > 0) {
+                 const first = data.value[0];
+                 items = first.InventoryInfo || first.InventoryDetails || data.value;
+              } else if (Array.isArray(data)) {
+                 items = data;
+              }
+
+              if (items.length > 0) {
+                const item = items[0];
+                const osName = item.OsName || item.Description || item.Name || item.OperatingSystem || item.Version;
+                if (osName && osName !== 'Not Available' && osName !== 'Unknown') {
                   if (cpuMap[d.Id]) (cpuMap[d.Id] as any).os = osName;
                   else cpuMap[d.Id] = { os: osName } as any;
                   break;
                 }
               }
-            } catch { /* skip */ }
+            } catch (err: any) { /* skip */ }
           }
         }));
       }

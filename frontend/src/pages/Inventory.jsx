@@ -22,6 +22,8 @@ export default function Inventory() {
   });
   const [formError, setFormError] = useState('');
   const [models, setModels] = useState([]);
+  const [vendors, setVendors] = useState([]);
+  const [selectedVendor, setSelectedVendor] = useState('');
   const [racks, setRacks] = useState([]);
   const [datacenters, setDatacenters] = useState([]);
   const [rooms, setRooms] = useState([]);
@@ -71,17 +73,26 @@ export default function Inventory() {
     if (showModal && models.length === 0) {
       Promise.all([
         api.get('/inventory/models'),
+        api.get('/inventory/vendors'),
         api.get('/infrastructure/datacenters'),
-      ]).then(([m, d]) => {
+      ]).then(([m, v, d]) => {
         setModels(m?.results || []);
+        setVendors(v?.results || v || []); // Handle different API response shapes
         setDatacenters(d?.results || []);
+      }).catch(err => {
+        console.error('Error loading modal data:', err);
       });
     }
   }, [showModal, models.length]);
 
   useEffect(() => {
     if (selectedDc) {
-      api.get(`/infrastructure/rooms/?datacenter=${selectedDc}`).then(r => setRooms(r?.results || []));
+      api.get(`/infrastructure/rooms/?datacenter=${selectedDc}`)
+        .then(r => setRooms(r?.results || []))
+        .catch(err => {
+          console.error('Error loading rooms:', err);
+          setRooms([]);
+        });
     } else {
       setRooms([]);
       setSelectedRoom('');
@@ -90,7 +101,12 @@ export default function Inventory() {
 
   useEffect(() => {
     if (selectedRoom) {
-      api.get(`/infrastructure/racks/?room=${selectedRoom}`).then(r => setRacks(r?.results || []));
+      api.get(`/infrastructure/racks/?room=${selectedRoom}`)
+        .then(r => setRacks(r?.results || []))
+        .catch(err => {
+          console.error('Error loading racks:', err);
+          setRacks([]);
+        });
     } else {
       setRacks([]);
       setFormData(f => ({ ...f, rack: '' }));
@@ -123,6 +139,9 @@ export default function Inventory() {
         if (deviceType) url += `&device_type=${encodeURIComponent(deviceType)}`;
         if (vendorId) url += `&vendor=${vendorId}`;
         if (modelId) url += `&model=${modelId}`;
+        if (warrantyBefore) url += `&warranty_before=${encodeURIComponent(warrantyBefore)}`;
+        if (warrantyAfter) url += `&warranty_after=${encodeURIComponent(warrantyAfter)}`;
+        if (osFilter) url += `&operating_system=${encodeURIComponent(osFilter)}`;
       }
       
       const response = await api.getBlob(url);
@@ -171,15 +190,7 @@ export default function Inventory() {
       if (!payload.warranty_expiry) delete payload.warranty_expiry;
 
       await api.post('/inventory/items', payload);
-      setShowModal(false);
-      setFormData({
-        serial_number: '', hostname: '', ip_address: '',
-        hardware_model: '', rack: '', rack_unit_start: '', rack_unit_size: '',
-    model: '', // New field name
-        warranty_expiry: '', purchase_date: '', notes: '', status: 'active',
-      });
-      setSelectedDc('');
-      setSelectedRoom('');
+      handleCloseModal();
       fetchItems();
     } catch (err) {
       const errors = err?.data;
@@ -192,6 +203,20 @@ export default function Inventory() {
         setFormError('Failed to create item.');
       }
     }
+  };
+
+  const handleCloseModal = () => {
+    setShowModal(false);
+    setFormData({
+      serial_number: '', hostname: '', ip_address: '',
+      hardware_model: '', rack: '', rack_unit_start: '', rack_unit_size: '',
+      model: '',
+      warranty_expiry: '', purchase_date: '', notes: '', status: 'active',
+    });
+    setSelectedVendor('');
+    setSelectedDc('');
+    setSelectedRoom('');
+    setFormError('');
   };
 
   const totalPages = Math.ceil(totalCount / 25);
@@ -316,11 +341,11 @@ export default function Inventory() {
       )}
 
       {showModal && (
-        <div className="modal-overlay" onClick={() => setShowModal(false)}>
+        <div className="modal-overlay" onClick={handleCloseModal}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal__header">
               <h3 className="modal__title">Add New Device</h3>
-              <button className="modal__close" onClick={() => setShowModal(false)}>×</button>
+              <button className="modal__close" onClick={handleCloseModal}>×</button>
             </div>
             <form onSubmit={handleCreate}>
               <div className="modal__body">
@@ -357,19 +382,53 @@ export default function Inventory() {
                     />
                   </div>
                   <div className="form-group">
+                    <label className="form-label">Status</label>
+                    <select
+                      className="form-input form-select"
+                      value={formData.status}
+                      onChange={(e) => setFormData(f => ({ ...f, status: e.target.value }))}
+                    >
+                      <option value="active">Active</option>
+                      <option value="deactivated">Deactivated</option>
+                      <option value="maintenance">Maintenance</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid-2" style={{ gap: 12 }}>
+                  <div className="form-group">
+                    <label className="form-label">Brand / Vendor *</label>
+                    <select
+                      className="form-input form-select"
+                      value={selectedVendor}
+                      onChange={(e) => {
+                        setSelectedVendor(e.target.value);
+                        setFormData(f => ({ ...f, model: '' }));
+                      }}
+                      required
+                    >
+                      <option value="">Select brand...</option>
+                      {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="form-group">
                     <label className="form-label">Model *</label>
                     <select
                       className="form-input form-select"
                       value={formData.model}
                       onChange={(e) => setFormData(f => ({ ...f, model: e.target.value }))}
                       required
+                      disabled={!selectedVendor}
                     >
-                      <option value="">Select model...</option>
-                      {models.map(m => (
-                        <option key={m.id} value={m.id}>
-                          {m.vendor_name} {m.name} ({m.category})
-                        </option>
-                      ))}
+                      <option value="">{selectedVendor ? 'Select model...' : 'Select brand first'}</option>
+                      {models
+                        .filter(m => String(m.vendor_id) === String(selectedVendor))
+                        .map(m => (
+                          <option key={m.id} value={m.id}>
+                            {m.name} ({m.category})
+                          </option>
+                        ))
+                      }
                     </select>
                   </div>
                 </div>
@@ -467,7 +526,7 @@ export default function Inventory() {
                 </div>
               </div>
               <div className="modal__footer">
-                <button type="button" className="btn btn--secondary" onClick={() => setShowModal(false)}>
+                <button type="button" className="btn btn--secondary" onClick={handleCloseModal}>
                   Cancel
                 </button>
                 <button type="submit" className="btn btn--primary">

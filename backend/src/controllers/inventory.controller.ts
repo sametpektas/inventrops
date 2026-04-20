@@ -103,10 +103,23 @@ export const exportInventory = async (req: Request, res: Response) => {
          if (where.model) where.model.device_type = device_type as any;
          else where.model = { device_type: device_type as any };
       }
+      if (req.query.operating_system) {
+         where.operating_system = { contains: req.query.operating_system as string, mode: 'insensitive' };
+      }
+      if (req.query.warranty_before) {
+         where.warranty_expiry = { lt: new Date(req.query.warranty_before as string) };
+      }
+      if (req.query.warranty_after) {
+         where.warranty_expiry = { ...where.warranty_expiry, gt: new Date(req.query.warranty_after as string) };
+      }
       if (search) {
         where.OR = [
           { serial_number: { contains: search as string, mode: 'insensitive' } },
           { hostname: { contains: search as string, mode: 'insensitive' } },
+          { ip_address: { contains: search as string, mode: 'insensitive' } },
+          { operating_system: { contains: search as string, mode: 'insensitive' } },
+          { model: { name: { contains: search as string, mode: 'insensitive' } } },
+          { model: { vendor: { name: { contains: search as string, mode: 'insensitive' } } } },
         ];
       }
     }
