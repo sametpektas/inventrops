@@ -141,8 +141,8 @@ export const exportInventory = async (req: Request, res: Response) => {
       'Type': i.model.device_type,
       'Status': i.status,
       'Firmware': i.firmware_version || '',
-      'Purchase Date': i.purchase_date?.toISOString().split('T')[0] || '',
-      'Warranty Expiry': i.warranty_expiry?.toISOString().split('T')[0] || '',
+      'Purchase Date': i.purchase_date ? `${String(i.purchase_date.getDate()).padStart(2, '0')}-${String(i.purchase_date.getMonth() + 1).padStart(2, '0')}-${i.purchase_date.getFullYear()}` : '',
+      'Warranty Expiry': i.warranty_expiry ? `${String(i.warranty_expiry.getDate()).padStart(2, '0')}-${String(i.warranty_expiry.getMonth() + 1).padStart(2, '0')}-${i.warranty_expiry.getFullYear()}` : '',
       'Team': i.team?.name || ''
     }));
 
@@ -547,11 +547,31 @@ export const importInventory = async (req: Request, res: Response) => {
 
     let created = 0, updated = 0, skipped = 0;
 
+    const parseExcelDate = (val: any): Date | undefined => {
+      if (!val) return undefined;
+      // If XLSX already parsed it as a Date object
+      if (val instanceof Date) return val;
+      
+      const s = String(val).trim();
+      // Handle DD-MM-YYYY, DD.MM.YYYY or DD/MM/YYYY
+      const parts = s.match(/^(\d{1,2})[-./](\d{1,2})[-./](\d{4})$/);
+      if (parts) {
+        const d = parseInt(parts[1]);
+        const m = parseInt(parts[2]) - 1;
+        const y = parseInt(parts[3]);
+        const date = new Date(y, m, d);
+        return isNaN(date.getTime()) ? undefined : date;
+      }
+      
+      const date = new Date(val);
+      return isNaN(date.getTime()) ? undefined : date;
+    };
+
     for (const row of data) {
       const serial = String(row['Serial Number'] || row['SerialNumber'] || row['serial_number'] || '').trim();
       const assetTag = String(row['Asset Tag'] || row['AssetTag'] || row['asset_tag'] || '').trim();
-      const purchaseDate = row['Purchase Date'] ? new Date(row['Purchase Date']) : undefined;
-      const warrantyExpiry = row['Warranty Expiry'] ? new Date(row['Warranty Expiry']) : undefined;
+      const purchaseDate = parseExcelDate(row['Purchase Date']);
+      const warrantyExpiry = parseExcelDate(row['Warranty Expiry']);
       const vendorName = String(row['Vendor'] || 'Unknown Vendor').trim();
       const modelName = String(row['Model'] || 'Generic Device').trim();
 
