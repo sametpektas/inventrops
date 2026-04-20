@@ -114,8 +114,8 @@ export class HPEOneViewAdapter {
       model_name: m.model || 'ProLiant Server',
       device_type: 'server',
       ip_address: ip,
-      firmware_version: m.romVersion,
-      operating_system: m.operatingSystem || m.osName || undefined,
+      firmware_version: m.romVersion || m.mpFirmwareVersion || m.firmwareVersion,
+      operating_system: m.operatingSystem || m.osName || m.hostOsType_display || undefined,
       cpu_model: m.processorModel || m.processorType || undefined,
       ram_gb: ramGb,
       metadata: metadata
