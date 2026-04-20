@@ -115,6 +115,7 @@ export class HPEOneViewAdapter {
       device_type: 'server',
       ip_address: ip,
       firmware_version: m.romVersion,
+      operating_system: m.operatingSystem || m.osName || undefined,
       cpu_model: m.processorModel || m.processorType || undefined,
       ram_gb: ramGb,
       metadata: metadata

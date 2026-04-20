@@ -111,6 +111,11 @@ export default function Analytics() {
     value: d.count,
   }));
 
+  const virtualizationChartData = (data?.virtualization_distribution || []).map(v => ({
+    name: v.name,
+    value: v.count,
+  }));
+
   const CustomTooltip = ({ active, payload }) => {
     if (active && payload?.[0]) {
       return (
@@ -278,6 +283,51 @@ export default function Analytics() {
                   <Legend
                     wrapperStyle={{ fontSize: '0.75rem', color: 'var(--text-secondary)', cursor: 'pointer' }}
                     onClick={(e) => navigate(`/inventory?device_type=${encodeURIComponent(e.value)}`)}
+                    iconSize={10}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="empty-state"><div className="empty-state__text">No data</div></div>
+            )}
+          </div>
+        </div>
+
+        <div className="panel" style={{ animationDelay: '220ms' }}>
+          <div className="panel__header">
+            <h2 className="panel__title">Virtualization vs Bare Metal (Servers)</h2>
+          </div>
+          <div className="chart-container">
+            {virtualizationChartData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={280}>
+                <PieChart>
+                  <Pie
+                    data={virtualizationChartData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={100}
+                    paddingAngle={2}
+                    dataKey="value"
+                    stroke="var(--bg-surface)"
+                    strokeWidth={2}
+                    onClick={(entry) => {
+                      if (entry.name === 'Virtualization') navigate('/inventory?device_type=server&operating_system=vmware');
+                      else navigate('/inventory?device_type=server');
+                    }}
+                    style={{ cursor: 'pointer' }}
+                  >
+                    {virtualizationChartData.map((_, i) => (
+                      <Cell key={i} fill={i === 0 ? '#3FB950' : '#8B949E'} /> 
+                    ))}
+                  </Pie>
+                  <Tooltip content={<CustomTooltip />} />
+                  <Legend
+                    wrapperStyle={{ fontSize: '0.75rem', color: 'var(--text-secondary)', cursor: 'pointer' }}
+                    onClick={(e) => {
+                       if (e.value === 'Virtualization') navigate('/inventory?device_type=server&operating_system=vmware');
+                       else navigate('/inventory?device_type=server');
+                    }}
                     iconSize={10}
                   />
                 </PieChart>

@@ -34,6 +34,7 @@ export default function Inventory() {
   const modelId = searchParams.get('model') || '';
   const warrantyBefore = searchParams.get('warranty_before') || '';
   const warrantyAfter = searchParams.get('warranty_after') || '';
+  const osFilter = searchParams.get('operating_system') || '';
   const ordering = searchParams.get('ordering') || '-created_at';
   const page = parseInt(searchParams.get('page') || '1');
 
@@ -49,6 +50,7 @@ export default function Inventory() {
       if (modelId) url += `&model=${modelId}`;
       if (warrantyBefore) url += `&warranty_before=${encodeURIComponent(warrantyBefore)}`;
       if (warrantyAfter) url += `&warranty_after=${encodeURIComponent(warrantyAfter)}`;
+      if (osFilter) url += `&operating_system=${encodeURIComponent(osFilter)}`;
       if (ordering) url += `&ordering=${ordering}`;
       
       const data = await api.get(url);
@@ -59,7 +61,7 @@ export default function Inventory() {
     } finally {
       setLoading(false);
     }
-  }, [page, search, deviceType, vendorId, modelId, warrantyBefore, warrantyAfter, ordering]);
+  }, [page, search, deviceType, vendorId, modelId, warrantyBefore, warrantyAfter, osFilter, ordering]);
 
   useEffect(() => {
     fetchItems();

@@ -26,9 +26,13 @@ export const getItems = async (req: Request, res: Response) => {
         { serial_number: { contains: search as string, mode: 'insensitive' } },
         { hostname: { contains: search as string, mode: 'insensitive' } },
         { ip_address: { contains: search as string, mode: 'insensitive' } },
+        { operating_system: { contains: search as string, mode: 'insensitive' } },
         { model: { name: { contains: search as string, mode: 'insensitive' } } },
         { model: { vendor: { name: { contains: search as string, mode: 'insensitive' } } } },
       ];
+    }
+    if (req.query.operating_system) {
+       where.operating_system = { contains: req.query.operating_system as string, mode: 'insensitive' };
     }
     if (device_type) {
       if (where.model) {
@@ -348,7 +352,11 @@ export const getAnalytics = async (req: Request, res: Response) => {
       model_distribution: model_data,
       warranty_expiry: full_warranty_data,
       device_type_distribution: type_data,
-      status_distribution: status_data
+      status_distribution: status_data,
+      virtualization_distribution: [
+        { name: 'Virtualization', count: items.filter(i => i.model.device_type === 'server' && i.operating_system?.toLowerCase().includes('vmware')).length },
+        { name: 'Bare Metal', count: items.filter(i => i.model.device_type === 'server' && !i.operating_system?.toLowerCase().includes('vmware')).length }
+      ]
     });
   } catch (err) {
     console.error(err);

@@ -10,6 +10,7 @@ export interface DiscoveredDevice {
   ip_address?: string;
   asset_tag?: string;
   firmware_version?: string;
+  operating_system?: string;
   cpu_model?: string;
   ram_gb?: number;
   purchase_date?: string;
@@ -187,9 +188,11 @@ export class DellOpenManageAdapter {
       ip = d.DeviceManagement[0].NetworkAddress || d.DeviceManagement[0].IpAddress;
     }
 
-    // Extract Firmware dynamically
-    let firmware = d.FirmwareVersion || d.OsVersion || d.OSVersion;
-    if (!firmware && Array.isArray(d.DeviceTypes) && d.DeviceTypes.length > 0) {
+    // Separate Firmware and OS
+    let firmware = d.FirmwareVersion;
+    let os = d.OsVersion || d.OSVersion || d.OperatingSystem;
+    
+    if (!firmware && !os && Array.isArray(d.DeviceTypes) && d.DeviceTypes.length > 0) {
       firmware = d.DeviceTypes[0].FirmwareVersion || d.DeviceTypes[0].Version;
     }
 
@@ -216,6 +219,7 @@ export class DellOpenManageAdapter {
       ip_address: ip,
       asset_tag: d.AssetTag,
       firmware_version: firmware,
+      operating_system: os,
       cpu_model: cpuInfo?.model || d.ProcessorModel || d.ProcessorSummary || d.ProcessorType,
       ram_gb: ramGb || (d.MemoryMb ? Math.round(d.MemoryMb / 1024) : (d.TotalMemoryGb ? Math.round(d.TotalMemoryGb) : undefined)),
       purchase_date: warranty?.SystemShipDate ? new Date(warranty.SystemShipDate).toISOString().split('T')[0] : undefined,
