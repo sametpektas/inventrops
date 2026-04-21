@@ -375,6 +375,10 @@ export default function InventoryDetail() {
                     </div>
                   </div>
                 )}
+                <div className="detail-field">
+                  <div className="detail-field__label">Operating System</div>
+                  <div className="detail-field__value" style={{ fontWeight: 600 }}>{item.operating_system || '—'}</div>
+                </div>
                 {item.cpu_model && (
                   <div className="detail-field">
                     <div className="detail-field__label">CPU Model</div>

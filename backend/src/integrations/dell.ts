@@ -133,11 +133,30 @@ export class DellOpenManageAdapter {
             { type: 'serverOperatingSystems', setter: (val: string) => osName = val }
           ];
 
+          // Fetch CPU/RAM/OS info using confirmed categories and fallbacks
           for (const target of targets) {
             try {
-              const res = await this.client.get(`/api/DeviceService/Devices(${d.Id})/InventoryDetails('${target.type}')`);
-              const data = res.data;
-              const items = data.InventoryInfo || data.InventoryDetails || (Array.isArray(data.value) ? data.value[0]?.InventoryInfo : null) || [];
+              // Try the main type first
+              let res = await this.client.get(`/api/DeviceService/Devices(${d.Id})/InventoryDetails('${target.type}')`);
+              let data = res.data;
+              let items = data.InventoryInfo || data.InventoryDetails || (Array.isArray(data.value) ? data.value[0]?.InventoryInfo : null) || [];
+              
+              // OS Fallback: Try other common OS category names if serverOperatingSystems is empty
+              if (target.type === 'serverOperatingSystems' && (!items || items.length === 0)) {
+                for (const fallbackType of osTypes) {
+                  if (fallbackType === 'serverOperatingSystems') continue;
+                  try {
+                    const fallbackRes = await this.client.get(`/api/DeviceService/Devices(${d.Id})/InventoryDetails('${fallbackType}')`);
+                    const fallbackData = fallbackRes.data;
+                    const fallbackItems = fallbackData.InventoryInfo || fallbackData.InventoryDetails || (Array.isArray(fallbackData.value) ? fallbackData.value[0]?.InventoryInfo : null) || [];
+                    if (fallbackItems && fallbackItems.length > 0) {
+                      items = fallbackItems;
+                      break;
+                    }
+                  } catch (e) { /* ignore fallback errors */ }
+                }
+              }
+
               if (!items || items.length === 0) continue;
 
               if (target.type === 'serverProcessors') {
@@ -155,16 +174,16 @@ export class DellOpenManageAdapter {
                 if (totalMb > 0) target.setter(totalMb);
               } else if (target.type === 'serverOperatingSystems') {
                 const item = Array.isArray(items[0]) ? items[0][0] : items[0];
-                const baseName = item.OsName || item.Description || item.Name || item.OperatingSystem || item.OperatingSystemName;
-                const version = item.OsVersion || item.Version || item.OperatingSystemVersion;
-                const fullOs = (baseName && version) ? `${baseName} ${version}`.trim() : (baseName || version);
+                const baseName = item.OsName || item.Description || item.Name || item.OperatingSystem || item.OperatingSystemName || item.MajorVersion;
+                const version = item.OsVersion || item.Version || item.OperatingSystemVersion || item.MinorVersion;
+                const fullOs = (baseName && version && baseName !== version) ? `${baseName} ${version}`.trim() : (baseName || version);
                 if (fullOs && fullOs !== 'Not Available' && fullOs !== 'Unknown') {
                   target.setter(fullOs);
                   console.log(`[Dell] Discovered OS for device ${d.Id}: ${fullOs}`);
                 }
               }
             } catch (err) {
-              // If specific type fails, we'll try the common fallbacks if we don't have data yet
+              // Silently continue to next target
             }
           }
 
@@ -228,7 +247,7 @@ export class DellOpenManageAdapter {
       hostname: d.Hostname || d.DeviceName,
       vendor_name: 'Dell EMC',
       model_name: d.Model || 'Dell Server',
-      device_type: (d.DeviceType === 1000 || d.DeviceType === '1000' || String(d.DeviceTypeName).toLowerCase().includes('server')) ? 'server' : 'server',
+      device_type: this.mapDeviceType(parseInt(d.DeviceType || '1000')),
       ip_address: ip,
       asset_tag: d.AssetTag,
       firmware_version: firmware,
