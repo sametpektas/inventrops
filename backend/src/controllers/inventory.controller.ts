@@ -54,10 +54,18 @@ export const getItems = async (req: Request, res: Response) => {
         const virtualCondition = { OR: osConditions };
         where.AND = where.AND ? [...where.AND, virtualCondition] : [virtualCondition];
       } else {
+        // Bare Metal means OS does NOT contain ANY of the hypervisor keywords OR it is NULL
         const notVirtualCondition = {
-          NOT: {
-            OR: osConditions
-          }
+          OR: [
+            {
+              NOT: {
+                OR: osConditions
+              }
+            },
+            {
+              operating_system: null
+            }
+          ]
         };
         where.AND = where.AND ? [...where.AND, notVirtualCondition] : [notVirtualCondition];
         
