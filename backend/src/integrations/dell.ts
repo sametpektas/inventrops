@@ -1,5 +1,22 @@
 import axios from 'axios';
 import https from 'https';
+ 
+// Global shared agent to prevent memory leaks and reuse sockets efficiently
+const sharedAgent = new https.Agent({
+  rejectUnauthorized: false, 
+  keepAlive: true,
+  maxSockets: 100,
+  maxFreeSockets: 10,
+  timeout: 60000
+});
+ 
+// Increase listeners limit to prevent warnings during high-concurrency syncs
+sharedAgent.setMaxListeners(100);
+
+// Inventory category types to look for in OME responses
+const cpuTypes = ['serverProcessors', 'centralProcessor', 'Processors', 'processors', 'processor'];
+const memTypes = ['serverMemoryDevices', 'memory', 'Memory', 'memoryDevices', 'MemoryDevices'];
+const osTypes = ['serverOperatingSystems', 'operatingSystem', 'operatingSystemDetails', 'system', 'ServerOperatingSystem'];
 
 export interface DiscoveredDevice {
   serial_number: string;
@@ -31,10 +48,7 @@ export class DellOpenManageAdapter {
         'Accept': 'application/json',
         'Content-Type': 'application/json'
       },
-      httpsAgent: new https.Agent({
-        rejectUnauthorized: false, 
-        keepAlive: true
-      })
+      httpsAgent: sharedAgent
     });
   }
 
@@ -107,112 +121,58 @@ export class DellOpenManageAdapter {
 
       // Fetch CPU info per device (batch with limited concurrency to avoid overloading OME)
       const cpuMap: Record<number, { model?: string; ramMb?: number }> = {};
-      const BATCH_SIZE = 10;
+      // Fetch CPU/RAM/OS info per device in batches
+      const BATCH_SIZE = 15;
       for (let i = 0; i < allDevices.length; i += BATCH_SIZE) {
         const batch = allDevices.slice(i, i + BATCH_SIZE);
         await Promise.all(batch.map(async (d: any) => {
-          // Expanded inventory types for wider OME version support
-          const cpuTypes = ['serverProcessors', 'centralProcessor', 'Processors', 'processors', 'processor'];
-          const memTypes = ['serverMemoryDevices', 'memory', 'Memory', 'memoryDevices', 'MemoryDevices'];
-          const osTypes = ['serverOperatingSystems', 'operatingSystem', 'operatingSystemDetails', 'system', 'ServerOperatingSystem'];
+          try {
+            // OPTIMIZATION: Fetch ALL inventory in one call instead of probing 15+ endpoints
+            const invRes = await this.client.get(`/api/DeviceService/Devices(${d.Id})/InventoryDetails`);
+            const allInv = invRes.data.value || (Array.isArray(invRes.data) ? invRes.data : []);
+            
+            let cpuModel: string | undefined;
+            let ramMb: number | undefined;
+            let osName: string | undefined;
 
-          let cpuFound = false;
-          for (const type of cpuTypes) {
-            try {
-              // Use direct member access format as confirmed by Postman
-              const cpuRes = await this.client.get(`/api/DeviceService/Devices(${d.Id})/InventoryDetails('${type}')`);
-              const data = cpuRes.data;
-              let items: any[] = [];
-              if (data.InventoryInfo) items = data.InventoryInfo;
-              else if (Array.isArray(data.value) && data.value.length > 0) {
-                 const first = data.value[0];
-                 items = first.InventoryInfo || first.InventoryDetails || data.value;
-              } else if (Array.isArray(data)) {
-                 items = data;
-              }
+            for (const section of allInv) {
+              const type = section.InventoryType;
+              const items = section.InventoryInfo || section.InventoryDetails || (Array.isArray(section) ? section : []);
+              if (!items || items.length === 0) continue;
 
-              if (items.length > 0) {
+              // Extract CPU
+              if (cpuTypes.includes(type) && !cpuModel) {
                 const firstCpu = Array.isArray(items[0]) ? items[0][0] : items[0];
-                const model = firstCpu.ModelName || firstCpu.Model || firstCpu.BrandName || firstCpu.Brand || firstCpu.Name || firstCpu.ProcessorModel;
-                if (model) {
-                  cpuMap[d.Id] = { ...cpuMap[d.Id], model: model.toString().trim() };
-                  cpuFound = true;
-                  break;
-                }
-              }
-            } catch (err: any) {
-              if (err.response?.status !== 404 && err.response?.status !== 400) {
-                 console.warn(`[Dell] CPU Fetch (${type}) for device ${d.Id} failed: ${err.message}`);
-              }
-            }
-          }
-          if (!cpuFound) console.warn(`[Dell] Could not fetch CPU for device ${d.Id} using ${cpuTypes.join(', ')}`);
-
-          let memFound = false;
-          for (const type of memTypes) {
-            try {
-              const memRes = await this.client.get(`/api/DeviceService/Devices(${d.Id})/InventoryDetails('${type}')`);
-              const data = memRes.data;
-              let items: any[] = [];
-              if (data.InventoryInfo) items = data.InventoryInfo;
-              else if (Array.isArray(data.value) && data.value.length > 0) {
-                 const first = data.value[0];
-                 items = first.InventoryInfo || first.InventoryDetails || data.value;
-              } else if (Array.isArray(data)) {
-                 items = data;
+                cpuModel = (firstCpu.ModelName || firstCpu.Model || firstCpu.BrandName || firstCpu.Brand || firstCpu.Name || firstCpu.ProcessorModel || '').toString().trim();
               }
 
-              if (items.length > 0) {
-                const totalMb = items.reduce((sum: number, m: any) => {
+              // Extract RAM
+              if (memTypes.includes(type) && !ramMb) {
+                ramMb = items.reduce((sum: number, m: any) => {
                   let sizeStr = (m.Size || m.Capacity || m.MemorySize || '0').toString().toUpperCase();
                   let size = parseFloat(sizeStr);
                   if (sizeStr.includes('GB')) size *= 1024;
                   else if (sizeStr.includes('TB')) size *= 1024 * 1024;
                   return sum + (isNaN(size) ? 0 : size);
                 }, 0);
-
-                if (totalMb > 0) {
-                  if (cpuMap[d.Id]) cpuMap[d.Id].ramMb = totalMb;
-                  else cpuMap[d.Id] = { ramMb: totalMb };
-                  memFound = true;
-                  break;
-                }
-              }
-            } catch (err: any) {
-              if (err.response?.status !== 404 && err.response?.status !== 400) {
-                 console.warn(`[Dell] RAM Fetch (${type}) for device ${d.Id} failed: ${err.message}`);
-              }
-            }
-          }
-          if (!memFound) console.warn(`[Dell] Could not fetch RAM for device ${d.Id} using ${memTypes.join(', ')}`);
-
-          // Fetch OS specifically via InventoryDetails as fallback
-          for (const type of osTypes) {
-            try {
-              const osRes = await this.client.get(`/api/DeviceService/Devices(${d.Id})/InventoryDetails('${type}')`);
-              const data = osRes.data;
-              let items: any[] = [];
-              if (data.InventoryInfo) items = data.InventoryInfo;
-              else if (Array.isArray(data.value) && data.value.length > 0) {
-                 const first = data.value[0];
-                 items = first.InventoryInfo || first.InventoryDetails || data.value;
-              } else if (Array.isArray(data)) {
-                 items = data;
               }
 
-              if (items.length > 0) {
-                const item = items[0];
+              // Extract OS
+              if (osTypes.includes(type) && !osName) {
+                const item = Array.isArray(items[0]) ? items[0][0] : items[0];
                 const baseName = item.OsName || item.Description || item.Name || item.OperatingSystem;
                 const version = item.OsVersion || item.Version;
-                const osName = (baseName && version) ? `${baseName} ${version}`.trim() : (baseName || version);
-                
-                if (osName && osName !== 'Not Available' && osName !== 'Unknown') {
-                  if (cpuMap[d.Id]) (cpuMap[d.Id] as any).os = osName;
-                  else cpuMap[d.Id] = { os: osName } as any;
-                  break;
-                }
+                osName = (baseName && version) ? `${baseName} ${version}`.trim() : (baseName || version);
               }
-            } catch (err: any) { /* skip */ }
+            }
+
+            if (cpuModel || ramMb || osName) {
+              cpuMap[d.Id] = { model: cpuModel, ramMb, os: osName } as any;
+            }
+          } catch (err: any) {
+            if (err.response?.status !== 404) {
+               console.warn(`[Dell] Inventory fetch for device ${d.Id} failed: ${err.message}`);
+            }
           }
         }));
       }
