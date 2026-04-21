@@ -109,6 +109,10 @@ async function syncDevice(device: DiscoveredDevice, integration: any) {
       updateData.ram_gb = device.ram_gb;
       updated = true;
     }
+    if (device.operating_system && existing.operating_system !== device.operating_system) {
+      updateData.operating_system = device.operating_system;
+      updated = true;
+    }
     if (device.metadata) {
       updateData.metadata = device.metadata;
       updated = true;
@@ -158,6 +162,7 @@ async function syncDevice(device: DiscoveredDevice, integration: any) {
       warranty_expiry: device.warranty_expiry ? new Date(device.warranty_expiry) : null,
       firmware_version: device.firmware_version,
       firmware_updated_at: device.firmware_version ? new Date() : null,
+      operating_system: device.operating_system,
       cpu_model: device.cpu_model,
       ram_gb: device.ram_gb,
       metadata: device.metadata as any,
