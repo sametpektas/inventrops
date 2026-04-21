@@ -312,8 +312,8 @@ export default function Analytics() {
                     stroke="var(--bg-surface)"
                     strokeWidth={2}
                     onClick={(entry) => {
-                      if (entry.name === 'Virtualization') navigate('/inventory?device_type=server&operating_system=vmware');
-                      else navigate('/inventory?device_type=server');
+                      if (entry.name === 'Virtualization') navigate('/inventory?device_type=server&is_virtual=true');
+                      else navigate('/inventory?device_type=server&is_virtual=false');
                     }}
                     style={{ cursor: 'pointer' }}
                   >
@@ -325,8 +325,8 @@ export default function Analytics() {
                   <Legend
                     wrapperStyle={{ fontSize: '0.75rem', color: 'var(--text-secondary)', cursor: 'pointer' }}
                     onClick={(e) => {
-                       if (e.value === 'Virtualization') navigate('/inventory?device_type=server&operating_system=vmware');
-                       else navigate('/inventory?device_type=server');
+                       if (e.value === 'Virtualization') navigate('/inventory?device_type=server&is_virtual=true');
+                       else navigate('/inventory?device_type=server&is_virtual=false');
                     }}
                     iconSize={10}
                   />

@@ -1,5 +1,7 @@
 import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
+ 
+const HYPERVISOR_KEYWORDS = ['vmware', 'esxi', 'hyper-v', 'proxmox', 'xen server', 'vmdk', 'ovirt', 'citrix', 'hyperv', 'kvm'];
 
 export const getItems = async (req: Request, res: Response) => {
   const { rack, search, device_type, vendor, model, status = 'active', page = '1', ordering = '-created_at' } = req.query;
@@ -39,6 +41,29 @@ export const getItems = async (req: Request, res: Response) => {
         where.model.device_type = device_type as any;
       } else {
         where.model = { device_type: device_type as any };
+      }
+    }
+    
+    if (req.query.is_virtual !== undefined) {
+      const isVirtual = req.query.is_virtual === 'true';
+      const osConditions = HYPERVISOR_KEYWORDS.map(k => ({
+        operating_system: { contains: k, mode: 'insensitive' as any }
+      }));
+      
+      if (isVirtual) {
+        where.OR = where.OR ? [...where.OR, ...osConditions] : osConditions;
+      } else {
+        // Bare Metal means NOT any of the hypervisor keywords
+        // Note: Prisma doesn't have a direct "NOT INCLUDES ANY" for strings in a simple way
+        // So we use AND with NOT for each keyword
+        const notConditions = HYPERVISOR_KEYWORDS.map(k => ({
+          NOT: { operating_system: { contains: k, mode: 'insensitive' as any } }
+        }));
+        where.AND = where.AND ? [...where.AND, ...notConditions] : notConditions;
+        // Also ensure it's a server if we are filtering for Bare Metal vs Virtualization
+        if (!device_type) {
+           where.model = where.model ? { ...where.model, device_type: 'server' } : { device_type: 'server' };
+        }
       }
     }
 
@@ -367,8 +392,21 @@ export const getAnalytics = async (req: Request, res: Response) => {
       device_type_distribution: type_data,
       status_distribution: status_data,
       virtualization_distribution: [
-        { name: 'Virtualization', count: items.filter(i => i.model.device_type === 'server' && i.operating_system?.toLowerCase().includes('vmware')).length },
-        { name: 'Bare Metal', count: items.filter(i => i.model.device_type === 'server' && !i.operating_system?.toLowerCase().includes('vmware')).length }
+        { 
+          name: 'Virtualization', 
+          count: items.filter(i => 
+            i.model.device_type === 'server' && 
+            i.operating_system && 
+            HYPERVISOR_KEYWORDS.some(k => i.operating_system?.toLowerCase().includes(k))
+          ).length 
+        },
+        { 
+          name: 'Bare Metal', 
+          count: items.filter(i => 
+            i.model.device_type === 'server' && 
+            (!i.operating_system || !HYPERVISOR_KEYWORDS.some(k => i.operating_system?.toLowerCase().includes(k)))
+          ).length 
+        }
       ]
     });
   } catch (err) {
