@@ -313,20 +313,25 @@ export default function Analytics() {
                     strokeWidth={2}
                     onClick={(entry) => {
                       if (entry.name === 'Virtualization') navigate('/inventory?device_type=server&is_virtual=true');
-                      else navigate('/inventory?device_type=server&is_virtual=false');
+                      else if (entry.name === 'Bare Metal') navigate('/inventory?device_type=server&is_virtual=false');
+                      else navigate('/inventory?operating_system=none'); // Logic depends on backend filter
                     }}
                     style={{ cursor: 'pointer' }}
                   >
-                    {virtualizationChartData.map((_, i) => (
-                      <Cell key={i} fill={i === 0 ? '#3FB950' : '#8B949E'} /> 
-                    ))}
+                    {virtualizationChartData.map((entry, i) => {
+                      let color = '#8B949E'; // Default gray
+                      if (entry.name === 'Virtualization') color = '#3FB950'; // Green
+                      if (entry.name === 'Bare Metal') color = '#58A6FF'; // Blue
+                      return <Cell key={i} fill={color} />;
+                    })}
                   </Pie>
                   <Tooltip content={<CustomTooltip />} />
                   <Legend
                     wrapperStyle={{ fontSize: '0.75rem', color: 'var(--text-secondary)', cursor: 'pointer' }}
                     onClick={(e) => {
                        if (e.value === 'Virtualization') navigate('/inventory?device_type=server&is_virtual=true');
-                       else navigate('/inventory?device_type=server&is_virtual=false');
+                       else if (e.value === 'Bare Metal') navigate('/inventory?device_type=server&is_virtual=false');
+                       else navigate('/inventory?operating_system=none');
                     }}
                     iconSize={10}
                   />

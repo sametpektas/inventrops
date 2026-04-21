@@ -34,7 +34,11 @@ export const getItems = async (req: Request, res: Response) => {
       ];
     }
     if (req.query.operating_system) {
-       where.operating_system = { contains: req.query.operating_system as string, mode: 'insensitive' };
+       if (req.query.operating_system === 'none') {
+         where.operating_system = null;
+       } else {
+         where.operating_system = { contains: req.query.operating_system as string, mode: 'insensitive' };
+       }
     }
     if (device_type) {
       if (where.model) {
@@ -413,7 +417,15 @@ export const getAnalytics = async (req: Request, res: Response) => {
           name: 'Bare Metal', 
           count: items.filter(i => 
             i.model.device_type === 'server' && 
-            (!i.operating_system || !HYPERVISOR_KEYWORDS.some(k => i.operating_system?.toLowerCase().includes(k)))
+            i.operating_system && 
+            !HYPERVISOR_KEYWORDS.some(k => i.operating_system?.toLowerCase().includes(k))
+          ).length 
+        },
+        { 
+          name: 'Unknown / No OS', 
+          count: items.filter(i => 
+            i.model.device_type === 'server' && 
+            !i.operating_system
           ).length 
         }
       ]

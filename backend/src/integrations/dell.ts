@@ -33,7 +33,7 @@ export class DellOpenManageAdapter {
   constructor(private config: any) {
     this.client = axios.create({
       baseURL: this.config.url,
-      timeout: 30000,
+      timeout: 60000,
       headers: {
         'Accept': 'application/json',
         'Content-Type': 'application/json'
@@ -69,6 +69,10 @@ export class DellOpenManageAdapter {
     } catch (err) {
       return false;
     }
+  }
+
+  private sleep(ms: number) {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   async fetchInventory(): Promise<DiscoveredDevice[]> {
@@ -109,12 +113,14 @@ export class DellOpenManageAdapter {
         console.warn('[Dell] Could not fetch warranty information.');
       }
 
-      // Fetch CPU info per device (batch with limited concurrency to avoid overloading OME)
-      const cpuMap: Record<number, { model?: string; ramMb?: number }> = {};
       // Fetch CPU/RAM/OS info per device in batches
-      const BATCH_SIZE = 10;
+      const cpuMap: Record<number, { model?: string; ramMb?: number; os?: string }> = {};
+      const BATCH_SIZE = 5;
       for (let i = 0; i < allDevices.length; i += BATCH_SIZE) {
+        if (i > 0) await this.sleep(500); // 500ms delay between batches to avoid overloading OME
+        
         const batch = allDevices.slice(i, i + BATCH_SIZE);
+        console.log(`[Dell] Fetching details for batch ${Math.floor(i/BATCH_SIZE) + 1} (${batch.length} devices)...`);
         await Promise.all(batch.map(async (d: any) => {
           let cpuModel: string | undefined;
           let ramMb: number | undefined;

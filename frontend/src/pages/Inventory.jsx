@@ -269,6 +269,7 @@ export default function Inventory() {
                   </th>
                   <th>Model</th>
                   <th>CPU</th>
+                  <th>OS</th>
                   <th>Firmware</th>
                   <th>IP Address</th>
                   <th>Location</th>
@@ -292,6 +293,9 @@ export default function Inventory() {
                     </td>
                     <td style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                       {item.cpu_model || '—'}
+                    </td>
+                    <td style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                      {item.operating_system || '—'}
                     </td>
                     <td><span style={{ fontSize: '0.75rem', fontFamily: 'monospace' }}>{item.firmware_version || '—'}</span></td>
                     <td className="mono">{item.ip_address || '—'}</td>
