@@ -249,12 +249,20 @@ export const startIntegrationWorker = () => {
         }
       } else if (integration.integration_type === 'hpe_oneview') {
         const adapter = new HPEOneViewAdapter(adapterConfig);
-        const allDevices = await adapter.fetchInventory();
-        for (const device of allDevices) {
-          const result = await syncDevice(device, integration);
-          if (result === 'created') created++;
-          else if (result === 'updated') updated++;
-          else skipped++;
+        const deviceList = await adapter.getDeviceList();
+        
+        console.log(`[Worker] HPE: Processing ${deviceList.length} devices one-by-one...`);
+        for (const m of deviceList) {
+          try {
+            const fullDevice = await adapter.getDeviceDetails(m);
+            const result = await syncDevice(fullDevice, integration);
+            if (result === 'created') created++;
+            else if (result === 'updated') updated++;
+            else skipped++;
+          } catch (err: any) {
+            console.error(`[Worker] Error syncing HPE device ${m.uri}: ${err.message}`);
+            skipped++;
+          }
         }
       } else if (integration.integration_type === 'xormon') {
         const adapter = new XormonAdapter(adapterConfig);

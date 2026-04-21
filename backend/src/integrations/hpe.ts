@@ -51,53 +51,47 @@ export class HPEOneViewAdapter {
     }
   }
 
-  async fetchInventory(): Promise<DiscoveredDevice[]> {
-    console.log(`[HPE] Syncing from OneView at ${this.config.url}...`);
-    try {
-      if (!this.sessionID) await this.login();
+  async getDeviceList(): Promise<any[]> {
+    if (!this.sessionID) await this.login();
+    console.log(`[HPE] Fetching device list from ${this.config.url}...`);
+    
+    let members: any[] = [];
+    let nextUri: string | null = '/rest/server-hardware';
 
-      let members: any[] = [];
-      let nextUri: string | null = '/rest/server-hardware';
-
-      // Robust pagination loop
-      while (nextUri) {
-        const response: any = await this.client.get(nextUri);
-        const pageMembers = response.data.members || [];
-        members = [...members, ...pageMembers];
-        nextUri = response.data.nextPageUri || null;
-      }
-      
-      console.log(`[HPE] Found ${members.length} members from OneView.`);
-
-      return members.map((m: any) => this.mapDevice(m));
-    } catch (error: any) {
-      console.error(`[HPE] Sync failed: ${error.message}`);
-      if (error.response?.status === 401) {
-        this.sessionID = null;
-      }
-      throw error;
+    while (nextUri) {
+      const response: any = await this.client.get(nextUri);
+      const pageMembers = response.data.members || [];
+      members = [...members, ...pageMembers];
+      nextUri = response.data.nextPageUri || null;
     }
+    return members;
   }
 
-  private mapDevice(m: any): DiscoveredDevice {
-    // Extract IP from iLO / mpHostInfo dynamically
+  async getDeviceDetails(m: any): Promise<DiscoveredDevice> {
+    if (!this.sessionID) await this.login();
+    
+    // Deep inspection for OS info
+    let os = m.hostOs || m.operatingSystem || m.osName || m.osVersion;
+    
+    if (!os && m.mpHostInfo) {
+      const mh = m.mpHostInfo;
+      // Many HPE servers have OS info deep inside mpHostInfo
+      os = mh.operatingSystem || mh.osName || mh.majorOsName || mh.major_os_name || mh.hostDescription;
+      
+      if (!os && Array.isArray(mh.mpIpAddresses)) {
+        // Sometimes only Hostname is there but indicates the OS (e.g. "ESXi-Host-1")
+      }
+    }
+
+    // IP extraction
     let ip = undefined;
     if (m.mpHostInfo && Array.isArray(m.mpHostInfo.mpIpAddresses) && m.mpHostInfo.mpIpAddresses.length > 0) {
       ip = m.mpHostInfo.mpIpAddresses[0].address;
     }
     ip = ip || m.ipv4Address || m.shortName;
 
-    // OS detection: Try multiple common HPE OneView fields
-    const os = m.operatingSystem || m.hostOs || m.osName || m.osVersion;
-    
-    if (os) {
-      console.log(`[HPE] Discovered OS for ${m.serverName || m.name}: ${os}`);
-    } else if (m.hostOsType) {
-      console.log(`[HPE] Device ${m.serverName || m.name} has hostOsType: ${m.hostOsType} but no OS string.`);
-    }
-
     return {
-      serial_number: m.serialNumber || m.uuid || `HPE-UNKNOWN-${m.uri?.split('/').pop()}`,
+      serial_number: m.serialNumber || m.uuid || `HPE-OME-${m.uri?.split('/').pop()}`,
       hostname: m.serverName || m.name,
       ip_address: ip,
       vendor_name: 'HPE',
@@ -118,5 +112,21 @@ export class HPEOneViewAdapter {
         hostOsType: m.hostOsType
       }
     };
+  }
+
+  async fetchInventory(): Promise<DiscoveredDevice[]> {
+    console.log(`[HPE] Start sequential sync...`);
+    try {
+      const members = await this.getDeviceList();
+      const results: DiscoveredDevice[] = [];
+      for (const m of members) {
+        const details = await this.getDeviceDetails(m);
+        results.push(details);
+      }
+      return results;
+    } catch (error: any) {
+      console.error(`[HPE] Sync failed: ${error.message}`);
+      throw error;
+    }
   }
 }
