@@ -114,13 +114,13 @@ export class DellOpenManageAdapter {
           // Expanded inventory types for wider OME version support
           const cpuTypes = ['serverProcessors', 'centralProcessor', 'Processors', 'processors', 'processor'];
           const memTypes = ['serverMemoryDevices', 'memory', 'Memory', 'memoryDevices', 'MemoryDevices'];
-          const osTypes = ['operatingSystem', 'operatingSystemDetails', 'system', 'ServerOperatingSystem'];
+          const osTypes = ['serverOperatingSystems', 'operatingSystem', 'operatingSystemDetails', 'system', 'ServerOperatingSystem'];
 
           let cpuFound = false;
           for (const type of cpuTypes) {
             try {
-              const cpuRes = await this.client.get(`/api/DeviceService/Devices(${d.Id})/InventoryDetails?inventoryType=${type}`);
-              // Support nested structures: cpuRes.data.value[0].InventoryInfo
+              // Use direct member access format as confirmed by Postman
+              const cpuRes = await this.client.get(`/api/DeviceService/Devices(${d.Id})/InventoryDetails('${type}')`);
               const data = cpuRes.data;
               let items: any[] = [];
               if (data.InventoryInfo) items = data.InventoryInfo;
@@ -133,7 +133,7 @@ export class DellOpenManageAdapter {
 
               if (items.length > 0) {
                 const firstCpu = Array.isArray(items[0]) ? items[0][0] : items[0];
-                const model = firstCpu.Model || firstCpu.BrandName || firstCpu.Brand || firstCpu.Name || firstCpu.ProcessorModel;
+                const model = firstCpu.ModelName || firstCpu.Model || firstCpu.BrandName || firstCpu.Brand || firstCpu.Name || firstCpu.ProcessorModel;
                 if (model) {
                   cpuMap[d.Id] = { ...cpuMap[d.Id], model: model.toString().trim() };
                   cpuFound = true;
@@ -151,7 +151,7 @@ export class DellOpenManageAdapter {
           let memFound = false;
           for (const type of memTypes) {
             try {
-              const memRes = await this.client.get(`/api/DeviceService/Devices(${d.Id})/InventoryDetails?inventoryType=${type}`);
+              const memRes = await this.client.get(`/api/DeviceService/Devices(${d.Id})/InventoryDetails('${type}')`);
               const data = memRes.data;
               let items: any[] = [];
               if (data.InventoryInfo) items = data.InventoryInfo;
@@ -189,7 +189,7 @@ export class DellOpenManageAdapter {
           // Fetch OS specifically via InventoryDetails as fallback
           for (const type of osTypes) {
             try {
-              const osRes = await this.client.get(`/api/DeviceService/Devices(${d.Id})/InventoryDetails?inventoryType=${type}`);
+              const osRes = await this.client.get(`/api/DeviceService/Devices(${d.Id})/InventoryDetails('${type}')`);
               const data = osRes.data;
               let items: any[] = [];
               if (data.InventoryInfo) items = data.InventoryInfo;
@@ -202,7 +202,10 @@ export class DellOpenManageAdapter {
 
               if (items.length > 0) {
                 const item = items[0];
-                const osName = item.OsName || item.Description || item.Name || item.OperatingSystem || item.Version;
+                const baseName = item.OsName || item.Description || item.Name || item.OperatingSystem;
+                const version = item.OsVersion || item.Version;
+                const osName = (baseName && version) ? `${baseName} ${version}`.trim() : (baseName || version);
+                
                 if (osName && osName !== 'Not Available' && osName !== 'Unknown') {
                   if (cpuMap[d.Id]) (cpuMap[d.Id] as any).os = osName;
                   else cpuMap[d.Id] = { os: osName } as any;
