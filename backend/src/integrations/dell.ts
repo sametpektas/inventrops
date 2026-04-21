@@ -62,6 +62,27 @@ export class DellOpenManageAdapter {
     }
   }
 
+  private async fetchPaginated(endpoint: string, pageSize = 200): Promise<any[]> {
+    try {
+      const initialResponse = await this.client.get(`${endpoint}?$top=1`);
+      const totalCount = initialResponse.data['@odata.count'] || 0;
+      
+      const pages = Math.ceil(totalCount / pageSize) || 1;
+      let allItems: any[] = [];
+
+      for (let i = 0; i < pages; i++) {
+        const skip = i * pageSize;
+        const response = await this.client.get(`${endpoint}?$top=${pageSize}&$skip=${skip}`);
+        const pageItems = response.data.value || (Array.isArray(response.data) ? response.data : []);
+        allItems = [...allItems, ...pageItems];
+      }
+      return allItems;
+    } catch (err: any) {
+      console.warn(`[Dell] Paginated fetch failed for ${endpoint}: ${err.message}`);
+      return [];
+    }
+  }
+
   async testConnection(): Promise<boolean> {
     try {
       await this.login();
@@ -75,136 +96,94 @@ export class DellOpenManageAdapter {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
-  async fetchInventory(): Promise<DiscoveredDevice[]> {
-    console.log(`[Dell] Syncing from OpenManage at ${this.config.url}...`);
+  async getDeviceList(): Promise<any[]> {
+    if (!this.authToken) await this.login();
+    return this.fetchPaginated('/api/DeviceService/Devices');
+  }
+
+  async getWarrantyMap(): Promise<Record<number, any>> {
+    const allWarranties = await this.fetchPaginated('/api/WarrantyService/Warranties');
+    const warrantyMap: Record<number, any> = {};
+    allWarranties.forEach((w: any) => {
+      if (!warrantyMap[w.DeviceId] || new Date(w.EndDate) > new Date(warrantyMap[w.DeviceId].EndDate)) {
+        warrantyMap[w.DeviceId] = w;
+      }
+    });
+    return warrantyMap;
+  }
+
+  async getDeviceDetails(d: any, warrantyMap?: Record<number, any>): Promise<DiscoveredDevice> {
+    if (!this.authToken) await this.login();
     
-    try {
-      if (!this.authToken) await this.login();
+    let cpuModel: string | undefined = undefined;
+    let ramMb: number | undefined = undefined;
+    let osName: string | undefined = undefined;
 
-      // First check the total count
-      const initialResponse = await this.client.get('/api/DeviceService/Devices?$top=1');
-      const totalCount = initialResponse.data['@odata.count'] || 0;
-      
-      const pageSize = 200;
-      const pages = Math.ceil(totalCount / pageSize) || 1;
-      let allDevices: any[] = [];
+    const targets = [
+      { type: 'serverProcessors', setter: (val: string) => cpuModel = val },
+      { type: 'serverMemoryDevices', setter: (val: any) => ramMb = val },
+      { type: 'serverOperatingSystems', setter: (val: string) => osName = val }
+    ];
 
-      for (let i = 0; i < pages; i++) {
-        const skip = i * pageSize;
-        const response = await this.client.get(`/api/DeviceService/Devices?$top=${pageSize}&$skip=${skip}`);
-        const pageDevices = response.data.value || (Array.isArray(response.data) ? response.data : []);
-        allDevices = [...allDevices, ...pageDevices];
-      }
-
-      console.log(`[Dell] Found ${allDevices.length} devices from OME (Total: ${totalCount}).`);
-
-      // Fetch Warranties
-      let warrantyMap: Record<number, any> = {};
+    for (const target of targets) {
       try {
-        const warrantyResponse = await this.client.get('/api/WarrantyService/Warranties');
-        const warranties = warrantyResponse.data.value || (Array.isArray(warrantyResponse.data) ? warrantyResponse.data : []);
-        warranties.forEach((w: any) => {
-          // Store the latest warranty for each device
-          if (!warrantyMap[w.DeviceId] || new Date(w.EndDate) > new Date(warrantyMap[w.DeviceId].EndDate)) {
-            warrantyMap[w.DeviceId] = w;
-          }
-        });
-      } catch (wErr) {
-        console.warn('[Dell] Could not fetch warranty information.');
-      }
-
-      // Fetch CPU/RAM/OS info per device in batches
-      const cpuMap: Record<number, { model?: string; ramMb?: number; os?: string }> = {};
-      const BATCH_SIZE = 5;
-      for (let i = 0; i < allDevices.length; i += BATCH_SIZE) {
-        if (i > 0) await this.sleep(500); // 500ms delay between batches to avoid overloading OME
+        const res = await this.client.get(`/api/DeviceService/Devices(${d.Id})/InventoryDetails('${target.type}')`);
+        const data = res.data;
+        let items = data.InventoryInfo || data.InventoryDetails || (Array.isArray(data.value) ? data.value[0]?.InventoryInfo : null) || [];
         
-        const batch = allDevices.slice(i, i + BATCH_SIZE);
-        console.log(`[Dell] Fetching details for batch ${Math.floor(i/BATCH_SIZE) + 1} (${batch.length} devices)...`);
-        await Promise.all(batch.map(async (d: any) => {
-          let cpuModel: string | undefined;
-          let ramMb: number | undefined;
-          let osName: string | undefined;
-
-          // Fetch only the 3 types we actually need using the confirmed URL format
-          const targets = [
-            { type: 'serverProcessors', setter: (val: string) => cpuModel = val },
-            { type: 'serverMemoryDevices', setter: (val: any) => ramMb = val },
-            { type: 'serverOperatingSystems', setter: (val: string) => osName = val }
-          ];
-
-          // Fetch CPU/RAM/OS info using confirmed categories and fallbacks
-          for (const target of targets) {
+        if (target.type === 'serverOperatingSystems' && (!items || items.length === 0)) {
+          for (const fallbackType of osTypes) {
+            if (fallbackType === 'serverOperatingSystems') continue;
             try {
-              // Try the main type first
-              let res = await this.client.get(`/api/DeviceService/Devices(${d.Id})/InventoryDetails('${target.type}')`);
-              let data = res.data;
-              let items = data.InventoryInfo || data.InventoryDetails || (Array.isArray(data.value) ? data.value[0]?.InventoryInfo : null) || [];
-              
-              // OS Fallback: Try other common OS category names if serverOperatingSystems is empty
-              if (target.type === 'serverOperatingSystems' && (!items || items.length === 0)) {
-                for (const fallbackType of osTypes) {
-                  if (fallbackType === 'serverOperatingSystems') continue;
-                  try {
-                    const fallbackRes = await this.client.get(`/api/DeviceService/Devices(${d.Id})/InventoryDetails('${fallbackType}')`);
-                    const fallbackData = fallbackRes.data;
-                    const fallbackItems = fallbackData.InventoryInfo || fallbackData.InventoryDetails || (Array.isArray(fallbackData.value) ? fallbackData.value[0]?.InventoryInfo : null) || [];
-                    if (fallbackItems && fallbackItems.length > 0) {
-                      items = fallbackItems;
-                      break;
-                    }
-                  } catch (e) { /* ignore fallback errors */ }
-                }
-              }
-
-              if (!items || items.length === 0) continue;
-
-              if (target.type === 'serverProcessors') {
-                const firstCpu = Array.isArray(items[0]) ? items[0][0] : items[0];
-                const model = (firstCpu.ModelName || firstCpu.Model || firstCpu.BrandName || firstCpu.Brand || firstCpu.Name || firstCpu.ProcessorModel || '').toString().trim();
-                if (model) target.setter(model);
-              } else if (target.type === 'serverMemoryDevices') {
-                const totalMb = items.reduce((sum: number, m: any) => {
-                  let sizeStr = (m.Size || m.Capacity || m.MemorySize || '0').toString().toUpperCase();
-                  let size = parseFloat(sizeStr);
-                  if (sizeStr.includes('GB')) size *= 1024;
-                  else if (sizeStr.includes('TB')) size *= 1024 * 1024;
-                  return sum + (isNaN(size) ? 0 : size);
-                }, 0);
-                if (totalMb > 0) target.setter(totalMb);
-              } else if (target.type === 'serverOperatingSystems') {
-                const item = Array.isArray(items[0]) ? items[0][0] : items[0];
-                const baseName = item.OsName || item.Description || item.Name || item.OperatingSystem || item.OperatingSystemName || item.MajorVersion;
-                const version = item.OsVersion || item.Version || item.OperatingSystemVersion || item.MinorVersion;
-                const fullOs = (baseName && version && baseName !== version) ? `${baseName} ${version}`.trim() : (baseName || version);
-                if (fullOs && fullOs !== 'Not Available' && fullOs !== 'Unknown') {
-                  target.setter(fullOs);
-                  console.log(`[Dell] Discovered OS for device ${d.Id}: ${fullOs}`);
-                }
-              }
-            } catch (err) {
-              // Silently continue to next target
-            }
+              const fRes = await this.client.get(`/api/DeviceService/Devices(${d.Id})/InventoryDetails('${fallbackType}')`);
+              const fd = fRes.data;
+              const fItems = fd.InventoryInfo || fd.InventoryDetails || (Array.isArray(fd.value) ? fd.value[0]?.InventoryInfo : null) || [];
+              if (fItems?.length > 0) { items = fItems; break; }
+            } catch (e) {}
           }
+        }
 
-          // Fallback logic for older OME versions or different endpoint names if needed
-          if (!cpuModel || !ramMb || !osName) {
-             // ... existing logic to find other types if essential ...
-          }
+        if (!items || items.length === 0) continue;
 
-          if (cpuModel || ramMb || osName) {
-            cpuMap[d.Id] = { model: cpuModel, ramMb, os: osName } as any;
-          }
-        }));
+        if (target.type === 'serverProcessors') {
+          const firstCpu = Array.isArray(items[0]) ? items[0][0] : items[0];
+          const m = (firstCpu.ModelName || firstCpu.Model || firstCpu.BrandName || firstCpu.Brand || firstCpu.Name || firstCpu.ProcessorModel || '').toString().trim();
+          if (m) cpuModel = m;
+        } else if (target.type === 'serverMemoryDevices') {
+          ramMb = items.reduce((sum: number, m: any) => {
+            let sizeStr = (m.Size || m.Capacity || m.MemorySize || '0').toString().toUpperCase();
+            let size = parseFloat(sizeStr);
+            if (sizeStr.includes('GB')) size *= 1024;
+            else if (sizeStr.includes('TB')) size *= 1024 * 1024;
+            return sum + (isNaN(size) ? 0 : size);
+          }, 0);
+        } else if (target.type === 'serverOperatingSystems') {
+          const item = Array.isArray(items[0]) ? items[0][0] : items[0];
+          const baseName = item.OsName || item.Description || item.Name || item.OperatingSystem || item.OperatingSystemName || item.MajorVersion;
+          const version = item.OsVersion || item.Version || item.OperatingSystemVersion || item.MinorVersion;
+          const fullOs = (baseName && version && baseName !== version) ? `${baseName} ${version}`.trim() : (baseName || version);
+          if (fullOs && fullOs !== 'Not Available' && fullOs !== 'Unknown') osName = fullOs;
+        }
+      } catch (err) {}
+    }
+
+    return this.mapDevice(d, warrantyMap?.[d.Id], { model: cpuModel, ramMb, os: osName });
+  }
+
+  async fetchInventory(): Promise<DiscoveredDevice[]> {
+    console.log(`[Dell] Legacy sequential sync started...`);
+    try {
+      const allDevices = await this.getDeviceList();
+      const warrantyMap = await this.getWarrantyMap();
+      const results: DiscoveredDevice[] = [];
+      for (const d of allDevices) {
+        const details = await this.getDeviceDetails(d, warrantyMap);
+        results.push(details);
+        await this.sleep(100);
       }
-
-      return allDevices.map((d: any) => this.mapDevice(d, warrantyMap[d.Id], cpuMap[d.Id]));
+      return results;
     } catch (error: any) {
       console.error(`[Dell] Sync failed: ${error.message}`);
-      if (error.response?.status === 401) {
-        // Token might have expired, clear it for next attempt
-        this.authToken = null;
-      }
       throw error;
     }
   }
@@ -242,32 +221,61 @@ export class DellOpenManageAdapter {
       ServiceLevel: warranty?.ServiceLevelDescription
     };
 
-    return {
-      serial_number: d.SerialNumber || d.Identifier || d.ServiceTag || `DELL-UNKNOWN-${d.Id}`,
-      hostname: d.Hostname || d.DeviceName,
-      vendor_name: 'Dell EMC',
-      model_name: d.Model || 'Dell Server',
-      device_type: this.mapDeviceType(parseInt(d.DeviceType || '1000')),
-      ip_address: ip,
-      asset_tag: d.AssetTag,
-      firmware_version: firmware,
-      operating_system: os,
-      cpu_model: cpuInfo?.model || d.ProcessorModel || d.ProcessorSummary || d.ProcessorType,
-      ram_gb: ramGb || (d.MemoryMb ? Math.round(d.MemoryMb / 1024) : (d.TotalMemoryGb ? Math.round(d.TotalMemoryGb) : undefined)),
-      purchase_date: warranty?.SystemShipDate ? new Date(warranty.SystemShipDate).toISOString().split('T')[0] : undefined,
-      warranty_expiry: warranty?.EndDate ? new Date(warranty.EndDate).toISOString().split('T')[0] : undefined,
-      metadata: metadata
-    };
-  }
+    // Service Tag extraction
+      let serial = d.SerialNumber || d.Identifier || d.ServiceTag;
+      if (!serial || serial === 'Not Available' || serial === 'Unknown') {
+          // Try DeviceManagement nested SN
+          if (Array.isArray(d.DeviceManagement) && d.DeviceManagement[0].DeviceServiceTag) {
+              serial = d.DeviceManagement[0].DeviceServiceTag;
+          }
+      }
+      // Ultimate fallback
+      if (!serial || serial === 'Not Available' || serial === 'Unknown') {
+          serial = `DELL-OME-${d.Id}`;
+      }
 
-  private mapDeviceType(typeId: number): string {
-    // OME Device Type Mapping (Common ones)
-    switch (typeId) {
-      case 1000: return 'server';
-      case 2000: return 'chassis';
-      case 3000: return 'storage';
-      case 4000: return 'network';
-      default: return 'infrastructure';
+      // Model extraction refinement
+      let modelName = d.Model || 'Dell Server';
+      if (modelName === 'System' || modelName === 'Chassis' || modelName === 'Unknown') {
+          modelName = d.DeviceTypeName || modelName;
+      }
+
+      return {
+        serial_number: String(serial).trim(),
+        hostname: d.Hostname || d.DeviceName,
+        vendor_name: 'Dell EMC',
+        model_name: modelName,
+        device_type: this.mapDeviceType(parseInt(d.DeviceType || '1000'), d.DeviceTypeName),
+        ip_address: ip,
+        asset_tag: d.AssetTag,
+        firmware_version: firmware,
+        operating_system: os,
+        cpu_model: cpuInfo?.model || d.ProcessorModel || d.ProcessorSummary || d.ProcessorType,
+        ram_gb: ramGb || (d.MemoryMb ? Math.round(d.MemoryMb / 1024) : (d.TotalMemoryGb ? Math.round(d.TotalMemoryGb) : undefined)),
+        purchase_date: warranty?.SystemShipDate ? new Date(warranty.SystemShipDate).toISOString().split('T')[0] : undefined,
+        warranty_expiry: warranty?.EndDate ? new Date(warranty.EndDate).toISOString().split('T')[0] : undefined,
+        metadata: metadata
+      };
     }
-  }
+  
+    private mapDeviceType(typeId: number, typeName?: string): string {
+      const name = String(typeName || '').toLowerCase();
+      
+      // Explicit name matches first
+      if (name.includes('server') || name.includes('blade') || name.includes('modular')) return 'server';
+      if (name.includes('chassis') || name.includes('mx7000') || name.includes('m1000e')) return 'chassis';
+      if (name.includes('storage') || name.includes('me4') || name.includes('powervault')) return 'storage';
+      if (name.includes('switch') || name.includes('network') || name.includes('iom')) return 'network_switch';
+  
+      // Type ID mapping
+      switch (typeId) {
+        case 1000: case 17000: return 'server'; // 17000 is SLE (Server)
+        case 2000: return 'chassis';
+        case 3000: return 'storage';
+        case 4000: return 'network_switch';
+        case 5000: return 'ups';
+        case 6000: return 'pdu';
+        default: return 'infrastructure';
+      }
+    }
 }

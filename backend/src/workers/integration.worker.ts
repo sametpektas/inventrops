@@ -227,23 +227,44 @@ export const startIntegrationWorker = () => {
         api_key: integration.api_key ? decrypt(integration.api_key) : null
       };
 
+      let created = 0, updated = 0, skipped = 0;
+
       if (integration.integration_type === 'dell_openmanage') {
         const adapter = new DellOpenManageAdapter(adapterConfig);
-        allDevices = await adapter.fetchInventory();
+        const deviceList = await adapter.getDeviceList();
+        const warrantyMap = await adapter.getWarrantyMap();
+        
+        console.log(`[Worker] Dell: Processing ${deviceList.length} devices one-by-one...`);
+        for (const d of deviceList) {
+          try {
+            const fullDevice = await adapter.getDeviceDetails(d, warrantyMap);
+            const result = await syncDevice(fullDevice, integration);
+            if (result === 'created') created++;
+            else if (result === 'updated') updated++;
+            else skipped++;
+          } catch (err: any) {
+            console.error(`[Worker] Error syncing Dell device ${d.Id}: ${err.message}`);
+            skipped++;
+          }
+        }
       } else if (integration.integration_type === 'hpe_oneview') {
         const adapter = new HPEOneViewAdapter(adapterConfig);
-        allDevices = await adapter.fetchInventory();
+        const allDevices = await adapter.fetchInventory();
+        for (const device of allDevices) {
+          const result = await syncDevice(device, integration);
+          if (result === 'created') created++;
+          else if (result === 'updated') updated++;
+          else skipped++;
+        }
       } else if (integration.integration_type === 'xormon') {
         const adapter = new XormonAdapter(adapterConfig);
-        allDevices = await adapter.fetchInventory();
-      }
-
-      let created = 0, updated = 0, skipped = 0;
-      for (const device of allDevices) {
-        const result = await syncDevice(device, integration);
-        if (result === 'created') created++;
-        else if (result === 'updated') updated++;
-        else skipped++;
+        const allDevices = await adapter.fetchInventory();
+        for (const device of allDevices) {
+          const result = await syncDevice(device, integration);
+          if (result === 'created') created++;
+          else if (result === 'updated') updated++;
+          else skipped++;
+        }
       }
 
       await prisma.syncLog.update({
