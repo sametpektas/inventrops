@@ -67,20 +67,24 @@ export class HPEOneViewAdapter {
     return members;
   }
 
-  async getDeviceDetails(m: any): Promise<DiscoveredDevice> {
+  async getDeviceDetails(summary: any): Promise<DiscoveredDevice> {
     if (!this.sessionID) await this.login();
     
+    let m = summary;
+    try {
+      // Try to fetch full details for this specific hardware
+      const res = await this.client.get(summary.uri);
+      m = res.data;
+    } catch (err) {
+      // Fallback to summary if detail fetch fails
+    }
+
     // Deep inspection for OS info
-    let os = m.hostOs || m.operatingSystem || m.osName || m.osVersion;
+    let os = m.hostOs || m.operatingSystem || m.osName || m.osVersion || m.hostOsType;
     
     if (!os && m.mpHostInfo) {
       const mh = m.mpHostInfo;
-      // Many HPE servers have OS info deep inside mpHostInfo
-      os = mh.operatingSystem || mh.osName || mh.majorOsName || mh.major_os_name || mh.hostDescription;
-      
-      if (!os && Array.isArray(mh.mpIpAddresses)) {
-        // Sometimes only Hostname is there but indicates the OS (e.g. "ESXi-Host-1")
-      }
+      os = mh.operatingSystem || mh.osName || mh.majorOsName || mh.major_os_name || mh.hostDescription || mh.mpHostName;
     }
 
     // IP extraction
@@ -109,7 +113,8 @@ export class HPEOneViewAdapter {
         processorCount: m.processorCount,
         processorCoreCount: m.processorCoreCount,
         generation: m.generation,
-        hostOsType: m.hostOsType
+        hostOsType: m.hostOsType,
+        mpHostInfo: m.mpHostInfo
       }
     };
   }
