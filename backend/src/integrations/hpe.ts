@@ -79,13 +79,27 @@ export class HPEOneViewAdapter {
       // Fallback to summary if detail fetch fails
     }
 
-    // Deep inspection for OS info
-    let os = m.hostOs || m.operatingSystem || m.osName || m.osVersion || m.hostOsType;
+    // Deep inspection for OS info - Prioritize rich strings over IDs
+    const potentialOS = [
+      m.operatingSystem, 
+      m.OsName, 
+      m.hostOs, 
+      m.osName, 
+      m.osVersion,
+      m.mpHostInfo?.operatingSystem,
+      m.mpHostInfo?.osName,
+      m.mpHostInfo?.majorOsName,
+      m.hostOsType
+    ];
+
+    let osRaw = potentialOS.find(val => val && typeof val === 'string' && val.length > 3);
     
-    if (!os && m.mpHostInfo) {
-      const mh = m.mpHostInfo;
-      os = mh.operatingSystem || mh.osName || mh.majorOsName || mh.major_os_name || mh.hostDescription || mh.mpHostName;
+    // Fallback to any truthy value if no long string found
+    if (!osRaw) {
+      osRaw = potentialOS.find(val => val !== undefined && val !== null);
     }
+
+    let os = osRaw ? String(osRaw) : undefined;
 
     // IP extraction
     let ip = undefined;
