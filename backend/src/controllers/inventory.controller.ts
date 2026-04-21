@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
  
-const HYPERVISOR_KEYWORDS = ['vmware', 'esxi', 'hyper-v', 'proxmox', 'xen server', 'vmdk', 'ovirt', 'citrix', 'hyperv', 'kvm'];
+const HYPERVISOR_KEYWORDS = ['vmware', 'esxi', 'esx', 'hyper-v', 'proxmox', 'xen server', 'vmdk', 'ovirt', 'citrix', 'hyperv', 'kvm', 'vsphere', 'vcenter'];
 
 export const getItems = async (req: Request, res: Response) => {
   const { rack, search, device_type, vendor, model, status = 'active', page = '1', ordering = '-created_at' } = req.query;

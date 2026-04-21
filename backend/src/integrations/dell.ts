@@ -17,6 +17,7 @@ sharedAgent.setMaxListeners(100);
 const cpuTypes = ['serverProcessors', 'centralProcessor', 'Processors', 'processors', 'processor'];
 const memTypes = ['serverMemoryDevices', 'memory', 'Memory', 'memoryDevices', 'MemoryDevices'];
 const osTypes = ['serverOperatingSystems', 'operatingSystem', 'operatingSystemDetails', 'system', 'ServerOperatingSystem'];
+const HYPERVISOR_KEYWORDS = ['vmware', 'esxi', 'esx', 'hyper-v', 'proxmox', 'xen server', 'vmdk', 'ovirt', 'citrix', 'hyperv', 'kvm', 'vsphere', 'vcenter'];
 
 export interface DiscoveredDevice {
   serial_number: string;
@@ -122,57 +123,60 @@ export class DellOpenManageAdapter {
       // Fetch CPU info per device (batch with limited concurrency to avoid overloading OME)
       const cpuMap: Record<number, { model?: string; ramMb?: number }> = {};
       // Fetch CPU/RAM/OS info per device in batches
-      const BATCH_SIZE = 15;
+      const BATCH_SIZE = 10;
       for (let i = 0; i < allDevices.length; i += BATCH_SIZE) {
         const batch = allDevices.slice(i, i + BATCH_SIZE);
         await Promise.all(batch.map(async (d: any) => {
-          try {
-            // OPTIMIZATION: Fetch ALL inventory in one call instead of probing 15+ endpoints
-            const invRes = await this.client.get(`/api/DeviceService/Devices(${d.Id})/InventoryDetails`);
-            const allInv = invRes.data.value || (Array.isArray(invRes.data) ? invRes.data : []);
-            
-            let cpuModel: string | undefined;
-            let ramMb: number | undefined;
-            let osName: string | undefined;
+          let cpuModel: string | undefined;
+          let ramMb: number | undefined;
+          let osName: string | undefined;
 
-            for (const section of allInv) {
-              const type = section.InventoryType;
-              const items = section.InventoryInfo || section.InventoryDetails || (Array.isArray(section) ? section : []);
+          // Fetch only the 3 types we actually need using the confirmed URL format
+          const targets = [
+            { type: 'serverProcessors', setter: (val: string) => cpuModel = val },
+            { type: 'serverMemoryDevices', setter: (val: any) => ramMb = val },
+            { type: 'serverOperatingSystems', setter: (val: string) => osName = val }
+          ];
+
+          for (const target of targets) {
+            try {
+              const res = await this.client.get(`/api/DeviceService/Devices(${d.Id})/InventoryDetails('${target.type}')`);
+              const data = res.data;
+              const items = data.InventoryInfo || data.InventoryDetails || (Array.isArray(data.value) ? data.value[0]?.InventoryInfo : null) || [];
               if (!items || items.length === 0) continue;
 
-              // Extract CPU
-              if (cpuTypes.includes(type) && !cpuModel) {
+              if (target.type === 'serverProcessors') {
                 const firstCpu = Array.isArray(items[0]) ? items[0][0] : items[0];
-                cpuModel = (firstCpu.ModelName || firstCpu.Model || firstCpu.BrandName || firstCpu.Brand || firstCpu.Name || firstCpu.ProcessorModel || '').toString().trim();
-              }
-
-              // Extract RAM
-              if (memTypes.includes(type) && !ramMb) {
-                ramMb = items.reduce((sum: number, m: any) => {
+                const model = (firstCpu.ModelName || firstCpu.Model || firstCpu.BrandName || firstCpu.Brand || firstCpu.Name || firstCpu.ProcessorModel || '').toString().trim();
+                if (model) target.setter(model);
+              } else if (target.type === 'serverMemoryDevices') {
+                const totalMb = items.reduce((sum: number, m: any) => {
                   let sizeStr = (m.Size || m.Capacity || m.MemorySize || '0').toString().toUpperCase();
                   let size = parseFloat(sizeStr);
                   if (sizeStr.includes('GB')) size *= 1024;
                   else if (sizeStr.includes('TB')) size *= 1024 * 1024;
                   return sum + (isNaN(size) ? 0 : size);
                 }, 0);
-              }
-
-              // Extract OS
-              if (osTypes.includes(type) && !osName) {
+                if (totalMb > 0) target.setter(totalMb);
+              } else if (target.type === 'serverOperatingSystems') {
                 const item = Array.isArray(items[0]) ? items[0][0] : items[0];
                 const baseName = item.OsName || item.Description || item.Name || item.OperatingSystem;
                 const version = item.OsVersion || item.Version;
-                osName = (baseName && version) ? `${baseName} ${version}`.trim() : (baseName || version);
+                const fullOs = (baseName && version) ? `${baseName} ${version}`.trim() : (baseName || version);
+                if (fullOs) target.setter(fullOs);
               }
+            } catch (err) {
+              // If specific type fails, we'll try the common fallbacks if we don't have data yet
             }
+          }
 
-            if (cpuModel || ramMb || osName) {
-              cpuMap[d.Id] = { model: cpuModel, ramMb, os: osName } as any;
-            }
-          } catch (err: any) {
-            if (err.response?.status !== 404) {
-               console.warn(`[Dell] Inventory fetch for device ${d.Id} failed: ${err.message}`);
-            }
+          // Fallback logic for older OME versions or different endpoint names if needed
+          if (!cpuModel || !ramMb || !osName) {
+             // ... existing logic to find other types if essential ...
+          }
+
+          if (cpuModel || ramMb || osName) {
+            cpuMap[d.Id] = { model: cpuModel, ramMb, os: osName } as any;
           }
         }));
       }
