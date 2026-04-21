@@ -51,15 +51,16 @@ export const getItems = async (req: Request, res: Response) => {
       }));
       
       if (isVirtual) {
-        where.OR = where.OR ? [...where.OR, ...osConditions] : osConditions;
+        const virtualCondition = { OR: osConditions };
+        where.AND = where.AND ? [...where.AND, virtualCondition] : [virtualCondition];
       } else {
-        // Bare Metal means NOT any of the hypervisor keywords
-        // Note: Prisma doesn't have a direct "NOT INCLUDES ANY" for strings in a simple way
-        // So we use AND with NOT for each keyword
-        const notConditions = HYPERVISOR_KEYWORDS.map(k => ({
-          NOT: { operating_system: { contains: k, mode: 'insensitive' as any } }
-        }));
-        where.AND = where.AND ? [...where.AND, ...notConditions] : notConditions;
+        const notVirtualCondition = {
+          NOT: {
+            OR: osConditions
+          }
+        };
+        where.AND = where.AND ? [...where.AND, notVirtualCondition] : [notVirtualCondition];
+        
         // Also ensure it's a server if we are filtering for Bare Metal vs Virtualization
         if (!device_type) {
            where.model = where.model ? { ...where.model, device_type: 'server' } : { device_type: 'server' };

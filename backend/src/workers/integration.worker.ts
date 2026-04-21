@@ -146,6 +146,12 @@ async function syncDevice(device: DiscoveredDevice, integration: any) {
       });
       return 'updated';
     }
+    
+    // Log if OS matches but we still have Bare Metal issues (to check for whitespace/encoding)
+    if (device.operating_system && existing.operating_system === device.operating_system) {
+       // console.log(`[Worker] Skipping update for ${existing.serial_number}. OS already matches: "${existing.operating_system}"`);
+    }
+    
     return 'skipped';
   }
 
