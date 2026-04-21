@@ -1,5 +1,6 @@
 import axios from 'axios';
 import https from 'https';
+import { sharedHttpsAgent } from '../utils/http';
 import { DiscoveredDevice } from './dell';
 
 export class HPEOneViewAdapter {
@@ -17,9 +18,7 @@ export class HPEOneViewAdapter {
         'Content-Type': 'application/json',
         'X-Api-Version': this.apiVersion
       },
-      httpsAgent: new https.Agent({
-        rejectUnauthorized: false
-      })
+      httpsAgent: sharedHttpsAgent
     });
   }
 
@@ -95,9 +94,11 @@ export class HPEOneViewAdapter {
       state: m.state,
       powerState: m.powerState,
       processorCount: m.processorCount,
+      processorCoreCount: m.processorCoreCount,
       memoryMb: m.memoryMb,
       uuid: m.uuid,
-      partNumber: m.partNumber
+      partNumber: m.partNumber,
+      generation: m.generation
     };
 
     // Parse RAM: OneView returns totalMemoryGB or memoryMb
@@ -109,14 +110,14 @@ export class HPEOneViewAdapter {
 
     return {
       serial_number: m.serialNumber || m.uuid || `HPE-UNKNOWN-${m.uri.split('/').pop()}`,
-      hostname: m.name,
+      hostname: m.serverName || m.name,
       vendor_name: 'HPE',
       model_name: m.model || 'ProLiant Server',
       device_type: 'server',
       ip_address: ip,
       firmware_version: m.romVersion || m.mpFirmwareVersion || m.firmwareVersion,
       operating_system: m.operatingSystem || m.osName || m.hostOsType_display || undefined,
-      cpu_model: m.processorModel || m.processorType || undefined,
+      cpu_model: m.processorType || m.processorModel || undefined,
       ram_gb: ramGb,
       metadata: metadata
     };

@@ -1,17 +1,6 @@
 import axios from 'axios';
 import https from 'https';
- 
-// Global shared agent to prevent memory leaks and reuse sockets efficiently
-const sharedAgent = new https.Agent({
-  rejectUnauthorized: false, 
-  keepAlive: true,
-  maxSockets: 100,
-  maxFreeSockets: 10,
-  timeout: 60000
-});
- 
-// Increase listeners limit to prevent warnings during high-concurrency syncs
-sharedAgent.setMaxListeners(100);
+import { sharedHttpsAgent } from '../utils/http';
 
 // Inventory category types to look for in OME responses
 const cpuTypes = ['serverProcessors', 'centralProcessor', 'Processors', 'processors', 'processor'];
@@ -49,7 +38,7 @@ export class DellOpenManageAdapter {
         'Accept': 'application/json',
         'Content-Type': 'application/json'
       },
-      httpsAgent: sharedAgent
+      httpsAgent: sharedHttpsAgent
     });
   }
 
@@ -160,10 +149,13 @@ export class DellOpenManageAdapter {
                 if (totalMb > 0) target.setter(totalMb);
               } else if (target.type === 'serverOperatingSystems') {
                 const item = Array.isArray(items[0]) ? items[0][0] : items[0];
-                const baseName = item.OsName || item.Description || item.Name || item.OperatingSystem;
-                const version = item.OsVersion || item.Version;
+                const baseName = item.OsName || item.Description || item.Name || item.OperatingSystem || item.OperatingSystemName;
+                const version = item.OsVersion || item.Version || item.OperatingSystemVersion;
                 const fullOs = (baseName && version) ? `${baseName} ${version}`.trim() : (baseName || version);
-                if (fullOs) target.setter(fullOs);
+                if (fullOs && fullOs !== 'Not Available' && fullOs !== 'Unknown') {
+                  target.setter(fullOs);
+                  console.log(`[Dell] Discovered OS for device ${d.Id}: ${fullOs}`);
+                }
               }
             } catch (err) {
               // If specific type fails, we'll try the common fallbacks if we don't have data yet
@@ -201,7 +193,11 @@ export class DellOpenManageAdapter {
 
     // Separate Firmware and OS
     let firmware = d.FirmwareVersion;
-    let os = d.OsVersion || d.OSVersion || d.OperatingSystem || (cpuInfo as any)?.os;
+    // OS priority: 1. Discovered from InventoryDetails, 2. Main Device summary fields
+    let os = (cpuInfo as any)?.os || d.OsVersion || d.OSVersion || d.OperatingSystem;
+    if (os === 'Not Available' || os === 'Unknown') {
+      os = (cpuInfo as any)?.os || undefined;
+    }
     
     if (!firmware && !os && Array.isArray(d.DeviceTypes) && d.DeviceTypes.length > 0) {
       firmware = d.DeviceTypes[0].FirmwareVersion || d.DeviceTypes[0].Version;

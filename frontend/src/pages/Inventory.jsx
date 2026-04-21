@@ -266,7 +266,7 @@ export default function Inventory() {
                     Hostname {ordering.includes('hostname') ? (ordering.startsWith('-') ? '↓' : '↑') : ''}
                   </th>
                   <th>Model</th>
-                  <th>Asset Tag</th>
+                  <th>CPU</th>
                   <th>Firmware</th>
                   <th>IP Address</th>
                   <th>Location</th>
@@ -288,7 +288,9 @@ export default function Inventory() {
                     <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                       {item.model_name}
                     </td>
-                    <td><span className="mono" style={{fontSize: '0.75rem'}}>{item.asset_tag || '—'}</span></td>
+                    <td style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                      {item.cpu_model || '—'}
+                    </td>
                     <td><span style={{ fontSize: '0.75rem', fontFamily: 'monospace' }}>{item.firmware_version || '—'}</span></td>
                     <td className="mono">{item.ip_address || '—'}</td>
                     <td style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
