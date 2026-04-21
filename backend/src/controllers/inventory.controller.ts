@@ -742,3 +742,41 @@ export const deleteModel = async (req: Request, res: Response) => {
     res.status(400).json({ error: 'Cannot delete model with associated items' });
   }
 };
+
+export const debugOS = async (req: any, res: any) => {
+  try {
+    const { prisma } = require('../lib/prisma');
+    const items = await prisma.inventoryItem.findMany({
+      where: { status: 'active' },
+      include: { model: true }
+    });
+
+    const hostMap: Record<string, any[]> = {};
+    items.forEach(item => {
+      const host = item.hostname?.toLowerCase() || 'no-host';
+      if (!hostMap[host]) hostMap[host] = [];
+      hostMap[host].push(item);
+    });
+
+    const duplicates = Object.entries(hostMap)
+      .filter(([_, list]) => list.length > 1)
+      .map(([host, list]) => ({
+        hostname: host,
+        count: list.length,
+        devices: list.map(d => ({
+          id: d.id,
+          sn: d.serial_number,
+          os: d.operating_system,
+          type: d.model?.device_type
+        }))
+      }));
+
+    res.json({
+      total_items: items.length,
+      duplicate_hostnames_count: duplicates.length,
+      duplicates: duplicates
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+};
