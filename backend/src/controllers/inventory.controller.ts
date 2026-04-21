@@ -743,9 +743,8 @@ export const deleteModel = async (req: Request, res: Response) => {
   }
 };
 
-export const debugOS = async (req: any, res: any) => {
+export const debugOS = async (_req: Request, res: Response) => {
   try {
-    const { prisma } = require('../lib/prisma');
     const items = await prisma.inventoryItem.findMany({
       where: { status: 'active' },
       include: { model: true }
@@ -753,7 +752,7 @@ export const debugOS = async (req: any, res: any) => {
 
     const hostMap: Record<string, any[]> = {};
     items.forEach(item => {
-      const host = item.hostname?.toLowerCase() || 'no-host';
+      const host = (item.hostname || 'no-host').toLowerCase();
       if (!hostMap[host]) hostMap[host] = [];
       hostMap[host].push(item);
     });
