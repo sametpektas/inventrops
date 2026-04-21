@@ -188,7 +188,7 @@ export class DellOpenManageAdapter {
     }
   }
 
-  private mapDevice(d: any, warranty?: any, cpuInfo?: { model?: string; ramMb?: number }): DiscoveredDevice {
+  private mapDevice(d: any, warranty?: any, cpuInfo?: { model?: string; ramMb?: number; os?: string }): DiscoveredDevice {
     // Extract IP dynamically from nested structures if top-level is missing
     let ip = d.IpAddress || d.ManagementIp || d.RemoteAccessIp;
     if (!ip && Array.isArray(d.DeviceManagement) && d.DeviceManagement.length > 0) {
