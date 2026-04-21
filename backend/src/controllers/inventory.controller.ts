@@ -743,7 +743,7 @@ export const deleteModel = async (req: Request, res: Response) => {
   }
 };
 
-export const debugOS = async (_req: Request, res: Response) => {
+export const debugOS = async (_req: any, res: any) => {
   try {
     const items = await prisma.inventoryItem.findMany({
       where: { status: 'active' },

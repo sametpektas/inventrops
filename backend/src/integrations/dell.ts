@@ -222,7 +222,7 @@ export class DellOpenManageAdapter {
       hostname: d.Hostname || d.DeviceName,
       vendor_name: 'Dell EMC',
       model_name: d.Model || 'Dell Server',
-      device_type: (d.DeviceType === 1000 || d.DeviceType === '1000') ? 'server' : (d.DeviceTypeName || 'server'),
+      device_type: (d.DeviceType === 1000 || d.DeviceType === '1000' || String(d.DeviceTypeName).toLowerCase().includes('server')) ? 'server' : 'server',
       ip_address: ip,
       asset_tag: d.AssetTag,
       firmware_version: firmware,
