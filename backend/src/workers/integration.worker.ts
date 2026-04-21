@@ -110,6 +110,7 @@ async function syncDevice(device: DiscoveredDevice, integration: any) {
       updated = true;
     }
     if (device.operating_system && existing.operating_system !== device.operating_system) {
+      console.log(`[Worker] Updating OS for device ${existing.serial_number}: ${existing.operating_system} -> ${device.operating_system}`);
       updateData.operating_system = device.operating_system;
       updated = true;
     }
@@ -173,6 +174,7 @@ async function syncDevice(device: DiscoveredDevice, integration: any) {
     }
   });
 
+  console.log(`[Worker] Created new device ${device.serial_number} with OS: ${device.operating_system}`);
   return 'created';
 }
 
@@ -208,7 +210,7 @@ export const startIntegrationWorker = () => {
     });
 
     try {
-      let devices: DiscoveredDevice[] = [];
+      let allDevices: DiscoveredDevice[] = [];
       // Decrypt credentials before passing to adapters
       const adapterConfig = {
         ...integration,
@@ -218,17 +220,17 @@ export const startIntegrationWorker = () => {
 
       if (integration.integration_type === 'dell_openmanage') {
         const adapter = new DellOpenManageAdapter(adapterConfig);
-        devices = await adapter.fetchInventory();
+        allDevices = await adapter.fetchInventory();
       } else if (integration.integration_type === 'hpe_oneview') {
         const adapter = new HPEOneViewAdapter(adapterConfig);
-        devices = await adapter.fetchInventory();
+        allDevices = await adapter.fetchInventory();
       } else if (integration.integration_type === 'xormon') {
         const adapter = new XormonAdapter(adapterConfig);
-        devices = await adapter.fetchInventory();
+        allDevices = await adapter.fetchInventory();
       }
 
       let created = 0, updated = 0, skipped = 0;
-      for (const device of devices) {
+      for (const device of allDevices) {
         const result = await syncDevice(device, integration);
         if (result === 'created') created++;
         else if (result === 'updated') updated++;
@@ -238,7 +240,7 @@ export const startIntegrationWorker = () => {
       await prisma.syncLog.update({
         where: { id: syncLog.id },
         data: {
-          items_discovered: devices.length,
+          items_discovered: allDevices.length,
           items_created: created,
           items_updated: updated,
           items_skipped: skipped,
