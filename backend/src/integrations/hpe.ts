@@ -143,6 +143,7 @@ export class HPEOneViewAdapter {
       "12": "Windows Server 2012",
       "23": "Windows Server 2019",
       "25": "VMware ESXi",
+      "59": "Windows Server 2022",
       "40": "Windows/Linux (Newer Gen)",
       "0": "Unknown"
     };
