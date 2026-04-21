@@ -87,39 +87,36 @@ export class HPEOneViewAdapter {
     }
     ip = ip || m.ipv4Address || m.shortName;
 
-    // OneView Server Hardware Mapping
-    const metadata = {
-      uri: m.uri,
-      status: m.status,
-      state: m.state,
-      powerState: m.powerState,
-      processorCount: m.processorCount,
-      processorCoreCount: m.processorCoreCount,
-      memoryMb: m.memoryMb,
-      uuid: m.uuid,
-      partNumber: m.partNumber,
-      generation: m.generation
-    };
-
-    // Parse RAM: OneView returns totalMemoryGB or memoryMb
-    const ramGb = m.memoryMb
-      ? Math.round(m.memoryMb / 1024)
-      : m.totalMemoryGB
-      ? Math.round(m.totalMemoryGB)
-      : undefined;
+    // OS detection: Try multiple common HPE OneView fields
+    const os = m.operatingSystem || m.hostOs || m.osName || m.osVersion;
+    
+    if (os) {
+      console.log(`[HPE] Discovered OS for ${m.serverName || m.name}: ${os}`);
+    } else if (m.hostOsType) {
+      console.log(`[HPE] Device ${m.serverName || m.name} has hostOsType: ${m.hostOsType} but no OS string.`);
+    }
 
     return {
-      serial_number: m.serialNumber || m.uuid || `HPE-UNKNOWN-${m.uri.split('/').pop()}`,
+      serial_number: m.serialNumber || m.uuid || `HPE-UNKNOWN-${m.uri?.split('/').pop()}`,
       hostname: m.serverName || m.name,
+      ip_address: ip,
       vendor_name: 'HPE',
       model_name: m.model || 'ProLiant Server',
       device_type: 'server',
-      ip_address: ip,
       firmware_version: m.romVersion || m.mpFirmwareVersion || m.firmwareVersion,
-      operating_system: m.operatingSystem || m.osName || m.hostOsType_display || undefined,
       cpu_model: m.processorType || m.processorModel || undefined,
-      ram_gb: ramGb,
-      metadata: metadata
+      ram_gb: m.memoryMb ? Math.round(m.memoryMb / 1024) : undefined,
+      operating_system: os,
+      metadata: {
+        uri: m.uri,
+        status: m.status,
+        state: m.state,
+        powerState: m.powerState,
+        processorCount: m.processorCount,
+        processorCoreCount: m.processorCoreCount,
+        generation: m.generation,
+        hostOsType: m.hostOsType
+      }
     };
   }
 }

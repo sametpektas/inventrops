@@ -20,8 +20,12 @@ async function getOrCreateVendor(name: string) {
   return vendor;
 }
 
-function mapDeviceType(rawType?: string): any {
-  if (!rawType) return 'other';
+function mapDeviceType(rawType?: any): any {
+  if (!rawType) return 'server'; // Default to server for infrastructure discovery
+  
+  const normalized = String(rawType).toLowerCase().trim();
+  if (normalized === '1000' || normalized === 'server' || normalized === 'compute') return 'server';
+
   const typeMap: Record<string, string> = {
     'server': 'server',
     'host': 'server',
@@ -42,11 +46,10 @@ function mapDeviceType(rawType?: string): any {
     'ups': 'ups'
   };
   
-  const normalized = rawType.toLowerCase().trim();
   for (const [key, value] of Object.entries(typeMap)) {
     if (normalized.includes(key)) return value;
   }
-  return 'other';
+  return 'server'; // If it's a hardware discovery, it's likely a server if not matched elsewhere
 }
 
 async function getOrCreateModel(device: DiscoveredDevice, vendorId: number) {
