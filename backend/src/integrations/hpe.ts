@@ -94,9 +94,12 @@ export class HPEOneViewAdapter {
 
     let osRaw = potentialOS.find(val => val && typeof val === 'string' && val.length > 3);
     
-    // Fallback to any truthy value if no long string found
+    // Fallback to ID mapping if no long string is found
     if (!osRaw) {
-      osRaw = potentialOS.find(val => val !== undefined && val !== null);
+      const idVal = potentialOS.find(val => val !== undefined && val !== null);
+      if (idVal) {
+        osRaw = this.translateOsType(String(idVal));
+      }
     }
 
     let os = osRaw ? String(osRaw) : undefined;
@@ -131,6 +134,20 @@ export class HPEOneViewAdapter {
         mpHostInfo: m.mpHostInfo
       }
     };
+  }
+
+  private translateOsType(id: string): string {
+    const map: Record<string, string> = {
+      "1": "No OS Defined",
+      "2": "Windows Server (Legacy)",
+      "12": "Windows Server 2012",
+      "23": "Windows Server 2019",
+      "25": "VMware ESXi",
+      "40": "Windows/Linux (Newer Gen)",
+      "0": "Unknown"
+    };
+    // Return the mapped name if found, otherwise the raw ID
+    return map[id] || `OS ID: ${id}`;
   }
 
   async fetchInventory(): Promise<DiscoveredDevice[]> {
