@@ -37,21 +37,18 @@ export const getItems = async (req: Request, res: Response) => {
         { model: { vendor: { name: { contains: search as string, mode: 'insensitive' } } } },
       ];
     }
-    if (req.query.operating_system) {
-       if (req.query.operating_system === 'none') {
-         where.operating_system = null;
-       } else {
-         where.operating_system = { contains: req.query.operating_system as string, mode: 'insensitive' };
-       }
+
+    // OS Category Filtering
+    if (req.query.operating_system === 'none') {
+      where.OR = [
+        { operating_system: null },
+        { operating_system: { in: ['Unknown', 'Not Available', '', 'None', 'None (None)'] } },
+        { operating_system: { contains: 'unknown', mode: 'insensitive' } }
+      ];
+    } else if (req.query.operating_system) {
+      where.operating_system = { contains: req.query.operating_system as string, mode: 'insensitive' };
     }
-    if (device_type) {
-      if (where.model) {
-        where.model.device_type = device_type as any;
-      } else {
-        where.model = { device_type: device_type as any };
-      }
-    }
-    
+
     if (req.query.is_virtual !== undefined) {
       const isVirtual = req.query.is_virtual === 'true';
       const osConditions = HYPERVISOR_KEYWORDS.map(k => ({
@@ -59,28 +56,27 @@ export const getItems = async (req: Request, res: Response) => {
       }));
       
       if (isVirtual) {
+        // Virtual: Must have a hypervisor keyword in OS
         const virtualCondition = { OR: osConditions };
         where.AND = where.AND ? [...where.AND, virtualCondition] : [virtualCondition];
+        where.operating_system = { not: null };
       } else {
-        // Bare Metal means OS does NOT contain ANY of the hypervisor keywords OR it is NULL
-        const notVirtualCondition = {
-          OR: [
-            {
-              NOT: {
-                OR: osConditions
-              }
-            },
-            {
-              operating_system: null
-            }
+        // Physical: Must have an OS, but NOT a hypervisor keyword, and NOT "Unknown"
+        const physicalCondition = {
+          AND: [
+            { operating_system: { not: null } },
+            { operating_system: { notIn: ['Unknown', 'Not Available', '', 'None'] } },
+            { NOT: { OR: osConditions } },
+            { NOT: { operating_system: { contains: 'unknown', mode: 'insensitive' } } }
           ]
         };
-        where.AND = where.AND ? [...where.AND, notVirtualCondition] : [notVirtualCondition];
-        
-        // Also ensure it's a server if we are filtering for Bare Metal vs Virtualization
-        if (!device_type) {
-           where.model = where.model ? { ...where.model, device_type: 'server' } : { device_type: 'server' };
-        }
+        where.AND = where.AND ? [...where.AND, physicalCondition] : [physicalCondition];
+      }
+      
+      // Ensure we are looking for servers when using virt/phys filters
+      if (!device_type) {
+        if (where.model) where.model.device_type = 'server';
+        else where.model = { device_type: 'server' };
       }
     }
 
@@ -411,26 +407,30 @@ export const getAnalytics = async (req: Request, res: Response) => {
       virtualization_distribution: [
         { 
           name: 'Virtualization', 
-          count: items.filter(i => 
-            i.model.device_type === 'server' && 
-            i.operating_system && 
-            HYPERVISOR_KEYWORDS.some(k => i.operating_system?.toLowerCase().includes(k))
-          ).length 
+          count: items.filter(i => {
+            if (i.model?.device_type !== 'server' || !i.operating_system) return false;
+            const os = i.operating_system.toLowerCase();
+            return HYPERVISOR_KEYWORDS.some(k => os.includes(k));
+          }).length 
         },
         { 
           name: 'Physical Server', 
-          count: items.filter(i => 
-            i.model.device_type === 'server' && 
-            i.operating_system && 
-            !HYPERVISOR_KEYWORDS.some(k => i.operating_system?.toLowerCase().includes(k))
-          ).length 
+          count: items.filter(i => {
+            if (i.model?.device_type !== 'server' || !i.operating_system) return false;
+            const os = i.operating_system.toLowerCase();
+            const isUnknown = ['unknown', 'not available', 'none', ''].includes(os) || os.includes('unknown');
+            const isHypervisor = HYPERVISOR_KEYWORDS.some(k => os.includes(k));
+            return !isUnknown && !isHypervisor;
+          }).length 
         },
         { 
           name: 'Unknown / No OS', 
-          count: items.filter(i => 
-            i.model.device_type === 'server' && 
-            !i.operating_system
-          ).length 
+          count: items.filter(i => {
+            if (i.model?.device_type !== 'server') return false;
+            if (!i.operating_system) return true;
+            const os = i.operating_system.toLowerCase();
+            return ['unknown', 'not available', 'none', ''].includes(os) || os.includes('unknown');
+          }).length 
         }
       ]
     });
