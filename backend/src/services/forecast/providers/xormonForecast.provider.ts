@@ -101,23 +101,36 @@ export class XormonForecastProvider implements ForecastProvider {
             }, { headers });
 
             const series = Array.isArray(tsRes.data) ? tsRes.data : (tsRes.data?.data || []);
+            
+            if (series.length === 0) {
+              console.log(`[XormonForecast] Storage ${label}: No timeseries data returned for the period.`);
+            } else {
+              console.log(`[XormonForecast] Storage ${label}: Received ${series.length} metric series.`);
+            }
+
             for (const s of series) {
-              const mName = s.metric || s.metric_name;
+              const mName = String(s.metric || s.metric_name || '').toLowerCase();
               const values = s.values || s.data || [];
               if (!Array.isArray(values)) continue;
 
               for (const point of values) {
                 const ts = point.t || point[0];
                 const val = point.v || point[1];
+                
                 if (ts && val !== undefined && val !== null) {
                   let normalizedMetric = '';
-                  if (mName === 'capacity_total') normalizedMetric = 'capacity_total';
-                  else if (mName === 'capacity_used_percent' || mName === 'capacity_usage') normalizedMetric = 'capacity_used_percent';
+                  // Support multiple naming conventions from different Xormon versions
+                  if (mName.includes('total')) normalizedMetric = 'capacity_total';
+                  else if (mName.includes('used_percent') || mName.includes('usage') || mName === 'capacity_used_p') normalizedMetric = 'capacity_used_percent';
+                  else if (mName === 'capacity_used') normalizedMetric = 'capacity_used';
                   
                   if (normalizedMetric) {
+                    const finalVal = parseFloat(String(val));
+                    // If it's used_percent and value is > 100, it might be raw bytes, but we expect % here.
+                    // However, we'll trust the metric name for now.
                     metrics.push({
                       objectId: itemId, objectName: label, objectType: 'storage',
-                      metricName: normalizedMetric, metricValue: parseFloat(String(val)),
+                      metricName: normalizedMetric, metricValue: finalVal,
                       timestamp: new Date(ts > 9999999999 ? ts : ts * 1000)
                     });
                   }
