@@ -39,7 +39,6 @@ export class XormonForecastProvider implements ForecastProvider {
 
       const headers = { 'apiKey': apiKey, 'X-API-KEY': apiKey };
 
-    try {
       // 1. Bulk Storage Capacity Export (Optimized approach for all pools)
       console.log(`[XormonForecast] Attempting Bulk Storage Export...`);
       const endTime = Date.now();
