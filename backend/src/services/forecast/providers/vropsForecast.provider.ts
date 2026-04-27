@@ -93,11 +93,26 @@ export class VRopsForecastProvider implements ForecastProvider {
                 ? ['disk|capacity_usage', 'disk|capacity_contention', 'diskspace|total_capacity', 'diskspace|used_space']
                 : ['cpu|usage_average', 'mem|usage_average', 'cpu|demandPct', 'mem|host_demand'];
 
-              const statsRes = await client.post(
-                `/suite-api/api/resources/${resourceId}/stats/latest`,
-                { resourceId: [resourceId], statKey: statKeys },
-                { headers }
-              );
+              let statsRes;
+              try {
+                statsRes = await client.post(
+                  `/suite-api/api/resources/${resourceId}/stats/latest`,
+                  { resourceId: [resourceId], statKey: statKeys },
+                  { headers }
+                );
+              } catch (err: any) {
+                // If 403 Forbidden with token, try fallback to Basic Auth for this specific request
+                if (err.response?.status === 403 && source.username && source.password) {
+                  const basicAuth = Buffer.from(`${source.username}:${decrypt(source.password)}`).toString('base64');
+                  statsRes = await client.post(
+                    `/suite-api/api/resources/${resourceId}/stats/latest`,
+                    { resourceId: [resourceId], statKey: statKeys },
+                    { headers: { ...headers, 'Authorization': `Basic ${basicAuth}` } }
+                  );
+                } else {
+                  throw err;
+                }
+              }
 
               const statList = statsRes.data?.values || statsRes.data?.stat || [];
 

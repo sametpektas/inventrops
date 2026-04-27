@@ -145,7 +145,11 @@ export class XormonForecastProvider implements ForecastProvider {
           }
 
         } catch (err: any) {
-          console.warn(`[XormonForecast] Failed to fetch config for ${label}: ${err.message}`);
+          if (err.response?.status === 402) {
+            console.warn(`[XormonForecast] Licensing Issue (402) for ${label}: API license for this technology is missing in Xormon.`);
+          } else {
+            console.warn(`[XormonForecast] Failed to fetch config for ${label}: ${err.message}`);
+          }
         }
       }
 
