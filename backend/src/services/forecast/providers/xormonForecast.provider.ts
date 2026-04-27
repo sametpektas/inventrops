@@ -39,20 +39,40 @@ export class XormonForecastProvider implements ForecastProvider {
 
       const headers = { 'apiKey': apiKey, 'X-API-KEY': apiKey };
 
-      // Get device list
-      const devResponse = await client.get('/api/public/v1/architecture/devices', { headers });
-      const rawDevices = devResponse.data;
-      let devices: any[] = [];
+      // Get device list from multiple architecture endpoints to ensure full coverage
+      const endpoints = [
+        '/api/public/v1/architecture/devices',
+        '/api/public/v1/architecture/storage',
+        '/api/public/v1/architecture/san',
+        '/api/public/v1/architecture/server',
+        '/api/public/v1/architecture/virtualization'
+      ];
 
-      if (Array.isArray(rawDevices)) {
-        devices = rawDevices;
-      } else if (rawDevices?.data && Array.isArray(rawDevices.data)) {
-        devices = rawDevices.data;
-      } else if (rawDevices?.items && Array.isArray(rawDevices.items)) {
-        devices = rawDevices.items;
+      let allDevicesMap = new Map<string, any>();
+
+      for (const endpoint of endpoints) {
+        try {
+          const devResponse = await client.get(endpoint, { headers });
+          const rawDevices = devResponse.data;
+          let items: any[] = [];
+
+          if (Array.isArray(rawDevices)) items = rawDevices;
+          else if (rawDevices?.data && Array.isArray(rawDevices.data)) items = rawDevices.data;
+          else if (rawDevices?.items && Array.isArray(rawDevices.items)) items = rawDevices.items;
+
+          for (const item of items) {
+            const id = String(item.item_id || item.id || '');
+            if (id && !allDevicesMap.has(id)) {
+              allDevicesMap.set(id, item);
+            }
+          }
+        } catch (err) {
+          // Some endpoints might not exist or be licensed, skip gracefully
+        }
       }
 
-      console.log(`[XormonForecast] Found ${devices.length} devices for capacity metrics.`);
+      const devices = Array.from(allDevicesMap.values());
+      console.log(`[XormonForecast] Found ${devices.length} unique devices across all architecture endpoints.`);
 
       // For each device, fetch configuration (for metadata) and timeseries (for history)
       for (const device of devices) {
@@ -79,7 +99,44 @@ export class XormonForecastProvider implements ForecastProvider {
         }
 
         try {
-          // 1. Fetch Configuration (Current snapshot + Metadata)
+          // 1. Fetch Capacity Metrics (Standardized for all storage devices)
+          const capRes = await client.post(
+            '/api/public/v1/exporter/capacity',
+            { uuids: [itemId], format: 'json' },
+            { headers }
+          );
+
+          const capData = capRes.data;
+          let capMetrics: any = null;
+
+          if (Array.isArray(capData) && capData.length > 0) {
+            capMetrics = capData[0]?.capacity_metrics || capData[0];
+          } else if (capData?.data && Array.isArray(capData.data) && capData.data.length > 0) {
+            capMetrics = capData.data[0]?.capacity_metrics || capData.data[0];
+          }
+
+          if (capMetrics) {
+            // Priority: usable_gb -> total_raw_gb -> capacity_total
+            const totalGB = parseFloat(String(capMetrics.total_usable_gb || capMetrics.total_raw_gb || capMetrics.capacity_total || capMetrics.total || '0'));
+            const usedGB = parseFloat(String(capMetrics.used_gb || capMetrics.capacity_used || capMetrics.used || '0'));
+            
+            if (totalGB > 0) {
+              metrics.push({
+                objectId: itemId, objectName: label, objectType: finalType,
+                metricName: 'capacity_total', metricValue: totalGB, timestamp
+              });
+              
+              const usagePercent = Math.min(100, (usedGB / totalGB) * 100);
+              metrics.push({
+                objectId: itemId, objectName: label, objectType: finalType,
+                metricName: 'capacity_used_percent', 
+                metricValue: Math.round(usagePercent * 100) / 100, 
+                timestamp
+              });
+            }
+          }
+
+          // 2. Fetch Configuration (Metadata fallback + SAN ports)
           const configRes = await client.post(
             '/api/public/v1/exporter/configuration',
             { uuids: [itemId], format: 'json' },
@@ -90,63 +147,31 @@ export class XormonForecastProvider implements ForecastProvider {
           let conf: any = {};
           if (Array.isArray(configData) && configData.length > 0) {
             conf = configData[0]?.configuration || configData[0]?.config || configData[0] || {};
-          } else if (configData && typeof configData === 'object') {
-            const nested = configData.data || configData.items || configData.results;
-            if (Array.isArray(nested) && nested.length > 0) {
-              const first = nested[0];
-              conf = first?.configuration || first?.config || first || {};
-            } else {
-              const keys = Object.keys(configData);
-              if (keys.length > 0) {
-                const val = configData[keys[0]];
-                conf = val?.configuration || val?.config || val || {};
-              }
-            }
           }
-
+          
           const parseXormonValue = (val: any): number => {
             if (typeof val === 'number') return val;
             if (!val) return 0;
             const str = String(val).toLowerCase().trim();
             const num = parseFloat(str);
             if (isNaN(num)) return 0;
-            if (str.includes('pb')) return num * 1024 * 1024 * 1024;
-            if (str.includes('tb')) return num * 1024 * 1024;
-            if (str.includes('gb')) return num * 1024;
-            if (str.includes('kb')) return num / 1024;
-            return num; // Default MB
+            if (str.includes('pb')) return num * 1024 * 1024;
+            if (str.includes('tb')) return num * 1024;
+            if (str.includes('gb')) return num;
+            return num / 1024; // Default MB to GB
           };
 
-          // Storage Capacity from Configuration (Last known state)
-          const totalVal = conf.capacity_total || conf.total_capacity || conf.pool_total_capacity || 
-                           conf.physical_capacity || conf.real_capacity || conf.cap_p || conf.total_size || 
-                           conf.size || conf.capacity || '0';
-                           
-          const usedVal = conf.capacity_used || conf.used_capacity || conf.pool_used_capacity || 
-                          conf.physical_used_capacity || conf.used_real_capacity || conf.cap_r ||
-                          conf.used_size || conf.used || '0';
-
-          const capacityTotalMB = parseXormonValue(totalVal);
-          const capacityUsedMB = parseXormonValue(usedVal);
-
-          if (capacityTotalMB > 0) {
-            const capTotalGB = capacityTotalMB / 1024;
-            const capUsedGB = capacityUsedMB / 1024;
-            
-            metrics.push({
-              objectId: itemId, objectName: label, objectType: finalType,
-              metricName: 'capacity_total', metricValue: capTotalGB, timestamp
-            });
-            
-            let usagePercent = (capUsedGB / capTotalGB) * 100;
-            if (usagePercent > 100 && !label.toLowerCase().includes('overprovision')) usagePercent = 100;
-
-            metrics.push({
-              objectId: itemId, objectName: label, objectType: finalType,
-              metricName: 'capacity_used_percent', 
-              metricValue: Math.round(usagePercent * 100) / 100, 
-              timestamp
-            });
+          // Fallback if /capacity didn't have totalGB
+          if (metrics.filter(m => m.objectId === itemId && m.metricName === 'capacity_total').length === 0) {
+            const totalVal = conf.capacity_total || conf.total_capacity || conf.pool_total_capacity || 
+                             conf.physical_capacity || conf.real_capacity || conf.cap_p || '0';
+            const totalGB = parseXormonValue(totalVal);
+            if (totalGB > 0) {
+               metrics.push({
+                objectId: itemId, objectName: label, objectType: finalType,
+                metricName: 'capacity_total', metricValue: totalGB, timestamp
+              });
+            }
           }
 
           // SAN specific metrics from Config (Fallback)
