@@ -4,53 +4,6 @@ import { XormonForecastProvider } from '../services/forecast/providers/xormonFor
 import { VRopsForecastProvider } from '../services/forecast/providers/vropsForecast.provider';
 import { calculateForecast } from '../services/forecast/engine';
 
-export const getForecastConfigs = async (req: Request, res: Response) => {
-  try {
-    const sources = await prisma.forecastSource.findMany();
-    // Mask sensitive fields
-    const safeSources = sources.map(s => ({
-      ...s,
-      api_key: s.api_key ? '********' : null,
-      password: s.password ? '********' : null
-    }));
-    res.json({ results: safeSources });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch forecast configs' });
-  }
-};
-
-export const createOrUpdateForecastConfig = async (req: Request, res: Response) => {
-  const { id, name, source_type, url, api_key, username, password, is_active } = req.body;
-  try {
-    const data: any = { name, source_type, url, username, is_active };
-    if (api_key && api_key !== '********') data.api_key = api_key;
-    if (password && password !== '********') data.password = password;
-
-    let source;
-    if (id) {
-      source = await prisma.forecastSource.update({ where: { id: Number(id) }, data });
-    } else {
-      source = await prisma.forecastSource.create({ data });
-    }
-    res.json({ message: 'Config saved successfully', source });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to save forecast config' });
-  }
-};
-
-export const deleteForecastConfig = async (req: Request, res: Response) => {
-  const { id } = req.params;
-  try {
-    // Delete snapshots/results first to avoid foreign key constraints
-    await prisma.forecastMetricSnapshot.deleteMany({ where: { source_id: Number(id) } });
-    await prisma.forecastResult.deleteMany({ where: { source_id: Number(id) } });
-    await prisma.forecastSource.delete({ where: { id: Number(id) } });
-    res.json({ message: 'Config deleted successfully' });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to delete config' });
-  }
-};
-
 export const getForecastSummary = async (req: Request, res: Response) => {
   const { team_id, role } = (req as any).user || {};
   try {
@@ -132,11 +85,16 @@ export const getForecastHistory = async (req: Request, res: Response) => {
 export const syncForecastData = async (req: Request, res: Response) => {
   // In a real app this would just trigger a BullMQ job. For Phase 2 dev, we can run it synchronously or async.
   try {
-    const sources = await prisma.forecastSource.findMany({ where: { is_active: true } });
+    const sources = await prisma.integrationConfig.findMany({ 
+      where: { 
+        is_active: true,
+        integration_type: { in: ['xormon', 'vrops'] }
+      } 
+    });
     let totalSynced = 0;
 
     for (const source of sources) {
-      const provider = source.source_type === 'xormon' ? new XormonForecastProvider() : new VRopsForecastProvider();
+      const provider = source.integration_type === 'xormon' ? new XormonForecastProvider() : new VRopsForecastProvider();
       const metrics = await provider.collectMetrics(source.id);
       
       for (const m of metrics) {

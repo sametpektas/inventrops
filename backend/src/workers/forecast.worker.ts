@@ -24,11 +24,16 @@ export function startForecastWorker() {
   const worker = new Worker('forecast-jobs', async job => {
     if (job.name === 'sync-all') {
       console.log('[Forecast Worker] Starting periodic sync...');
-      const sources = await prisma.forecastSource.findMany({ where: { is_active: true } });
+      const sources = await prisma.integrationConfig.findMany({ 
+        where: { 
+          is_active: true,
+          integration_type: { in: ['xormon', 'vrops'] }
+        } 
+      });
       
       for (const source of sources) {
         try {
-          const provider = source.source_type === 'xormon' ? new XormonForecastProvider() : new VRopsForecastProvider();
+          const provider = source.integration_type === 'xormon' ? new XormonForecastProvider() : new VRopsForecastProvider();
           const metrics = await provider.collectMetrics(source.id);
           
           for (const m of metrics) {

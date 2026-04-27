@@ -1,45 +1,120 @@
 import axios from 'axios';
+import https from 'https';
 import { prisma } from '../../../lib/prisma';
+import { decrypt } from '../../../utils/crypto';
 import { NormalizedMetric, ForecastProvider } from './index';
 
 export class VRopsForecastProvider implements ForecastProvider {
   async collectMetrics(sourceId: number): Promise<NormalizedMetric[]> {
-    const source = await prisma.forecastSource.findUnique({ where: { id: sourceId } });
-    if (!source) throw new Error('Source not found');
+    const source = await prisma.integrationConfig.findUnique({ where: { id: sourceId } });
+    if (!source || source.integration_type !== 'vrops') throw new Error('Invalid vROps source');
 
     const metrics: NormalizedMetric[] = [];
     const timestamp = new Date();
 
+    const client = axios.create({
+      baseURL: source.url,
+      timeout: 60000,
+      httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }
+    });
+
     try {
-      if (source.url && source.url !== 'mock://vrops') {
-        const response = await axios.get(`${source.url}/suite-api/api/resources/stats`, {
-          headers: {
-            'Authorization': `vRealizeOpsToken ${source.api_key}`,
-            'Accept': 'application/json'
-          },
-          timeout: 10000
+      // Authenticate: vROps uses token-based auth
+      let token = source.api_key ? decrypt(source.api_key) : null;
+
+      if (!token && source.username && source.password) {
+        const authRes = await client.post('/suite-api/api/auth/token/acquire', {
+          username: source.username,
+          password: decrypt(source.password)
         });
-        
-        const data = response.data;
-        if (data && Array.isArray(data.resourceList)) {
-          for (const item of data.resourceList) {
-             const statList = item.statKey || [];
-             for (const stat of statList) {
-                metrics.push({
-                   objectId: String(item.identifier),
-                   objectName: String(item.resourceName),
-                   objectType: String(item.resourceKind).toLowerCase(),
-                   metricName: stat.key,
-                   metricValue: Number(stat.value),
-                   timestamp
-                });
-             }
-          }
-        }
+        token = authRes.data?.token;
+      }
+
+      if (!token) {
+        console.warn('[VRopsForecast] No valid token obtained.');
         return metrics;
       }
+
+      const headers = {
+        'Authorization': `vRealizeOpsToken ${token}`,
+        'Accept': 'application/json'
+      };
+
+      // Fetch resources (VMs, Hosts, Clusters, Datastores)
+      const resourceKinds = ['VirtualMachine', 'HostSystem', 'ClusterComputeResource', 'Datastore'];
+
+      for (const kind of resourceKinds) {
+        try {
+          const resResponse = await client.get('/suite-api/api/resources', {
+            headers,
+            params: { resourceKind: kind, pageSize: 100 }
+          });
+
+          const resources = resResponse.data?.resourceList || [];
+          console.log(`[VRopsForecast] Found ${resources.length} ${kind} resources.`);
+
+          for (const resource of resources) {
+            const resourceId = resource.identifier;
+            const resourceName = resource.resourceKey?.name || resource.resourceName || resourceId;
+            let objectType = 'server';
+
+            if (kind === 'ClusterComputeResource') objectType = 'virtualization';
+            else if (kind === 'Datastore') objectType = 'storage';
+            else if (kind === 'VirtualMachine') objectType = 'virtualization';
+
+            // Fetch latest stats for this resource
+            try {
+              const statKeys = kind === 'Datastore'
+                ? ['disk|capacity_usage', 'disk|capacity_contention', 'diskspace|total_capacity', 'diskspace|used_space']
+                : ['cpu|usage_average', 'mem|usage_average', 'cpu|demandPct', 'mem|host_demand'];
+
+              const statsRes = await client.post(
+                `/suite-api/api/resources/${resourceId}/stats/latest`,
+                { resourceId: [resourceId], statKey: statKeys },
+                { headers }
+              );
+
+              const statList = statsRes.data?.values || statsRes.data?.stat || [];
+
+              for (const stat of statList) {
+                const key = stat.statKey?.key || stat.key;
+                const dataPoints = stat['stat-list']?.stat || stat.data || [];
+                const latestValue = Array.isArray(dataPoints) && dataPoints.length > 0
+                  ? dataPoints[dataPoints.length - 1]?.data || dataPoints[dataPoints.length - 1]
+                  : null;
+
+                if (key && latestValue !== null && latestValue !== undefined) {
+                  // Normalize metric name
+                  let metricName = key.replace(/\|/g, '_');
+                  if (metricName.includes('cpu_usage')) metricName = 'cpu_usage_percent';
+                  else if (metricName.includes('mem_usage')) metricName = 'memory_usage_percent';
+                  else if (metricName.includes('capacity_usage')) metricName = 'capacity_used_percent';
+                  else if (metricName.includes('total_capacity')) metricName = 'capacity_total';
+                  else if (metricName.includes('used_space')) metricName = 'capacity_used';
+
+                  metrics.push({
+                    objectId: resourceId,
+                    objectName: resourceName,
+                    objectType,
+                    metricName,
+                    metricValue: Number(latestValue),
+                    timestamp
+                  });
+                }
+              }
+            } catch (statErr: any) {
+              console.warn(`[VRopsForecast] Failed to fetch stats for ${resourceName}: ${statErr.message}`);
+            }
+          }
+        } catch (kindErr: any) {
+          console.warn(`[VRopsForecast] Failed to fetch ${kind} resources: ${kindErr.message}`);
+        }
+      }
+
+      console.log(`[VRopsForecast] Collected ${metrics.length} metrics total.`);
     } catch (error) {
-      console.warn(`[VRopsProvider] Failed to fetch real metrics:`, (error as Error).message);
+      console.warn(`[VRopsForecast] Failed to fetch metrics:`, (error as Error).message);
     }
 
     return metrics;

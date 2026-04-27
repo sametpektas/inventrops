@@ -236,6 +236,7 @@ export default function Integrations() {
                     <option value="dell_openmanage">Dell OpenManage</option>
                     <option value="hpe_oneview">HPE OneView</option>
                     <option value="xormon">Xormon</option>
+                    <option value="vrops">vROps (Aria Operations)</option>
                   </select>
                 </div>
                 

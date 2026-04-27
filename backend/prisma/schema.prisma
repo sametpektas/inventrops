@@ -40,6 +40,7 @@ enum IntegrationType {
   dell_openmanage
   hpe_oneview
   xormon
+  vrops
 }
 
 enum SyncStatus {
@@ -60,7 +61,6 @@ model Team {
   items               InventoryItem[]
   shareLinks          ShareLink[]
   integrationConfigs  IntegrationConfig[]
-  forecastSources     ForecastSource[]
 
   @@map("accounts_team")
 }
@@ -249,6 +249,10 @@ model IntegrationConfig {
   team_id           Int
   team              Team            @relation(fields: [team_id], references: [id])
   logs              SyncLog[]
+  forecast_snapshots ForecastMetricSnapshot[]
+  forecast_results   ForecastResult[]
+  forecast_jobs      ForecastJob[]
+  forecast_alerts    ForecastAlert[]
 
   @@map("integrations_integrationconfig")
 }
@@ -284,33 +288,12 @@ enum ForecastJobStatus {
   failed
 }
 
-model ForecastSource {
-  id              Int      @id @default(autoincrement())
-  name            String
-  source_type     String   // 'xormon' | 'vrops'
-  url             String
-  api_key         String?
-  username        String?
-  password        String?
-  is_active       Boolean  @default(true)
-  created_at      DateTime @default(now())
-  updated_at      DateTime @updatedAt
-  
-  team_id         Int
-  team            Team     @relation(fields: [team_id], references: [id])
-  
-  snapshots       ForecastMetricSnapshot[]
-  results         ForecastResult[]
-  jobs            ForecastJob[]
-  alerts          ForecastAlert[]
 
-  @@map("forecast_source")
-}
 
 model ForecastMetricSnapshot {
   id              Int      @id @default(autoincrement())
   source_id       Int
-  source          ForecastSource @relation(fields: [source_id], references: [id])
+  source          IntegrationConfig @relation(fields: [source_id], references: [id])
   
   object_id       String   // external ID (VM ID, LUN ID, etc.)
   object_name     String
@@ -329,7 +312,7 @@ model ForecastMetricSnapshot {
 model ForecastResult {
   id              Int      @id @default(autoincrement())
   source_id       Int
-  source          ForecastSource @relation(fields: [source_id], references: [id])
+  source          IntegrationConfig @relation(fields: [source_id], references: [id])
   
   object_id       String
   object_name     String
@@ -357,7 +340,7 @@ model ForecastResult {
 model ForecastJob {
   id              Int      @id @default(autoincrement())
   source_id       Int
-  source          ForecastSource @relation(fields: [source_id], references: [id])
+  source          IntegrationConfig @relation(fields: [source_id], references: [id])
   job_type        String   // 'sync' | 'calculate'
   status          ForecastJobStatus @default(pending)
   started_at      DateTime?
@@ -370,7 +353,7 @@ model ForecastJob {
 model ForecastAlert {
   id              Int      @id @default(autoincrement())
   source_id       Int
-  source          ForecastSource @relation(fields: [source_id], references: [id])
+  source          IntegrationConfig @relation(fields: [source_id], references: [id])
   
   object_id       String
   object_name     String

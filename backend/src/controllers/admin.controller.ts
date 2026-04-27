@@ -208,6 +208,15 @@ export const testIntegrationConnection = async (req: Request, res: Response) => 
     if (integration_type === 'dell_openmanage') adapter = new DellOpenManageAdapter(config);
     else if (integration_type === 'hpe_oneview') adapter = new HPEOneViewAdapter(config);
     else if (integration_type === 'xormon') adapter = new XormonAdapter(config);
+    else if (integration_type === 'vrops') {
+      // vROps test connection: try to reach the suite-api
+      const axios = (await import('axios')).default;
+      const testRes = await axios.get(`${base_url}/suite-api/api/versions`, {
+        headers: { 'Authorization': `vRealizeOpsToken ${api_key}`, 'Accept': 'application/json' },
+        timeout: 10000
+      });
+      return res.json({ message: 'Connection successful', version: testRes.data });
+    }
     else return res.status(400).json({ error: 'Invalid integration type' });
 
     const ok = await adapter.testConnection();
