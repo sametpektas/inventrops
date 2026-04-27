@@ -39,7 +39,6 @@ export class XormonForecastProvider implements ForecastProvider {
 
       const headers = { 'apiKey': apiKey, 'X-API-KEY': apiKey };
 
-    try {
       // 1. Get device list from multiple architecture endpoints
       const endpoints = [
         '/api/public/v1/architecture/devices',
