@@ -39,64 +39,72 @@ export class XormonForecastProvider implements ForecastProvider {
 
       const headers = { 'apiKey': apiKey, 'X-API-KEY': apiKey };
 
-      // 1. Bulk Storage Capacity Export (Optimized approach for all pools)
-      console.log(`[XormonForecast] Attempting Bulk Storage Export...`);
-      const endTime = Date.now();
-      const startTime = endTime - (180 * 24 * 3600 * 1000);
-      
+    try {
+      // 1. Discover and Fetch Bulk Exporters (Storage & SAN)
+      console.log(`[XormonForecast] Discovering Bulk Exporters...`);
       try {
-        const bulkRes = await client.post('/api/exporter/v1/exports', {
-          label: "InvenTrOps_Bulk_Capacity",
-          format: "json",
-          type: "timeseries",
-          class: "storage",
-          subsystem: "pool",
-          data: {
-            metric: ["capacity_total", "capacity_used", "capacity_used_percent", "capacity_free"],
-            granularity: "1d",
-            start: startTime,
-            finish: endTime
-          },
-          regex: [".*"]
-        }, { headers });
-
-        const bulkData = bulkRes.data?.data || bulkRes.data;
-        // If the bulk export returns data directly (sync), parse it
-        const series = Array.isArray(bulkData) ? bulkData : (bulkData?.items || bulkData?.results || []);
+        const exportsRes = await client.get('/api/exporter/v1/exports', { headers });
+        const exports = Array.isArray(exportsRes.data?.data) ? exportsRes.data.data : 
+                        (Array.isArray(exportsRes.data) ? exportsRes.data : []);
         
-        if (series.length > 0) {
-          console.log(`[XormonForecast] Bulk Export returned ${series.length} series.`);
-          for (const s of series) {
-            const itemId = s.item_id || s.id || s.uuid;
-            const label = s.label || s.item_name || itemId;
-            const mName = s.metric || s.metric_name;
-            const values = s.values || s.data || [];
-            if (!itemId || !Array.isArray(values)) continue;
+        console.log(`[XormonForecast] Found ${exports.length} configured exporters.`);
 
-            for (const point of values) {
-              const ts = point.t || point[0];
-              const val = point.v || point[1];
-              if (ts && val !== undefined) {
-                let normalizedMetric = '';
-                if (mName === 'capacity_used_percent') normalizedMetric = 'capacity_used_percent';
-                else if (mName === 'capacity_total') normalizedMetric = 'capacity_total';
-                
-                if (normalizedMetric) {
-                   const timestampObj = new Date(ts > 9999999999 ? ts : ts * 1000);
-                   metrics.push({
-                     objectId: itemId, objectName: label, objectType: 'storage',
-                     metricName: normalizedMetric, metricValue: parseFloat(String(val)), timestamp: timestampObj
-                   });
+        for (const exp of exports) {
+          const label = String(exp.label || '').toLowerCase();
+          const exportId = exp.export_id || exp.id;
+          
+          // Focus on Capacity, Switch or User's 'test' label
+          if (exportId && (label.includes('capacity') || label.includes('switch') || label.includes('test') || label.includes('storage'))) {
+            console.log(`[XormonForecast] Fetching data for exporter: ${exp.label} (${exportId})`);
+            try {
+              // Try to fetch the data for this export
+              const dataRes = await client.get(`/api/exporter/v1/exports/${exportId}/data`, { headers });
+              const resultData = dataRes.data?.data || dataRes.data;
+              const series = Array.isArray(resultData) ? resultData : (resultData?.items || resultData?.results || []);
+
+              if (series.length > 0) {
+                console.log(`[XormonForecast] Exporter '${exp.label}' returned ${series.length} series.`);
+                for (const s of series) {
+                  const itemId = s.item_id || s.id || s.uuid;
+                  const itemLabel = s.label || s.item_name || itemId;
+                  const mName = s.metric || s.metric_name;
+                  const values = s.values || s.data || [];
+                  if (!itemId || !Array.isArray(values)) continue;
+
+                  const objType = label.includes('switch') ? 'san' : 'storage';
+
+                  for (const point of values) {
+                    const ts = point.t || point[0];
+                    const val = point.v || point[1];
+                    if (ts && val !== undefined) {
+                      let normalizedMetric = '';
+                      if (mName.includes('percent')) {
+                         normalizedMetric = label.includes('switch') ? 'port_utilization_percent' : 'capacity_used_percent';
+                      } else if (mName.includes('total')) {
+                         normalizedMetric = 'capacity_total';
+                      }
+                      
+                      if (normalizedMetric) {
+                        const timestampObj = new Date(ts > 9999999999 ? ts : ts * 1000);
+                        metrics.push({
+                          objectId: itemId, objectName: itemLabel, objectType: objType,
+                          metricName: normalizedMetric, metricValue: parseFloat(String(val)), timestamp: timestampObj
+                        });
+                      }
+                    }
+                  }
                 }
               }
+            } catch (dataErr: any) {
+              console.warn(`[XormonForecast] Failed to fetch data for export ${exportId}: ${dataErr.message}`);
             }
           }
         }
-      } catch (bulkErr: any) {
-        console.warn(`[XormonForecast] Bulk export failed: ${bulkErr.message}. Falling back to individual queries.`);
+      } catch (listErr: any) {
+        console.warn(`[XormonForecast] Export discovery failed: ${listErr.message}`);
       }
 
-      // 2. Get device list for remaining devices (SAN, etc.)
+      // 2. Get device list for remaining devices (Architecture API fallback)
       const endpoints = [
         '/api/public/v1/architecture/devices',
         '/api/public/v1/architecture/storage',

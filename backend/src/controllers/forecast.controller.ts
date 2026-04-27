@@ -97,8 +97,20 @@ export const syncForecastData = async (req: Request, res: Response) => {
       const metrics = await provider.collectMetrics(source.id);
       
       for (const m of metrics) {
-        await prisma.forecastMetricSnapshot.create({
-          data: {
+        await prisma.forecastMetricSnapshot.upsert({
+          where: {
+            object_id_metric_name_captured_at: {
+              object_id: m.objectId,
+              metric_name: m.metricName,
+              captured_at: m.timestamp
+            }
+          },
+          update: {
+            metric_value: m.metricValue,
+            object_name: m.objectName,
+            object_type: m.objectType
+          },
+          create: {
             source_id: source.id,
             object_id: m.objectId,
             object_name: m.objectName,
@@ -113,6 +125,7 @@ export const syncForecastData = async (req: Request, res: Response) => {
     }
     res.json({ message: 'Sync complete', totalSynced });
   } catch (error) {
+    console.error('[ForecastSync] Error:', error);
     res.status(500).json({ error: 'Sync failed', details: (error as Error).message });
   }
 };
@@ -133,11 +146,9 @@ export const recalculateForecast = async (req: Request, res: Response) => {
 
       const points = history.map(h => ({ date: h.captured_at, value: h.metric_value }));
       
-      // Basic thresholds logic depending on metric
       let warning = 80;
       let critical = 90;
       if (obj.metric_name === 'capacity_total' || obj.metric_name === 'capacity_used' || obj.metric_name === 'iops' || obj.metric_name === 'vm_count') {
-          // Absolute values don't have static percentage thresholds usually without knowing max, so just mock a high number.
           warning = 100000;
           critical = 120000;
       }
@@ -153,10 +164,9 @@ export const recalculateForecast = async (req: Request, res: Response) => {
         },
         update: {
           current_value: points[points.length - 1]?.value || 0,
-          pred_30d: result.pred_1y,
-          pred_90d: result.pred_2y,
-          pred_180d: result.pred_3y,
-          pred_365d: result.pred_1y,
+          pred_1y: result.pred_1y,
+          pred_2y: result.pred_2y,
+          pred_3y: result.pred_3y,
           days_to_warning: result.days_to_warning,
           days_to_critical: result.days_to_critical,
           confidence_score: result.confidence_score,
@@ -170,10 +180,9 @@ export const recalculateForecast = async (req: Request, res: Response) => {
           object_type: obj.object_type,
           metric_name: obj.metric_name,
           current_value: points[points.length - 1]?.value || 0,
-          pred_30d: result.pred_1y,
-          pred_90d: result.pred_2y,
-          pred_180d: result.pred_3y,
-          pred_365d: result.pred_1y,
+          pred_1y: result.pred_1y,
+          pred_2y: result.pred_2y,
+          pred_3y: result.pred_3y,
           days_to_warning: result.days_to_warning,
           days_to_critical: result.days_to_critical,
           confidence_score: result.confidence_score,
