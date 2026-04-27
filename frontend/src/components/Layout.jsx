@@ -18,19 +18,12 @@ const NAV_ITEMS = [
       { to: '/inventory/deactivated', label: 'Deactivated / Depot', icon: '⚇' },
     ],
   },
-  {
-    section: 'Sharing',
-    items: [
-      { to: '/shares', label: 'Shared Links', icon: '⤤' },
-    ],
-  },
 ];
 
 const PAGE_TITLES = {
   '/dashboard': 'Dashboard',
   '/analytics': 'Analytics',
   '/inventory': 'Active Inventory',
-  '/shares': 'Shared Links',
   '/profile': 'Profile',
 };
 

@@ -8,8 +8,6 @@ import Dashboard from './pages/Dashboard';
 import Inventory from './pages/Inventory';
 import InventoryDetail from './pages/InventoryDetail';
 import Analytics from './pages/Analytics';
-import Shares from './pages/Shares';
-import SharedView from './pages/SharedView';
 import DeactivatedItems from './pages/DeactivatedItems';
 
 export default function App() {
@@ -19,7 +17,6 @@ export default function App() {
         <AuthProvider>
           <Routes>
             <Route path="/login" element={<Login />} />
-            <Route path="/share/:token" element={<SharedView />} />
 
             <Route
               element={
@@ -33,7 +30,6 @@ export default function App() {
               <Route path="/inventory/deactivated" element={<DeactivatedItems />} />
               <Route path="/inventory/:id" element={<InventoryDetail />} />
               <Route path="/analytics" element={<Analytics />} />
-              <Route path="/shares" element={<Shares />} />
             </Route>
 
             <Route path="*" element={<Navigate to="/login" replace />} />

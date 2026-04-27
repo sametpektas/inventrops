@@ -663,6 +663,13 @@ export const importInventory = async (req: Request, res: Response) => {
         });
         updated++;
       } else {
+        // UPDATE-ONLY CHECK: If the user only provides Serial Number and Warranty,
+        // Vendor and Model will be empty. We should not create dummy devices.
+        if (!row['Vendor'] && !row['Model']) {
+          skipped++;
+          continue;
+        }
+
         // CREATE NEW DEVICE
         // Ensure Vendor exists
         let vendor = await prisma.vendor.findUnique({ where: { name: vendorName } });

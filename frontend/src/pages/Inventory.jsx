@@ -280,8 +280,8 @@ export default function Inventory() {
           <option value="">All Types</option>
           <option value="server">Server</option>
           <option value="storage">Storage</option>
-          <option value="network">Network</option>
-          <option value="san">SAN Switch</option>
+          <option value="network_switch">Network Switch</option>
+          <option value="san_switch">SAN Switch</option>
           <option value="chassis">Chassis</option>
         </select>
 
