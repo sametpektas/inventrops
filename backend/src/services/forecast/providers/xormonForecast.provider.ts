@@ -59,10 +59,22 @@ export class XormonForecastProvider implements ForecastProvider {
         const itemId = String(device.item_id || device.id || '');
         const label = String(device.label || device.hostname || itemId);
         const hwType = String(device.hw_type || '').toLowerCase();
+        const vendor = String(device.vendor || '').toLowerCase();
+        const model = String(device.model || '').toLowerCase();
         const deviceClass = String(device.class || 'storage').toLowerCase();
         let finalType = deviceClass;
-        if (hwType === 'sanbrcd' || hwType === 'brocade' || label.toLowerCase().includes('switch')) {
+        
+        if (
+          hwType === 'sanbrcd' || hwType === 'brocade' || 
+          vendor === 'brocade' || vendor.includes('san') ||
+          model.includes('switch') || label.toLowerCase().includes('switch')
+        ) {
           finalType = 'san';
+        } else if (
+          vendor.includes('ibm') || vendor.includes('hitachi') || vendor.includes('huawei') ||
+          model.includes('v7000') || model.includes('svc') || model.includes('oceanstor')
+        ) {
+          finalType = 'storage';
         }
 
         // Fetch configuration to get capacity and performance info
@@ -93,9 +105,32 @@ export class XormonForecastProvider implements ForecastProvider {
             }
           }
 
-          // 1. Storage Capacity Metrics (Convert MB to GB)
-          const capacityTotalMB = parseFloat(conf.capacity_total || conf.total_capacity || conf.size || '0');
-          const capacityUsedMB = parseFloat(conf.capacity_used || conf.used_capacity || conf.used || '0');
+          // Helper for unit-aware parsing (Xormon sometimes returns "10.5 TB" or "10.5TB")
+          const parseXormonValue = (val: any): number => {
+            if (typeof val === 'number') return val;
+            if (!val) return 0;
+            const str = String(val).toLowerCase().trim();
+            const num = parseFloat(str);
+            if (isNaN(num)) return 0;
+            if (str.includes('pb')) return num * 1024 * 1024 * 1024;
+            if (str.includes('tb')) return num * 1024 * 1024;
+            if (str.includes('gb')) return num * 1024;
+            if (str.includes('kb')) return num / 1024;
+            return num; // Default MB
+          };
+
+          // 1. Storage Capacity Metrics
+          // Expanded aliases for IBM, Hitachi, and Dell EMC
+          const totalVal = conf.capacity_total || conf.total_capacity || conf.pool_total_capacity || 
+                           conf.physical_capacity || conf.real_capacity || conf.total_size || 
+                           conf.size || conf.capacity || '0';
+                           
+          const usedVal = conf.capacity_used || conf.used_capacity || conf.pool_used_capacity || 
+                          conf.physical_used_capacity || conf.used_real_capacity || 
+                          conf.used_size || conf.used || '0';
+
+          const capacityTotalMB = parseXormonValue(totalVal);
+          const capacityUsedMB = parseXormonValue(usedVal);
 
           if (capacityTotalMB > 0) {
             const capTotalGB = capacityTotalMB / 1024;
@@ -105,18 +140,38 @@ export class XormonForecastProvider implements ForecastProvider {
               objectId: itemId, objectName: label, objectType: finalType,
               metricName: 'capacity_total', metricValue: capTotalGB, timestamp
             });
+            
+            // Calculate percentage
+            let usagePercent = (capUsedGB / capTotalGB) * 100;
+            if (usagePercent > 100 && !label.toLowerCase().includes('overprovision')) usagePercent = 100;
+
             metrics.push({
               objectId: itemId, objectName: label, objectType: finalType,
               metricName: 'capacity_used_percent', 
-              metricValue: Math.round((capUsedGB / capTotalGB) * 10000) / 100, 
+              metricValue: Math.round(usagePercent * 100) / 100, 
               timestamp
             });
+          } else {
+            // Log available keys to help debug missing IBM metrics
+            const availableKeys = Object.keys(conf).filter(k => k.includes('cap') || k.includes('size') || k.includes('used'));
+            if (availableKeys.length > 0) {
+              console.log(`[XormonForecast] Device ${label} has no capacity but found keys: ${availableKeys.join(', ')}`);
+            }
           }
 
-          // 2. SAN specific metrics
-          if (finalType === 'san' || hwType === 'sanbrcd') {
-            const portsTotal = parseFloat(conf.ports_total || conf.total_ports || '0');
-            const portsOnline = parseFloat(conf.ports_online || conf.active_ports || '0');
+          // 2. SAN specific metrics (Ports)
+          if (finalType === 'san' || hwType === 'sanbrcd' || hwType === 'brocade' || label.toLowerCase().includes('sw')) {
+            const pTotal = conf.ports_total || conf.total_ports || conf.port_count || conf.ports || '0';
+            const pOnline = conf.ports_online || conf.active_ports || conf.online_ports || conf.port_usage || '0';
+            const pFree = conf.ports_free || conf.available_ports || '0';
+            
+            let portsTotal = parseFloat(String(pTotal));
+            let portsOnline = parseFloat(String(pOnline));
+            
+            // Fallback: If we have total and free, calculate online
+            if (portsTotal > 0 && portsOnline === 0 && parseFloat(String(pFree)) > 0) {
+              portsOnline = portsTotal - parseFloat(String(pFree));
+            }
             
             if (portsTotal > 0) {
               const portUsedPercent = (portsOnline / portsTotal) * 100;
@@ -125,7 +180,7 @@ export class XormonForecastProvider implements ForecastProvider {
                 metricName: 'port_utilization_percent', metricValue: Math.round(portUsedPercent * 100) / 100, timestamp
               });
             } else {
-              const portUtil = parseFloat(conf.port_utilization || conf.bandwidth_percent || conf.utilization || '0');
+              const portUtil = parseFloat(String(conf.port_utilization || conf.bandwidth_percent || conf.utilization || '0'));
               if (portUtil > 0) {
                 metrics.push({
                   objectId: itemId, objectName: label, objectType: 'san',
@@ -136,7 +191,8 @@ export class XormonForecastProvider implements ForecastProvider {
           }
 
           // 3. Generic performance
-          const cpu = parseFloat(conf.cpu_utilization || conf.cpu_usage || conf.processor_utilization || '0');
+          const cpuVal = conf.cpu_utilization || conf.cpu_usage || conf.processor_utilization || '0';
+          const cpu = parseFloat(String(cpuVal));
           if (cpu > 0) {
             metrics.push({
               objectId: itemId, objectName: label, objectType: finalType,

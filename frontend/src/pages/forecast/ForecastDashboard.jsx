@@ -5,11 +5,10 @@ import api from '../../api/client';
 function formatCapacity(value) {
   if (value === null || value === undefined || isNaN(value)) return '-';
   const v = Number(value);
-  if (v === 0) return '0 GB';
-  // Standardize: Input is in GB.
+  if (v === 0) return '0 TB';
+  // Input is in GB. Convert to TB as primary unit.
   if (v >= 1024 * 1024) return (v / (1024 * 1024)).toFixed(2) + ' PB';
-  if (v >= 1024) return (v / 1024).toFixed(2) + ' TB';
-  return v.toFixed(2) + ' GB';
+  return (v / 1024).toFixed(2) + ' TB';
 }
 
 function formatMetricValue(value, metricName) {

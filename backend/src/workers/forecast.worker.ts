@@ -81,6 +81,7 @@ export function startForecastWorker() {
           }
           
           const result = calculateForecast(points, warning, critical, 'up');
+          console.log(`[Forecast Worker] Calculated for ${obj.object_name} (${obj.metric_name}): Current: ${points[points.length - 1]?.value}, History Points: ${points.length}`);
 
           await prisma.forecastResult.upsert({
             where: {
