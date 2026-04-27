@@ -116,10 +116,9 @@ export function calculateForecast(
   else if (days_to_critical !== null && days_to_critical <= 90) risk_level = 'yellow';
 
   return {
-    pred_30d,
-    pred_90d,
-    pred_180d,
-    pred_365d,
+    pred_1y,
+    pred_2y,
+    pred_3y,
     days_to_warning,
     days_to_critical,
     confidence_score: rSquared,
