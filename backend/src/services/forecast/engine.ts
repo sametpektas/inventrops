@@ -63,8 +63,19 @@ export function calculateForecast(
     sumXX += x[i] * x[i];
   }
 
-  const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+  const denominator = n * sumXX - sumX * sumX;
+  const slope = denominator === 0 ? 0 : (n * sumXY - sumX * sumY) / denominator;
   const intercept = (sumY - slope * sumX) / n;
+
+  // Final check for non-finite values (NaN/Infinity)
+  if (!Number.isFinite(slope) || !Number.isFinite(intercept)) {
+    const currentVal = history[history.length - 1].value;
+    return {
+      pred_1y: currentVal, pred_2y: currentVal, pred_3y: currentVal,
+      days_to_warning: null, days_to_critical: null,
+      confidence_score: 0, risk_level: 'green'
+    };
+  }
 
   // Calculate R-squared for confidence
   const yMean = sumY / n;
@@ -79,9 +90,13 @@ export function calculateForecast(
   // Current time in days since t0
   const currentX = (new Date().getTime() - t0) / (1000 * 60 * 60 * 24);
 
-  const pred_1y = slope * (currentX + 365) + intercept;
-  const pred_2y = slope * (currentX + 730) + intercept;
-  const pred_3y = slope * (currentX + 1095) + intercept;
+  const p1y = slope * (currentX + 365) + intercept;
+  const p2y = slope * (currentX + 730) + intercept;
+  const p3y = slope * (currentX + 1095) + intercept;
+
+  const pred_1y = Number.isFinite(p1y) ? p1y : history[history.length - 1].value;
+  const pred_2y = Number.isFinite(p2y) ? p2y : history[history.length - 1].value;
+  const pred_3y = Number.isFinite(p3y) ? p3y : history[history.length - 1].value;
 
   let days_to_warning = null;
   let days_to_critical = null;

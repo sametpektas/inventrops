@@ -39,7 +39,65 @@ export class XormonForecastProvider implements ForecastProvider {
 
       const headers = { 'apiKey': apiKey, 'X-API-KEY': apiKey };
 
-      // Get device list from multiple architecture endpoints to ensure full coverage
+    try {
+      // 1. Bulk Storage Capacity Export (Optimized approach for all pools)
+      console.log(`[XormonForecast] Attempting Bulk Storage Export...`);
+      const endTime = Date.now();
+      const startTime = endTime - (180 * 24 * 3600 * 1000);
+      
+      try {
+        const bulkRes = await client.post('/api/exporter/v1/exports', {
+          label: "InvenTrOps_Bulk_Capacity",
+          format: "json",
+          type: "timeseries",
+          class: "storage",
+          subsystem: "pool",
+          data: {
+            metric: ["capacity_total", "capacity_used", "capacity_used_percent", "capacity_free"],
+            granularity: "1d",
+            start: startTime,
+            finish: endTime
+          },
+          regex: [".*"]
+        }, { headers });
+
+        const bulkData = bulkRes.data?.data || bulkRes.data;
+        // If the bulk export returns data directly (sync), parse it
+        const series = Array.isArray(bulkData) ? bulkData : (bulkData?.items || bulkData?.results || []);
+        
+        if (series.length > 0) {
+          console.log(`[XormonForecast] Bulk Export returned ${series.length} series.`);
+          for (const s of series) {
+            const itemId = s.item_id || s.id || s.uuid;
+            const label = s.label || s.item_name || itemId;
+            const mName = s.metric || s.metric_name;
+            const values = s.values || s.data || [];
+            if (!itemId || !Array.isArray(values)) continue;
+
+            for (const point of values) {
+              const ts = point.t || point[0];
+              const val = point.v || point[1];
+              if (ts && val !== undefined) {
+                let normalizedMetric = '';
+                if (mName === 'capacity_used_percent') normalizedMetric = 'capacity_used_percent';
+                else if (mName === 'capacity_total') normalizedMetric = 'capacity_total';
+                
+                if (normalizedMetric) {
+                   const timestampObj = new Date(ts > 9999999999 ? ts : ts * 1000);
+                   metrics.push({
+                     objectId: itemId, objectName: label, objectType: 'storage',
+                     metricName: normalizedMetric, metricValue: parseFloat(String(val)), timestamp: timestampObj
+                   });
+                }
+              }
+            }
+          }
+        }
+      } catch (bulkErr: any) {
+        console.warn(`[XormonForecast] Bulk export failed: ${bulkErr.message}. Falling back to individual queries.`);
+      }
+
+      // 2. Get device list for remaining devices (SAN, etc.)
       const endpoints = [
         '/api/public/v1/architecture/devices',
         '/api/public/v1/architecture/storage',
@@ -142,7 +200,13 @@ export class XormonForecastProvider implements ForecastProvider {
           }
           
           const parseXormonValue = (val: any): number => {
-            if (typeof val === 'number') return val;
+            if (typeof val === 'number') {
+              // If number is huge (e.g. > 1 trillion), it's likely Bytes, convert to GB
+              if (val > 1000000000000) return val / (1024 * 1024 * 1024);
+              // If number is large (e.g. > 1 million), it's likely MB, convert to GB
+              if (val > 1000000) return val / 1024;
+              return val; // Likely already GB or small MB
+            }
             if (!val) return 0;
             const str = String(val).toLowerCase().trim();
             const num = parseFloat(str);
@@ -150,6 +214,10 @@ export class XormonForecastProvider implements ForecastProvider {
             if (str.includes('pb')) return num * 1024 * 1024;
             if (str.includes('tb')) return num * 1024;
             if (str.includes('gb')) return num;
+            if (str.includes('mb')) return num / 1024;
+            if (str.includes('kb')) return num / (1024 * 1024);
+            // Default: If no unit and huge, treat as bytes
+            if (num > 1000000000000) return num / (1024 * 1024 * 1024);
             return num / 1024; // Default MB to GB
           };
 
@@ -161,7 +229,7 @@ export class XormonForecastProvider implements ForecastProvider {
                             conf.physical_used_capacity || conf.used_real_capacity || conf.cap_r || '0';
             totalGB = parseXormonValue(totalVal);
             usedGB = parseXormonValue(usedVal);
-            if (totalGB > 0) console.log(`[XormonForecast] Config Fallback for ${label}: ${totalGB}GB Total`);
+            if (totalGB > 0) console.log(`[XormonForecast] Config Fallback for ${label}: ${totalGB.toFixed(2)}GB Total`);
           }
 
           if (totalGB > 0) {
@@ -191,7 +259,10 @@ export class XormonForecastProvider implements ForecastProvider {
             if (portsTotal > 0 && portsOnline === 0) {
                try {
                  const tsNow = await client.post('/api/public/v1/exporter/timeseries', {
-                    uuids: [itemId], metrics: ['ports_online'], start: Math.floor(Date.now()/1000) - 3600, end: Math.floor(Date.now()/1000), format: 'json'
+                    uuids: [itemId], metrics: ['ports_online'], 
+                    start: Date.now() - 3600000, 
+                    finish: Date.now(), 
+                    format: 'json'
                  }, { headers });
                  const series = tsNow.data?.data || tsNow.data;
                  if (Array.isArray(series) && series.length > 0) {
@@ -224,7 +295,7 @@ export class XormonForecastProvider implements ForecastProvider {
                 uuids: [itemId],
                 metrics: ['capacity_usage', 'cpu_usage', 'mem_usage', 'data_rate', 'ports_online'],
                 start: startTimeMs,
-                end: endTimeMs,
+                finish: endTimeMs,
                 format: 'json'
               },
               { headers }
@@ -252,7 +323,6 @@ export class XormonForecastProvider implements ForecastProvider {
                   else if (mName === 'ports_online') normalizedMetric = 'ports_online_count';
 
                   if (normalizedMetric) {
-                    // Xormon might return ts in seconds or ms, we normalize
                     const timestampObj = new Date(ts > 9999999999 ? ts : ts * 1000);
                     metrics.push({
                       objectId: itemId, objectName: label, objectType: finalType,
