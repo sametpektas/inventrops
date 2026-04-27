@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getForecastSummary, getForecastStorage, getForecastSan, getForecastServer, getForecastVirtualization, getForecastHistory, syncForecastData, recalculateForecast } from '../controllers/forecast.controller';
+import { getForecastSummary, getForecastStorage, getForecastSan, getForecastServer, getForecastVirtualization, getForecastHistory, syncForecastData, recalculateForecast, getForecastConfigs, createOrUpdateForecastConfig, deleteForecastConfig } from '../controllers/forecast.controller';
 import { authMiddleware, requireRole } from '../middleware/auth.middleware';
 
 const router = Router();
@@ -12,5 +12,9 @@ router.get('/virtualization', authMiddleware, getForecastVirtualization);
 router.get('/:objectId/history', authMiddleware, getForecastHistory);
 router.post('/sync', authMiddleware, requireRole(['admin', 'manager']), syncForecastData);
 router.post('/recalculate', authMiddleware, requireRole(['admin', 'manager']), recalculateForecast);
+
+router.get('/config', authMiddleware, requireRole(['admin']), getForecastConfigs);
+router.post('/config', authMiddleware, requireRole(['admin']), createOrUpdateForecastConfig);
+router.delete('/config/:id', authMiddleware, requireRole(['admin']), deleteForecastConfig);
 
 export default router;
