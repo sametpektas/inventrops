@@ -111,18 +111,26 @@ export class VRopsForecastProvider implements ForecastProvider {
                 if (key && latestValue !== null && latestValue !== undefined) {
                   // Normalize metric name
                   let metricName = key.replace(/\|/g, '_');
+                  let finalValue = Number(latestValue);
+
                   if (metricName.includes('cpu_usage')) metricName = 'cpu_usage_percent';
                   else if (metricName.includes('mem_usage')) metricName = 'memory_usage_percent';
                   else if (metricName.includes('capacity_usage')) metricName = 'capacity_used_percent';
-                  else if (metricName.includes('total_capacity')) metricName = 'capacity_total';
-                  else if (metricName.includes('used_space')) metricName = 'capacity_used';
+                  else if (metricName.includes('total_capacity')) {
+                    metricName = 'capacity_total';
+                    if (finalValue > 100000000) finalValue = finalValue / (1024 * 1024 * 1024); // Byte to GB
+                  }
+                  else if (metricName.includes('used_space')) {
+                    metricName = 'capacity_used';
+                    if (finalValue > 100000000) finalValue = finalValue / (1024 * 1024 * 1024); // Byte to GB
+                  }
 
                   metrics.push({
                     objectId: resourceId,
                     objectName: resourceName,
                     objectType,
                     metricName,
-                    metricValue: Number(latestValue),
+                    metricValue: finalValue,
                     timestamp
                   });
                 }

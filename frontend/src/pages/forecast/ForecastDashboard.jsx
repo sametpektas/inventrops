@@ -5,10 +5,11 @@ import api from '../../api/client';
 function formatCapacity(value) {
   if (value === null || value === undefined || isNaN(value)) return '-';
   const v = Number(value);
-  if (v === 0) return '0 TB';
-  if (v >= 1024) return (v / 1024).toFixed(2) + ' PB';
-  if (v >= 1) return v.toFixed(2) + ' TB';
-  return (v * 1024).toFixed(0) + ' GB';
+  if (v === 0) return '0 GB';
+  // Standardize: Input is in GB.
+  if (v >= 1024 * 1024) return (v / (1024 * 1024)).toFixed(2) + ' PB';
+  if (v >= 1024) return (v / 1024).toFixed(2) + ' TB';
+  return v.toFixed(2) + ' GB';
 }
 
 function formatMetricValue(value, metricName) {
@@ -147,7 +148,10 @@ export default function ForecastDashboard() {
     { key: 'server', label: 'Server', icon: '🖥️' },
   ];
 
-  const filteredData = filter === 'all' ? data : data.filter(d => d.object_type === filter);
+  // Filter out redundant 'total' rows to avoid duplicates as requested
+  // Filter out absolute metrics to show only percentage-based trends for cleaner yearly planning
+  const filteredData = (filter === 'all' ? data : data.filter(d => d.object_type === filter))
+    .filter(d => d.metric_name.includes('percent') || d.metric_name.includes('utilization'));
 
   return (
     <div className="page-container">
@@ -183,7 +187,7 @@ export default function ForecastDashboard() {
           { count: criticalCount, label: 'Critical', color: '#ef4444' },
           { count: warningCount, label: 'Warning', color: '#f97316' },
           { count: healthyCount, label: 'Healthy', color: '#22c55e' },
-          { count: data.length, label: 'Total Metrics', color: '#6366f1' },
+          { count: filteredData.length, label: 'Active Items', color: '#6366f1' },
         ].map(card => (
           <div key={card.label} style={{
             background: `${card.color}11`, border: `1px solid ${card.color}33`,
@@ -198,7 +202,7 @@ export default function ForecastDashboard() {
       {/* Filter Tabs */}
       <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
         {typeFilters.map(f => {
-          const count = f.key === 'all' ? data.length : data.filter(d => d.object_type === f.key).length;
+          const count = f.key === 'all' ? filteredData.length : filteredData.filter(d => d.object_type === f.key).length;
           return (
             <button
               key={f.key}
@@ -228,9 +232,9 @@ export default function ForecastDashboard() {
                 <th>Type</th>
                 <th>Metric</th>
                 <th style={{ textAlign: 'right' }}>Current</th>
-                <th style={{ textAlign: 'right' }}>30d</th>
-                <th style={{ textAlign: 'right' }}>90d</th>
-                <th style={{ textAlign: 'right' }}>180d</th>
+                <th style={{ textAlign: 'right' }}>1 Year</th>
+                <th style={{ textAlign: 'right' }}>2 Years</th>
+                <th style={{ textAlign: 'right' }}>3 Years</th>
                 <th style={{ textAlign: 'center' }}>Warning</th>
                 <th style={{ textAlign: 'center' }}>Critical</th>
                 <th style={{ textAlign: 'center' }}>Risk</th>
@@ -341,26 +345,16 @@ export default function ForecastDashboard() {
                   </div>
                 </div>
                 <div style={{ background: 'var(--bg-secondary, rgba(255,255,255,0.04))', borderRadius: '10px', padding: '16px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: 6 }}>30 Day</div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: 6 }}>1 Year</div>
                   <div style={{ fontWeight: 600 }}>{formatMetricValue(selectedItem.pred_30d, selectedItem.metric_name)}</div>
                 </div>
                 <div style={{ background: 'var(--bg-secondary, rgba(255,255,255,0.04))', borderRadius: '10px', padding: '16px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: 6 }}>90 Day</div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: 6 }}>2 Years</div>
                   <div style={{ fontWeight: 600 }}>{formatMetricValue(selectedItem.pred_90d, selectedItem.metric_name)}</div>
                 </div>
                 <div style={{ background: 'var(--bg-secondary, rgba(255,255,255,0.04))', borderRadius: '10px', padding: '16px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: 6 }}>Risk Level</div>
-                  <div>
-                    <span style={{
-                      padding: '4px 12px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 700,
-                      textTransform: 'uppercase',
-                      background: getRiskColor(selectedItem.risk_level).bg,
-                      color: getRiskColor(selectedItem.risk_level).text,
-                      border: `1px solid ${getRiskColor(selectedItem.risk_level).border}`
-                    }}>
-                      {selectedItem.risk_level}
-                    </span>
-                  </div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: 6 }}>3 Years</div>
+                  <div style={{ fontWeight: 600 }}>{formatMetricValue(selectedItem.pred_180d, selectedItem.metric_name)}</div>
                 </div>
               </div>
 

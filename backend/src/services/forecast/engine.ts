@@ -4,10 +4,9 @@ export interface ForecastInputPoint {
 }
 
 export interface ForecastOutput {
-  pred_30d: number | null;
-  pred_90d: number | null;
-  pred_180d: number | null;
-  pred_365d: number | null;
+  pred_1y: number | null;
+  pred_2y: number | null;
+  pred_3y: number | null;
   days_to_warning: number | null;
   days_to_critical: number | null;
   confidence_score: number | null;
@@ -22,7 +21,7 @@ export function calculateForecast(
 ): ForecastOutput {
   if (history.length === 0) {
     return {
-      pred_30d: null, pred_90d: null, pred_180d: null, pred_365d: null,
+      pred_1y: null, pred_2y: null, pred_3y: null,
       days_to_warning: null, days_to_critical: null,
       confidence_score: 0, risk_level: 'green'
     };
@@ -35,14 +34,13 @@ export function calculateForecast(
     let days_to_warning: number | null = null;
     let days_to_critical: number | null = null;
 
-    // For percentage metrics, check current value against thresholds
     if (direction === 'up') {
       if (currentVal >= criticalThreshold) { risk_level = 'red'; days_to_critical = 0; days_to_warning = 0; }
       else if (currentVal >= warningThreshold) { risk_level = 'orange'; days_to_warning = 0; }
     }
 
     return {
-      pred_30d: currentVal, pred_90d: currentVal, pred_180d: currentVal, pred_365d: currentVal,
+      pred_1y: currentVal, pred_2y: currentVal, pred_3y: currentVal,
       days_to_warning, days_to_critical,
       confidence_score: 0.1, risk_level
     };
@@ -81,10 +79,9 @@ export function calculateForecast(
   // Current time in days since t0
   const currentX = (new Date().getTime() - t0) / (1000 * 60 * 60 * 24);
 
-  const pred_30d = slope * (currentX + 30) + intercept;
-  const pred_90d = slope * (currentX + 90) + intercept;
-  const pred_180d = slope * (currentX + 180) + intercept;
-  const pred_365d = slope * (currentX + 365) + intercept;
+  const pred_1y = slope * (currentX + 365) + intercept;
+  const pred_2y = slope * (currentX + 730) + intercept;
+  const pred_3y = slope * (currentX + 1095) + intercept;
 
   let days_to_warning = null;
   let days_to_critical = null;

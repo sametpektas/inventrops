@@ -60,8 +60,12 @@ export class XormonForecastProvider implements ForecastProvider {
         const label = String(device.label || device.hostname || itemId);
         const hwType = String(device.hw_type || '').toLowerCase();
         const deviceClass = String(device.class || 'storage').toLowerCase();
+        let finalType = deviceClass;
+        if (hwType === 'sanbrcd' || hwType === 'brocade' || label.toLowerCase().includes('switch')) {
+          finalType = 'san';
+        }
 
-        // Fetch configuration to get capacity info
+        // Fetch configuration to get capacity and performance info
         try {
           const configRes = await client.post(
             '/api/public/v1/exporter/configuration',
@@ -75,9 +79,10 @@ export class XormonForecastProvider implements ForecastProvider {
           if (Array.isArray(configData) && configData.length > 0) {
             conf = configData[0]?.configuration || configData[0]?.config || configData[0] || {};
           } else if (configData && typeof configData === 'object') {
-            const nested = configData.data || configData.items;
+            const nested = configData.data || configData.items || configData.results;
             if (Array.isArray(nested) && nested.length > 0) {
-              conf = nested[0]?.configuration || nested[0]?.config || nested[0] || {};
+              const first = nested[0];
+              conf = first?.configuration || first?.config || first || {};
             } else {
               // Keyed object { uuid: config }
               const keys = Object.keys(configData);
@@ -88,56 +93,57 @@ export class XormonForecastProvider implements ForecastProvider {
             }
           }
 
-          // Extract capacity metrics if available
-          const capacityTotal = parseFloat(conf.capacity_total || conf.total_capacity || '0');
-          const capacityUsed = parseFloat(conf.capacity_used || conf.used_capacity || '0');
+          // 1. Storage Capacity Metrics (Convert MB to GB)
+          const capacityTotalMB = parseFloat(conf.capacity_total || conf.total_capacity || conf.size || '0');
+          const capacityUsedMB = parseFloat(conf.capacity_used || conf.used_capacity || conf.used || '0');
 
-          if (capacityTotal > 0) {
+          if (capacityTotalMB > 0) {
+            const capTotalGB = capacityTotalMB / 1024;
+            const capUsedGB = capacityUsedMB / 1024;
+            
             metrics.push({
-              objectId: itemId,
-              objectName: label,
-              objectType: deviceClass,
-              metricName: 'capacity_total',
-              metricValue: capacityTotal,
+              objectId: itemId, objectName: label, objectType: finalType,
+              metricName: 'capacity_total', metricValue: capTotalGB, timestamp
+            });
+            metrics.push({
+              objectId: itemId, objectName: label, objectType: finalType,
+              metricName: 'capacity_used_percent', 
+              metricValue: Math.round((capUsedGB / capTotalGB) * 10000) / 100, 
               timestamp
             });
-
-            metrics.push({
-              objectId: itemId,
-              objectName: label,
-              objectType: deviceClass,
-              metricName: 'capacity_used',
-              metricValue: capacityUsed,
-              timestamp
-            });
-
-            const usedPercent = capacityTotal > 0 ? (capacityUsed / capacityTotal) * 100 : 0;
-            metrics.push({
-              objectId: itemId,
-              objectName: label,
-              objectType: deviceClass,
-              metricName: 'capacity_used_percent',
-              metricValue: Math.round(usedPercent * 100) / 100,
-              timestamp
-            });
-
-            console.log(`[XormonForecast] ${label}: ${usedPercent.toFixed(1)}% used (${capacityUsed}/${capacityTotal})`);
           }
 
-          // SAN port utilization if applicable
-          if (deviceClass === 'san' || hwType === 'sanbrcd') {
-            const portUtil = parseFloat(conf.port_utilization || conf.bandwidth_percent || '0');
-            if (portUtil > 0) {
+          // 2. SAN specific metrics
+          if (finalType === 'san' || hwType === 'sanbrcd') {
+            const portsTotal = parseFloat(conf.ports_total || conf.total_ports || '0');
+            const portsOnline = parseFloat(conf.ports_online || conf.active_ports || '0');
+            
+            if (portsTotal > 0) {
+              const portUsedPercent = (portsOnline / portsTotal) * 100;
               metrics.push({
-                objectId: itemId,
-                objectName: label,
-                objectType: 'san',
-                metricName: 'port_utilization_percent',
-                metricValue: portUtil,
-                timestamp
+                objectId: itemId, objectName: label, objectType: 'san',
+                metricName: 'port_utilization_percent', metricValue: Math.round(portUsedPercent * 100) / 100, timestamp
               });
+            } else {
+              const portUtil = parseFloat(conf.port_utilization || conf.bandwidth_percent || conf.utilization || '0');
+              if (portUtil > 0) {
+                metrics.push({
+                  objectId: itemId, objectName: label, objectType: 'san',
+                  metricName: 'port_utilization_percent', metricValue: portUtil, timestamp
+                });
+              }
             }
           }
+
+          // 3. Generic performance
+          const cpu = parseFloat(conf.cpu_utilization || conf.cpu_usage || conf.processor_utilization || '0');
+          if (cpu > 0) {
+            metrics.push({
+              objectId: itemId, objectName: label, objectType: finalType,
+              metricName: 'cpu_usage_percent', metricValue: cpu, timestamp
+            });
+          }
+
         } catch (err: any) {
           console.warn(`[XormonForecast] Failed to fetch config for ${label}: ${err.message}`);
         }
