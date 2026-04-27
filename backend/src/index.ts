@@ -8,8 +8,10 @@ import authRoutes from './routes/auth.routes';
 import infrastructureRoutes from './routes/infrastructure.routes';
 import inventoryRoutes from './routes/inventory.routes';
 import adminRoutes from './routes/admin.routes';
+import forecastRoutes from './routes/forecast.routes';
 import { hashPassword } from './utils/auth';
 import { startIntegrationWorker, startIntegrationScheduler } from './workers/integration.worker';
+import { startForecastWorker, startForecastScheduler } from './workers/forecast.worker';
 
 dotenv.config();
 
@@ -92,6 +94,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/infrastructure', infrastructureRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/forecast', forecastRoutes);
 
 // Root redirect or info
 app.get('/', (req, res) => {
@@ -117,6 +120,8 @@ app.listen(Number(port), '0.0.0.0', () => {
       // 1. Initial Integration Setup
       startIntegrationWorker();
       await startIntegrationScheduler();
+      startForecastWorker();
+      await startForecastScheduler();
       
       // 2. Admin User Verification
       const adminExists = await prisma.user.findUnique({ where: { username: 'admin' } });

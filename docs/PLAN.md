@@ -1,28 +1,62 @@
-# InvenTrOps Enhancements Plan
+# Phase 2: Capacity Forecasting & Performance Planning
 
 ## Task Overview
-1. **Remove Admin Panel Button**: Remove the Admin Panel button from the frontend Layout component.
-2. **Merge "Unknown No OS" with "Bare Metal"**: Update the Dashboard/Analytics OS chart grouping to combine physical servers and those with unknown OS under "Bare Metal". Fix related filter logic so clicking on it shows both properly.
-3. **Update Expiry Dashboard Metrics**: Update the warranty stat cards to display 3 categories:
-   - Expire olanlar (Expired)
-   - Yıl içerisinde expire olacaklar (Expiring this year / Next 365 days)
-   - Bir sonraki yıl expire olacaklar (Expiring next year / 366-730 days)
-4. **Make Vendor Summary Clickable**: In the Dashboard Vendor Summary list, add click events to each vendor row that navigates to the Inventory page with the selected vendor filter.
-5. **Add Active Inventory Filters**: Add new dropdown filters to the Inventory page (next to search):
-   - Vendor (Marka)
-   - Model
-   - Location (Datacenter/Room)
-   - Device Type (with explicit options for Storage, Server, SAN, etc.)
+Add a new Capacity Forecasting module to the existing InvenTrOps application without altering the current stack (Node.js, Prisma, PostgreSQL, BullMQ, React). The goal is to collect historical metrics from Xormon and vROps, calculate future capacity needs using linear regression and moving averages, and alert users of impending capacity or performance bottlenecks.
 
-## Execution Steps
-1. **Frontend Layout**: Modify `frontend/src/components/Layout.jsx` to remove the Admin Panel link.
-2. **Backend Analytics**: Update `backend/src/controllers/inventory.controller.ts` `getAnalytics` to:
-   - Change the `virtualization_distribution` to return only "Virtualization" and "Bare Metal" (combining physical and unknown).
-   - Change the `periods` logic for warranty charts from 180/360/720 to Expired, 0-365 days (This Year), and 366-730 days (Next Year).
-3. **Frontend Dashboard/Analytics**: 
-   - Update `Analytics.jsx` and `Dashboard.jsx` stat-grids to reflect the 3 new warranty categories instead of the 4 hardcoded ones.
-   - Add `cursor: pointer` and `onClick` navigation to the Vendor Summary list in `Dashboard.jsx`.
-4. **Frontend Inventory Filters**: Modify `Inventory.jsx` to include `<select>` inputs in the toolbar for Vendor, Model, Location, and Device Type. Ensure these state changes trigger `setSearchParams` and update the URL/query.
+## 1. Database Layer (Prisma)
+Add the following models to `schema.prisma`:
+- `ForecastSource`: Tracks connection details/integration link to Xormon/vROps.
+- `ForecastMetricSnapshot`: Stores point-in-time metrics for each device/object.
+- `ForecastResult`: Stores the calculated predictions (30d, 90d, 180d, 365d), days to thresholds, and confidence score.
+- `ForecastJob`: Logs the BullMQ background tasks.
+- `ForecastAlert`: Stores generated alerts based on threshold violations (Warning, Critical).
 
-## Next Steps
-Do you approve of this plan? Please reply with "Y" to proceed with implementation or "N" if you want adjustments.
+## 2. Provider Architecture
+Create two new data collectors in `backend/src/services/forecast/providers/`:
+- `xormonForecast.provider.ts`: Authenticates securely, fetches Storage (capacity, iops, latency, throughput) and SAN (port utilization, errors) metrics.
+- `vropsForecast.provider.ts`: Fetches Server & Virtualization (CPU, memory, disk, cluster demand, VM count) metrics.
+Both providers will normalize the data into a common `NormalizedMetric` format and safely handle API errors/timeouts without logging secrets.
+
+## 3. Forecast Engine
+Create `backend/src/services/forecast/engine.ts`:
+- **Algorithms**: Implement Linear Regression and Moving Average.
+- **Outlier Filtering**: Use standard deviation/Z-score to exclude anomalies.
+- **Calculations**: Predict values at 30, 90, 180, and 365 days. Calculate `days_to_warning`, `days_to_critical`, `confidence_score`, and `risk_level` (green, yellow, orange, red).
+
+## 4. Background Jobs (BullMQ)
+Add queues and workers in `backend/src/workers/`:
+- **Metric Collection Job**: Periodically syncs metrics from providers.
+- **Forecast Calculation Job**: Runs the engine over the latest snapshot window.
+- **Alert Generation Job**: Triggers thresholds and creates `ForecastAlert` records.
+
+## 5. API Endpoints
+Create `backend/src/routes/forecast.routes.ts` and `forecast.controller.ts`:
+- `GET /api/forecast/summary`
+- `GET /api/forecast/storage`
+- `GET /api/forecast/san`
+- `GET /api/forecast/server`
+- `GET /api/forecast/virtualization`
+- `GET /api/forecast/:objectId/history`
+- `POST /api/forecast/sync`
+- `POST /api/forecast/recalculate`
+*Note: All endpoints will enforce existing RBAC and team-level scoping.*
+
+## 6. Frontend Integration
+Create a new `Forecast` section in `frontend/src/pages/forecast/`:
+- `ForecastDashboard.jsx`: Overview of critical risks and summary charts.
+- Detail Pages: `StorageForecast.jsx`, `SanForecast.jsx`, `ServerForecast.jsx`, `VirtForecast.jsx`.
+- Tables will display: Object Name, Type, Current Value, 30/90/180/365d Predictions, Days to Warning/Critical, Confidence, Risk Level, and Last Updated.
+
+## 7. Security & DevOps
+- Use existing RBAC middlewares.
+- Validate external metrics using Zod or similar.
+- Do not expose or log provider credentials.
+- Preserve existing Docker/docker-compose startup sequences. (No new heavy services added).
+
+## 8. Testing
+- Unit tests for engine calculations (Linear Regression, Moving Average).
+- Unit tests for Provider normalization and API failure handling.
+- Tests for RBAC filtering on new endpoints.
+
+## ⏸️ CHECKPOINT
+Do you approve of this plan? Please reply with "Y" to start implementation, or "N" to modify the plan.

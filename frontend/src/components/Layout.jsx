@@ -9,6 +9,7 @@ const NAV_ITEMS = [
     items: [
       { to: '/dashboard', label: 'Dashboard', icon: '⊞' },
       { to: '/analytics', label: 'Analytics', icon: '◔' },
+      { to: '/forecast', label: 'Capacity Forecast', icon: '📈' },
     ],
   },
   {
@@ -23,6 +24,7 @@ const NAV_ITEMS = [
 const PAGE_TITLES = {
   '/dashboard': 'Dashboard',
   '/analytics': 'Analytics',
+  '/forecast': 'Capacity Forecast',
   '/inventory': 'Active Inventory',
   '/profile': 'Profile',
 };

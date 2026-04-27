@@ -60,6 +60,7 @@ model Team {
   items               InventoryItem[]
   shareLinks          ShareLink[]
   integrationConfigs  IntegrationConfig[]
+  forecastSources     ForecastSource[]
 
   @@map("accounts_team")
 }
@@ -267,4 +268,120 @@ model SyncLog {
   integration       IntegrationConfig @relation(fields: [integration_id], references: [id], onDelete: Cascade)
 
   @@map("integrations_synclog")
+}
+
+enum ForecastRiskLevel {
+  green
+  yellow
+  orange
+  red
+}
+
+enum ForecastJobStatus {
+  pending
+  running
+  success
+  failed
+}
+
+model ForecastSource {
+  id              Int      @id @default(autoincrement())
+  name            String
+  source_type     String   // 'xormon' | 'vrops'
+  url             String
+  api_key         String?
+  username        String?
+  password        String?
+  is_active       Boolean  @default(true)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+  
+  team_id         Int
+  team            Team     @relation(fields: [team_id], references: [id])
+  
+  snapshots       ForecastMetricSnapshot[]
+  results         ForecastResult[]
+  jobs            ForecastJob[]
+  alerts          ForecastAlert[]
+
+  @@map("forecast_source")
+}
+
+model ForecastMetricSnapshot {
+  id              Int      @id @default(autoincrement())
+  source_id       Int
+  source          ForecastSource @relation(fields: [source_id], references: [id])
+  
+  object_id       String   // external ID (VM ID, LUN ID, etc.)
+  object_name     String
+  object_type     String   // 'server' | 'virtualization' | 'storage' | 'san'
+  
+  metric_name     String   // e.g. 'capacity_used_percent', 'cpu_usage_percent'
+  metric_value    Float
+  
+  captured_at     DateTime @default(now())
+
+  @@index([object_id, metric_name])
+  @@index([captured_at])
+  @@map("forecast_metric_snapshot")
+}
+
+model ForecastResult {
+  id              Int      @id @default(autoincrement())
+  source_id       Int
+  source          ForecastSource @relation(fields: [source_id], references: [id])
+  
+  object_id       String
+  object_name     String
+  object_type     String
+  metric_name     String
+  
+  current_value   Float
+  pred_30d        Float?
+  pred_90d        Float?
+  pred_180d       Float?
+  pred_365d       Float?
+  
+  days_to_warning  Int?
+  days_to_critical Int?
+  
+  confidence_score Float?   // 0.0 to 1.0
+  risk_level       ForecastRiskLevel @default(green)
+  
+  calculated_at    DateTime @default(now())
+
+  @@unique([object_id, metric_name])
+  @@map("forecast_result")
+}
+
+model ForecastJob {
+  id              Int      @id @default(autoincrement())
+  source_id       Int
+  source          ForecastSource @relation(fields: [source_id], references: [id])
+  job_type        String   // 'sync' | 'calculate'
+  status          ForecastJobStatus @default(pending)
+  started_at      DateTime?
+  completed_at    DateTime?
+  error_message   String?
+  
+  @@map("forecast_job")
+}
+
+model ForecastAlert {
+  id              Int      @id @default(autoincrement())
+  source_id       Int
+  source          ForecastSource @relation(fields: [source_id], references: [id])
+  
+  object_id       String
+  object_name     String
+  metric_name     String
+  
+  severity        String   // 'warning' | 'critical'
+  message         String
+  is_resolved     Boolean  @default(false)
+  
+  created_at      DateTime @default(now())
+  resolved_at     DateTime?
+
+  @@map("forecast_alert")
 }
