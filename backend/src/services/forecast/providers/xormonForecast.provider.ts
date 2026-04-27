@@ -100,41 +100,64 @@ export class XormonForecastProvider implements ForecastProvider {
               format: "json"
             }, { headers });
 
-            const series = Array.isArray(tsRes.data) ? tsRes.data : (tsRes.data?.data || []);
+            const series = Array.isArray(tsRes.data?.items) ? tsRes.data.items : (Array.isArray(tsRes.data) ? tsRes.data : []);
             
             if (series.length === 0) {
-              console.log(`[XormonForecast] Storage ${label}: No timeseries data returned for the period.`);
+              console.log(`[XormonForecast] Storage ${label}: No items returned in timeseries.`);
             } else {
-              console.log(`[XormonForecast] Storage ${label}: Received ${series.length} metric series.`);
+              console.log(`[XormonForecast] Storage ${label}: Processing ${series.length} series objects.`);
             }
 
             for (const s of series) {
               const mName = String(s.metric || s.metric_name || '').toLowerCase();
-              const values = s.values || s.data || [];
-              if (!Array.isArray(values)) continue;
+              const tsMap = s.timeseries || s.data || s.values || {};
+              
+              let normalizedMetric = '';
+              if (mName.includes('capacity_total')) normalizedMetric = 'capacity_total';
+              else if (mName.includes('capacity_used_percent')) normalizedMetric = 'capacity_used_percent';
+              else if (mName.includes('capacity_used')) normalizedMetric = 'capacity_used';
+              
+              if (!normalizedMetric) continue;
 
-              for (const point of values) {
-                const ts = point.t || point[0];
-                const val = point.v || point[1];
-                
-                if (ts && val !== undefined && val !== null) {
-                  let normalizedMetric = '';
-                  // Support multiple naming conventions from different Xormon versions
-                  if (mName.includes('total')) normalizedMetric = 'capacity_total';
-                  else if (mName.includes('used_percent') || mName.includes('usage') || mName === 'capacity_used_p') normalizedMetric = 'capacity_used_percent';
-                  else if (mName === 'capacity_used') normalizedMetric = 'capacity_used';
-                  
-                  if (normalizedMetric) {
-                    const finalVal = parseFloat(String(val));
-                    // If it's used_percent and value is > 100, it might be raw bytes, but we expect % here.
-                    // However, we'll trust the metric name for now.
+              let pointsProcessed = 0;
+              // Handle both Dictionary style (User's example) and Array style
+              if (!Array.isArray(tsMap) && typeof tsMap === 'object') {
+                for (const [isoDate, val] of Object.entries(tsMap)) {
+                  if (val === null || val === undefined) continue;
+
+                  let finalVal = parseFloat(String(val));
+                  // Convert Bytes to TB if the metric indicates Bytes [B]
+                  if (mName.includes('[b]') && !mName.includes('percent')) {
+                    finalVal = finalVal / (1024 * 1024 * 1024 * 1024);
+                  }
+
+                  metrics.push({
+                    objectId: itemId, objectName: label, objectType: 'storage',
+                    metricName: normalizedMetric, metricValue: finalVal,
+                    timestamp: new Date(isoDate)
+                  });
+                  pointsProcessed++;
+                }
+              } else if (Array.isArray(tsMap)) {
+                for (const point of tsMap) {
+                  const ts = point.t || point[0];
+                  const val = point.v || point[1];
+                  if (ts && val !== undefined && val !== null) {
+                    let finalVal = parseFloat(String(val));
+                    if (mName.includes('[b]') && !mName.includes('percent')) {
+                      finalVal = finalVal / (1024 * 1024 * 1024 * 1024);
+                    }
                     metrics.push({
                       objectId: itemId, objectName: label, objectType: 'storage',
                       metricName: normalizedMetric, metricValue: finalVal,
                       timestamp: new Date(ts > 9999999999 ? ts : ts * 1000)
                     });
+                    pointsProcessed++;
                   }
                 }
+              }
+              if (pointsProcessed > 0) {
+                console.log(`[XormonForecast]   - ${mName}: ${pointsProcessed} points processed.`);
               }
             }
           } catch (e: any) {
