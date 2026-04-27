@@ -8,7 +8,7 @@ const HYPERVISOR_KEYWORDS = [
 ];
 
 export const getItems = async (req: Request, res: Response) => {
-  const { rack, room, datacenter, search, device_type, vendor, model, status = 'active', page = '1', ordering = '-created_at' } = req.query;
+  const { rack, room, datacenter, search, device_type, vendor, model, status = 'active', page = '1', ordering = '-created_at', warranty_before, warranty_after } = req.query;
   const skip = (parseInt(page as string) - 1) * 25;
   const { team_id, role } = (req as any).user || {};
 
@@ -26,8 +26,16 @@ export const getItems = async (req: Request, res: Response) => {
     if (rack) where.rack_id = parseInt(rack as string);
     else if (room) where.rack = { room_id: parseInt(room as string) };
     else if (datacenter) where.rack = { room: { datacenter_id: parseInt(datacenter as string) } };
-    if (vendor) where.model = { vendor_id: parseInt(vendor as string) };
+    if (vendor) where.model = { ...where.model, vendor_id: parseInt(vendor as string) };
+    if (device_type) where.model = { ...where.model, device_type: device_type as string };
     if (model) where.model_id = parseInt(model as string);
+    
+    if (warranty_before) {
+       where.warranty_expiry = { lte: new Date(warranty_before as string) };
+    }
+    if (warranty_after) {
+       where.warranty_expiry = { ...where.warranty_expiry, gte: new Date(warranty_after as string) };
+    }
     
     if (search) {
       where.OR = [
@@ -148,10 +156,10 @@ export const exportInventory = async (req: Request, res: Response) => {
          where.operating_system = { contains: req.query.operating_system as string, mode: 'insensitive' };
       }
       if (req.query.warranty_before) {
-         where.warranty_expiry = { lt: new Date(req.query.warranty_before as string) };
+         where.warranty_expiry = { lte: new Date(req.query.warranty_before as string) };
       }
       if (req.query.warranty_after) {
-         where.warranty_expiry = { ...where.warranty_expiry, gt: new Date(req.query.warranty_after as string) };
+         where.warranty_expiry = { ...where.warranty_expiry, gte: new Date(req.query.warranty_after as string) };
       }
       if (search) {
         where.OR = [

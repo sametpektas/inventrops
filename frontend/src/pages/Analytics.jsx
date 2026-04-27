@@ -132,16 +132,19 @@ export default function Analytics() {
     return null;
   };
 
-  const handleWarrantyClick = (days) => {
+  const handleWarrantyClick = (startDays, endDays) => {
     const today = new Date();
-    const future = new Date();
-    future.setDate(today.getDate() + days);
     
-    // We adjust to handle timezones by picking the standard YYYY-MM-DD
-    const fDate = future.toISOString().split('T')[0];
-    const tDate = today.toISOString().split('T')[0];
+    const start = new Date();
+    start.setDate(today.getDate() + startDays);
     
-    navigate(`/inventory?warranty_after=${tDate}&warranty_before=${fDate}`);
+    const end = new Date();
+    end.setDate(today.getDate() + endDays);
+    
+    const sDate = start.toISOString().split('T')[0];
+    const eDate = end.toISOString().split('T')[0];
+    
+    navigate(`/inventory?warranty_after=${sDate}&warranty_before=${eDate}`);
   };
 
   return (
@@ -151,11 +154,11 @@ export default function Analytics() {
           <div className="stat-card__label">Expired Warranty</div>
           <div className="stat-card__value">{data?.warranty_expiry?.[0]?.count || 0}</div>
         </div>
-        <div className="stat-card stat-card--orange" onClick={() => handleWarrantyClick(365)} style={{ cursor: 'pointer' }}>
+        <div className="stat-card stat-card--orange" onClick={() => handleWarrantyClick(0, 365)} style={{ cursor: 'pointer' }}>
           <div className="stat-card__label">Expiring This Year</div>
           <div className="stat-card__value">{data?.warranty_expiry?.[1]?.count || 0}</div>
         </div>
-        <div className="stat-card stat-card--yellow" onClick={() => handleWarrantyClick(730)} style={{ cursor: 'pointer' }}>
+        <div className="stat-card stat-card--yellow" onClick={() => handleWarrantyClick(366, 730)} style={{ cursor: 'pointer' }}>
           <div className="stat-card__label">Expiring Next Year</div>
           <div className="stat-card__value">{data?.warranty_expiry?.[2]?.count || 0}</div>
         </div>
