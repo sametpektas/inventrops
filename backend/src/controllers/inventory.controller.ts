@@ -8,7 +8,7 @@ const HYPERVISOR_KEYWORDS = [
 ];
 
 export const getItems = async (req: Request, res: Response) => {
-  const { rack, search, device_type, vendor, model, status = 'active', page = '1', ordering = '-created_at' } = req.query;
+  const { rack, room, datacenter, search, device_type, vendor, model, status = 'active', page = '1', ordering = '-created_at' } = req.query;
   const skip = (parseInt(page as string) - 1) * 25;
   const { team_id, role } = (req as any).user || {};
 
@@ -24,6 +24,8 @@ export const getItems = async (req: Request, res: Response) => {
     }
 
     if (rack) where.rack_id = parseInt(rack as string);
+    else if (room) where.rack = { room_id: parseInt(room as string) };
+    else if (datacenter) where.rack = { room: { datacenter_id: parseInt(datacenter as string) } };
     if (vendor) where.model = { vendor_id: parseInt(vendor as string) };
     if (model) where.model_id = parseInt(model as string);
     
@@ -61,13 +63,11 @@ export const getItems = async (req: Request, res: Response) => {
         where.AND = where.AND ? [...where.AND, virtualCondition] : [virtualCondition];
         where.operating_system = { not: null };
       } else {
-        // Physical: Must have an OS, but NOT a hypervisor keyword, and NOT "Unknown"
+        // Bare Metal: Either no OS or NOT a hypervisor keyword
         const physicalCondition = {
-          AND: [
-            { operating_system: { not: null } },
-            { operating_system: { notIn: ['Unknown', 'Not Available', '', 'None'] } },
-            { NOT: { OR: osConditions } },
-            { NOT: { operating_system: { contains: 'unknown', mode: 'insensitive' } } }
+          OR: [
+            { operating_system: null },
+            { NOT: { OR: osConditions } }
           ]
         };
         where.AND = where.AND ? [...where.AND, physicalCondition] : [physicalCondition];
@@ -128,7 +128,7 @@ export const getItems = async (req: Request, res: Response) => {
 import * as XLSX from 'xlsx';
 
 export const exportInventory = async (req: Request, res: Response) => {
-  const { search, device_type, vendor, model, status, scope = 'filtered' } = req.query;
+  const { search, device_type, vendor, model, status, scope = 'filtered', rack, room, datacenter } = req.query;
   const { team_id, role } = (req as any).user || {};
 
   try {
@@ -137,6 +137,9 @@ export const exportInventory = async (req: Request, res: Response) => {
       if (status && status !== 'all') where.status = status as string;
       if (vendor) where.model = { vendor_id: parseInt(vendor as string) };
       if (model) where.model_id = parseInt(model as string);
+      if (rack) where.rack_id = parseInt(rack as string);
+      else if (room) where.rack = { room_id: parseInt(room as string) };
+      else if (datacenter) where.rack = { room: { datacenter_id: parseInt(datacenter as string) } };
       if (device_type) {
          if (where.model) where.model.device_type = device_type as any;
          else where.model = { device_type: device_type as any };
@@ -325,9 +328,8 @@ export const getAnalytics = async (req: Request, res: Response) => {
     );
 
     const periods = [
-      { label: 'Next 6 Months', min: 0, max: 180 },
-      { label: 'Next 1 Year', min: 181, max: 365 },
-      { label: 'Next 2 Years', min: 366, max: 730 },
+      { label: 'This Year', min: 0, max: 365 },
+      { label: 'Next Year', min: 366, max: 730 },
     ];
 
     const warranty_data = periods.map(p => {
@@ -414,22 +416,13 @@ export const getAnalytics = async (req: Request, res: Response) => {
           }).length 
         },
         { 
-          name: 'Physical Server', 
-          count: items.filter(i => {
-            if (i.model?.device_type !== 'server' || !i.operating_system) return false;
-            const os = i.operating_system.toLowerCase();
-            const isUnknown = ['unknown', 'not available', 'none', ''].includes(os) || os.includes('unknown');
-            const isHypervisor = HYPERVISOR_KEYWORDS.some(k => os.includes(k));
-            return !isUnknown && !isHypervisor;
-          }).length 
-        },
-        { 
-          name: 'Unknown / No OS', 
+          name: 'Bare Metal', 
           count: items.filter(i => {
             if (i.model?.device_type !== 'server') return false;
             if (!i.operating_system) return true;
             const os = i.operating_system.toLowerCase();
-            return ['unknown', 'not available', 'none', ''].includes(os) || os.includes('unknown');
+            const isHypervisor = HYPERVISOR_KEYWORDS.some(k => os.includes(k));
+            return !isHypervisor;
           }).length 
         }
       ]

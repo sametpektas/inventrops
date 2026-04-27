@@ -41,7 +41,7 @@ export default function Dashboard() {
 
   return (
     <div>
-      <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', marginBottom: 24 }}>
+      <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 24 }}>
         <div className="stat-card stat-card--red" onClick={() => handleWarrantyClick(0)} style={{ cursor: 'pointer' }}>
           <div className="stat-card__label">EXPIRED WARRANTY</div>
           <div className="stat-card__value">{data?.warranty_expiry?.[0]?.count || 0}</div>
@@ -49,21 +49,15 @@ export default function Dashboard() {
         </div>
 
         <div className="stat-card stat-card--orange" onClick={() => handleWarrantyClick(1)} style={{ cursor: 'pointer' }}>
-          <div className="stat-card__label">NEXT 6 MONTHS</div>
+          <div className="stat-card__label">THIS YEAR</div>
           <div className="stat-card__value">{data?.warranty_expiry?.[1]?.count || 0}</div>
           <div className="stat-card__detail">Budgeting required</div>
         </div>
 
         <div className="stat-card stat-card--yellow" onClick={() => handleWarrantyClick(2)} style={{ cursor: 'pointer' }}>
-          <div className="stat-card__label">NEXT 1 YEAR</div>
+          <div className="stat-card__label">NEXT YEAR</div>
           <div className="stat-card__value">{data?.warranty_expiry?.[2]?.count || 0}</div>
           <div className="stat-card__detail">Planning phase</div>
-        </div>
-
-        <div className="stat-card stat-card--teal" onClick={() => handleWarrantyClick(3)} style={{ cursor: 'pointer' }}>
-          <div className="stat-card__label">NEXT 2 YEARS</div>
-          <div className="stat-card__value">{data?.warranty_expiry?.[3]?.count || 0}</div>
-          <div className="stat-card__detail">Secure for now</div>
         </div>
       </div>
 
@@ -135,9 +129,11 @@ export default function Dashboard() {
           <div className="panel__body">
             {data?.vendor_distribution?.length ? (
               data.vendor_distribution.map((v, i) => (
-                <div key={i} style={{
+                <div key={i} 
+                  onClick={() => navigate('/inventory?vendor=' + v.vendor_id)}
+                  style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  padding: '8px 0', borderBottom: '1px solid var(--border-muted)',
+                  padding: '8px 0', borderBottom: '1px solid var(--border-muted)', cursor: 'pointer',
                 }}>
                   <span style={{ fontSize: '0.85rem', fontWeight: 500 }}>{v.vendor_name}</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

@@ -6,7 +6,6 @@ import api from '../api/client';
 const COLORS = ['#00D4AA', '#FF6B35', '#58A6FF', '#F0C000', '#F85149', '#8B949E', '#A371F7', '#3FB950'];
 
 function WarrantyTab({ warrantyData, activeTab, setActiveTab }) {
-  const periods = ['180 days', '360 days', '720 days'];
   const navigate = useNavigate();
 
   return (
@@ -71,7 +70,7 @@ function WarrantyTab({ warrantyData, activeTab, setActiveTab }) {
         <div className="empty-state">
           <div className="empty-state__icon">✓</div>
           <div className="empty-state__text">
-            No devices expiring within {periods[activeTab]}
+            No devices in {warrantyData?.[activeTab]?.period || 'this category'}
           </div>
         </div>
       )}
@@ -147,22 +146,18 @@ export default function Analytics() {
 
   return (
     <div>
-      <div className="stat-grid" style={{ marginBottom: 24, gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
+      <div className="stat-grid" style={{ marginBottom: 24, gridTemplateColumns: 'repeat(3, 1fr)' }}>
         <div className="stat-card stat-card--red" onClick={() => navigate('/inventory?warranty_before=' + new Date().toISOString().split('T')[0])} style={{ cursor: 'pointer' }}>
           <div className="stat-card__label">Expired Warranty</div>
           <div className="stat-card__value">{data?.warranty_expiry?.[0]?.count || 0}</div>
         </div>
-        <div className="stat-card stat-card--orange" onClick={() => handleWarrantyClick(180)} style={{ cursor: 'pointer' }}>
-          <div className="stat-card__label">Expiring (180d)</div>
+        <div className="stat-card stat-card--orange" onClick={() => handleWarrantyClick(365)} style={{ cursor: 'pointer' }}>
+          <div className="stat-card__label">Expiring This Year</div>
           <div className="stat-card__value">{data?.warranty_expiry?.[1]?.count || 0}</div>
         </div>
-        <div className="stat-card stat-card--yellow" onClick={() => handleWarrantyClick(360)} style={{ cursor: 'pointer' }}>
-          <div className="stat-card__label">Expiring (360d)</div>
+        <div className="stat-card stat-card--yellow" onClick={() => handleWarrantyClick(730)} style={{ cursor: 'pointer' }}>
+          <div className="stat-card__label">Expiring Next Year</div>
           <div className="stat-card__value">{data?.warranty_expiry?.[2]?.count || 0}</div>
-        </div>
-        <div className="stat-card stat-card--teal" onClick={() => handleWarrantyClick(720)} style={{ cursor: 'pointer' }}>
-          <div className="stat-card__label">Expiring (720d)</div>
-          <div className="stat-card__value">{data?.warranty_expiry?.[3]?.count || 0}</div>
         </div>
       </div>
 
@@ -313,15 +308,14 @@ export default function Analytics() {
                     strokeWidth={2}
                     onClick={(entry) => {
                       if (entry.name === 'Virtualization') navigate('/inventory?device_type=server&is_virtual=true');
-                      else if (entry.name === 'Physical Server') navigate('/inventory?device_type=server&is_virtual=false');
-                      else navigate('/inventory?operating_system=none'); // Logic depends on backend filter
+                      else if (entry.name === 'Bare Metal') navigate('/inventory?device_type=server&is_virtual=false');
                     }}
                     style={{ cursor: 'pointer' }}
                   >
                     {virtualizationChartData.map((entry, i) => {
                       let color = '#8B949E'; // Default gray
                       if (entry.name === 'Virtualization') color = '#3FB950'; // Green
-                      if (entry.name === 'Physical Server') color = '#58A6FF'; // Blue
+                      if (entry.name === 'Bare Metal') color = '#58A6FF'; // Blue
                       return <Cell key={i} fill={color} />;
                     })}
                   </Pie>
@@ -330,8 +324,7 @@ export default function Analytics() {
                     wrapperStyle={{ fontSize: '0.75rem', color: 'var(--text-secondary)', cursor: 'pointer' }}
                     onClick={(e) => {
                        if (e.value === 'Virtualization') navigate('/inventory?device_type=server&is_virtual=true');
-                       else if (e.value === 'Physical Server') navigate('/inventory?device_type=server&is_virtual=false');
-                       else navigate('/inventory?operating_system=none');
+                       else if (e.value === 'Bare Metal') navigate('/inventory?device_type=server&is_virtual=false');
                     }}
                     iconSize={10}
                   />

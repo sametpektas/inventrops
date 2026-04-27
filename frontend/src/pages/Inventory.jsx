@@ -38,6 +38,7 @@ export default function Inventory() {
   const warrantyAfter = searchParams.get('warranty_after') || '';
   const osFilter = searchParams.get('operating_system') || '';
   const isVirtual = searchParams.get('is_virtual') || '';
+  const datacenterId = searchParams.get('datacenter') || '';
   const ordering = searchParams.get('ordering') || '-created_at';
   const page = parseInt(searchParams.get('page') || '1');
 
@@ -55,6 +56,7 @@ export default function Inventory() {
       if (warrantyAfter) url += `&warranty_after=${encodeURIComponent(warrantyAfter)}`;
       if (osFilter) url += `&operating_system=${encodeURIComponent(osFilter)}`;
       if (isVirtual) url += `&is_virtual=${encodeURIComponent(isVirtual)}`;
+      if (datacenterId) url += `&datacenter=${datacenterId}`;
       if (ordering) url += `&ordering=${ordering}`;
       
       const data = await api.get(url);
@@ -65,27 +67,27 @@ export default function Inventory() {
     } finally {
       setLoading(false);
     }
-  }, [page, search, deviceType, vendorId, modelId, warrantyBefore, warrantyAfter, osFilter, isVirtual, ordering]);
+  }, [page, search, deviceType, vendorId, modelId, warrantyBefore, warrantyAfter, osFilter, isVirtual, datacenterId, ordering]);
 
   useEffect(() => {
     fetchItems();
   }, [fetchItems]);
 
   useEffect(() => {
-    if (showModal && models.length === 0) {
+    if (models.length === 0) {
       Promise.all([
         api.get('/inventory/models'),
         api.get('/inventory/vendors'),
         api.get('/infrastructure/datacenters'),
       ]).then(([m, v, d]) => {
         setModels(m?.results || []);
-        setVendors(v?.results || v || []); // Handle different API response shapes
+        setVendors(v?.results || v || []); 
         setDatacenters(d?.results || []);
       }).catch(err => {
-        console.error('Error loading modal data:', err);
+        console.error('Error loading filter data:', err);
       });
     }
-  }, [showModal, models.length]);
+  }, [models.length]);
 
   useEffect(() => {
     if (selectedDc) {
@@ -144,6 +146,7 @@ export default function Inventory() {
         if (warrantyBefore) url += `&warranty_before=${encodeURIComponent(warrantyBefore)}`;
         if (warrantyAfter) url += `&warranty_after=${encodeURIComponent(warrantyAfter)}`;
         if (osFilter) url += `&operating_system=${encodeURIComponent(osFilter)}`;
+        if (datacenterId) url += `&datacenter=${datacenterId}`;
       }
       
       const response = await api.getBlob(url);
@@ -225,7 +228,7 @@ export default function Inventory() {
 
   return (
     <div>
-      <div className="toolbar">
+      <div className="toolbar" style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
         <input
           className="search-input"
           placeholder="Search by serial, hostname, IP, asset tag..."
@@ -234,7 +237,67 @@ export default function Inventory() {
           onChange={(e) => {
             if (!e.target.value) handleSearch('');
           }}
+          style={{ flex: 1, minWidth: 200 }}
         />
+        
+        <select 
+          className="form-input form-select" 
+          value={vendorId} 
+          onChange={(e) => setSearchParams(prev => { 
+            if (e.target.value) prev.set('vendor', e.target.value); else prev.delete('vendor'); 
+            prev.delete('model'); prev.set('page', '1'); return prev; 
+          })}
+          style={{ width: 'auto', minWidth: 120 }}
+        >
+          <option value="">All Brands</option>
+          {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+        </select>
+
+        <select 
+          className="form-input form-select" 
+          value={modelId} 
+          onChange={(e) => setSearchParams(prev => { 
+            if (e.target.value) prev.set('model', e.target.value); else prev.delete('model'); 
+            prev.set('page', '1'); return prev; 
+          })}
+          style={{ width: 'auto', minWidth: 120 }}
+        >
+          <option value="">All Models</option>
+          {models.filter(m => !vendorId || String(m.vendor_id) === vendorId).map(m => (
+            <option key={m.id} value={m.id}>{m.name}</option>
+          ))}
+        </select>
+
+        <select 
+          className="form-input form-select" 
+          value={deviceType} 
+          onChange={(e) => setSearchParams(prev => { 
+            if (e.target.value) prev.set('device_type', e.target.value); else prev.delete('device_type'); 
+            prev.set('page', '1'); return prev; 
+          })}
+          style={{ width: 'auto', minWidth: 120 }}
+        >
+          <option value="">All Types</option>
+          <option value="server">Server</option>
+          <option value="storage">Storage</option>
+          <option value="network">Network</option>
+          <option value="san">SAN Switch</option>
+          <option value="chassis">Chassis</option>
+        </select>
+
+        <select 
+          className="form-input form-select" 
+          value={datacenterId} 
+          onChange={(e) => setSearchParams(prev => { 
+            if (e.target.value) prev.set('datacenter', e.target.value); else prev.delete('datacenter'); 
+            prev.set('page', '1'); return prev; 
+          })}
+          style={{ width: 'auto', minWidth: 120 }}
+        >
+          <option value="">All Locations</option>
+          {datacenters.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+        </select>
+
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="btn btn--secondary" onClick={() => handleExport('filtered')}>
             Export Filtered

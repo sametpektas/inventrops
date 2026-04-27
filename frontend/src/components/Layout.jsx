@@ -88,16 +88,6 @@ export default function Layout() {
         </nav>
 
         <div className="sidebar__footer">
-          {user?.role === 'admin' && (
-            <a 
-              href="http://localhost:3001" 
-              className="sidebar__link" 
-              style={{ marginBottom: 12, borderTop: '1px solid var(--border)', paddingTop: 12 }}
-            >
-              <span className="sidebar__link-icon">⚙</span>
-              Admin Panel
-            </a>
-          )}
           <div className="sidebar__user">
             <div className="sidebar__avatar">
               {user?.username?.[0]?.toUpperCase() || '?'}
