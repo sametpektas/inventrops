@@ -605,7 +605,7 @@ export const importInventory = async (req: Request, res: Response) => {
   }
 
   try {
-    const wb = XLSX.read(req.file.buffer, { type: 'buffer' });
+    const wb = XLSX.read(req.file.buffer, { type: 'buffer', cellDates: true });
     const sheetName = wb.SheetNames[0];
     const data: any[] = XLSX.utils.sheet_to_json(wb.Sheets[sheetName]);
 
@@ -615,6 +615,12 @@ export const importInventory = async (req: Request, res: Response) => {
       if (!val) return undefined;
       // If XLSX already parsed it as a Date object
       if (val instanceof Date) return val;
+      
+      // Handle Excel numeric serial dates (e.g. 45000)
+      if (typeof val === 'number') {
+        // 25569 is Jan 1 1970 in Excel epoch
+        return new Date((val - 25569) * 86400 * 1000);
+      }
       
       const s = String(val).trim();
       // Handle DD-MM-YYYY, DD.MM.YYYY or DD/MM/YYYY
