@@ -22,8 +22,7 @@ export const forecastQueue = new Queue('forecast-jobs', { connection });
 
 export function startForecastWorker() {
   const worker = new Worker('forecast-jobs', async job => {
-    if (job.name === 'sync-all') {
-      console.log('[Forecast Worker] Starting periodic sync...');
+      // Collect from specialized integration sources (Xormon, vROps) only
       const sources = await prisma.integrationConfig.findMany({ 
         where: { 
           is_active: true,
@@ -37,8 +36,20 @@ export function startForecastWorker() {
           const metrics = await provider.collectMetrics(source.id);
           
           for (const m of metrics) {
-            await prisma.forecastMetricSnapshot.create({
-              data: {
+            await prisma.forecastMetricSnapshot.upsert({
+              where: {
+                object_id_metric_name_captured_at: {
+                  object_id: m.objectId,
+                  metric_name: m.metricName,
+                  captured_at: m.timestamp
+                }
+              },
+              update: {
+                metric_value: m.metricValue,
+                object_name: m.objectName,
+                object_type: m.objectType
+              },
+              create: {
                 source_id: source.id,
                 object_id: m.objectId,
                 object_name: m.objectName,

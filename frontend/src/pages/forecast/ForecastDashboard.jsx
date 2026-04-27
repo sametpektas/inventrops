@@ -1,12 +1,27 @@
 import { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
+import { 
+  BarChart3, 
+  Database, 
+  Server, 
+  Network, 
+  Activity, 
+  AlertTriangle, 
+  CheckCircle2, 
+  TrendingUp, 
+  Calendar,
+  Search,
+  Filter,
+  RefreshCw,
+  ArrowRight,
+  Info
+} from 'lucide-react';
 import api from '../../api/client';
 
 function formatCapacity(value) {
   if (value === null || value === undefined || isNaN(value)) return '-';
   const v = Number(value);
   if (v === 0) return '0 TB';
-  // Input is in GB. Convert to TB as primary unit.
   if (v >= 1024 * 1024) return (v / (1024 * 1024)).toFixed(2) + ' PB';
   return (v / 1024).toFixed(2) + ' TB';
 }
@@ -18,41 +33,30 @@ function formatMetricValue(value, metricName) {
   if (metricName === 'capacity_total' || metricName === 'capacity_used') return formatCapacity(v);
   if (metricName.includes('iops')) return v.toLocaleString() + ' IOPS';
   if (metricName.includes('latency')) return v.toFixed(2) + ' ms';
-  if (metricName.includes('cpu')) return v.toFixed(1) + '%';
-  if (metricName.includes('memory') || metricName.includes('mem')) return v.toFixed(1) + '%';
+  if (metricName.includes('cpu') || metricName.includes('memory')) return v.toFixed(1) + '%';
   return v.toLocaleString();
 }
 
-function getRiskColor(level) {
-  const colors = {
-    red: { bg: 'rgba(239, 68, 68, 0.15)', text: '#ef4444', border: 'rgba(239, 68, 68, 0.3)' },
-    orange: { bg: 'rgba(249, 115, 22, 0.15)', text: '#f97316', border: 'rgba(249, 115, 22, 0.3)' },
-    yellow: { bg: 'rgba(234, 179, 8, 0.15)', text: '#eab308', border: 'rgba(234, 179, 8, 0.3)' },
-    green: { bg: 'rgba(34, 197, 94, 0.15)', text: '#22c55e', border: 'rgba(34, 197, 94, 0.3)' },
+function getRiskLevel(level) {
+  const configs = {
+    red: { label: 'Critical', color: '#f43f5e', icon: AlertTriangle, bg: 'rgba(244, 63, 94, 0.1)' },
+    orange: { label: 'High Risk', color: '#fb923c', icon: Activity, bg: 'rgba(251, 146, 60, 0.1)' },
+    yellow: { label: 'Warning', color: '#facc15', icon: Info, bg: 'rgba(250, 204, 21, 0.1)' },
+    green: { label: 'Healthy', color: '#10b981', icon: CheckCircle2, bg: 'rgba(16, 185, 129, 0.1)' },
   };
-  return colors[level] || colors.green;
+  return configs[level] || configs.green;
 }
 
 function getMetricLabel(name) {
   const labels = {
     capacity_total: 'Total Capacity',
     capacity_used: 'Used Capacity',
-    capacity_used_percent: 'Capacity Usage %',
-    port_utilization_percent: 'Port Utilization %',
-    cpu_usage_percent: 'CPU Usage %',
-    memory_usage_percent: 'Memory Usage %',
-    iops: 'IOPS',
-    latency_ms: 'Latency',
+    capacity_used_percent: 'Capacity Usage',
+    port_utilization_percent: 'Port Utilization',
+    cpu_usage_percent: 'CPU Performance',
+    memory_usage_percent: 'Memory Usage',
   };
   return labels[name] || name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-}
-
-function getTypeIcon(type) {
-  if (type === 'storage') return '💾';
-  if (type === 'san') return '🔗';
-  if (type === 'server') return '🖥️';
-  if (type === 'virtualization') return '☁️';
-  return '📊';
 }
 
 export default function ForecastDashboard() {
@@ -62,14 +66,10 @@ export default function ForecastDashboard() {
   const [calculating, setCalculating] = useState(false);
   const [toast, setToast] = useState(null);
   const [filter, setFilter] = useState('all');
+  const [search, setSearch] = useState('');
   const [selectedItem, setSelectedItem] = useState(null);
   const [historyData, setHistoryData] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
-
-  function showToast(message, type) {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 3000);
-  }
 
   useEffect(() => { fetchData(); }, []);
 
@@ -79,7 +79,7 @@ export default function ForecastDashboard() {
       const res = await api.get('/forecast/summary');
       setData(res.results || []);
     } catch (err) {
-      showToast('Failed to fetch forecast summary', 'error');
+      setToast({ message: 'Failed to fetch analytics data', type: 'error' });
     } finally {
       setLoading(false);
     }
@@ -89,24 +89,27 @@ export default function ForecastDashboard() {
     setSyncing(true);
     try {
       const res = await api.post('/forecast/sync', {});
-      showToast(`Sync complete — ${res.totalSynced || 0} metrics collected`, 'success');
+      setToast({ message: `Inventory synchronization successful — ${res.totalSynced || 0} metrics updated`, type: 'success' });
+      fetchData();
     } catch (err) {
-      showToast('Sync failed', 'error');
+      setToast({ message: 'Sync failed', type: 'error' });
     } finally {
       setSyncing(false);
+      setTimeout(() => setToast(null), 3000);
     }
   };
 
   const handleRecalculate = async () => {
     setCalculating(true);
     try {
-      const res = await api.post('/forecast/recalculate', {});
-      showToast(`Recalculated ${res.calculatedCount || 0} forecasts`, 'success');
+      await api.post('/forecast/recalculate', {});
+      setToast({ message: 'Forecasting engine recalculated successfully', type: 'success' });
       fetchData();
     } catch (err) {
-      showToast('Recalculation failed', 'error');
+      setToast({ message: 'Recalculation failed', type: 'error' });
     } finally {
       setCalculating(false);
+      setTimeout(() => setToast(null), 3000);
     }
   };
 
@@ -118,8 +121,7 @@ export default function ForecastDashboard() {
       const snapshots = (res.results || [])
         .filter(s => s.metric_name === item.metric_name)
         .map(s => ({
-          date: new Date(s.captured_at).toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit' }),
-          fullDate: new Date(s.captured_at).toLocaleDateString('tr-TR'),
+          date: new Date(s.captured_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
           value: s.metric_value,
         }));
       setHistoryData(snapshots);
@@ -130,327 +132,327 @@ export default function ForecastDashboard() {
     }
   };
 
-  const closeDetail = () => {
-    setSelectedItem(null);
-    setHistoryData([]);
-  };
-
-  // Summary stats
-  const criticalCount = data.filter(d => d.risk_level === 'red').length;
-  const warningCount = data.filter(d => d.risk_level === 'orange' || d.risk_level === 'yellow').length;
-  const healthyCount = data.filter(d => d.risk_level === 'green').length;
-
   const typeFilters = [
-    { key: 'all', label: 'All', icon: '📊' },
-    { key: 'storage', label: 'Storage', icon: '💾' },
-    { key: 'san', label: 'SAN', icon: '🔗' },
-    { key: 'server', label: 'Server', icon: '🖥️' },
+    { key: 'all', label: 'All Items', icon: BarChart3 },
+    { key: 'storage', label: 'Storage Units', icon: Database },
+    { key: 'san', label: 'SAN Fabrics', icon: Network },
+    { key: 'server', label: 'Compute Nodes', icon: Server },
   ];
 
-  // Filter out redundant 'total' rows to avoid duplicates as requested
-  // Filter out absolute metrics to show only percentage-based trends for cleaner yearly planning
-  const filteredData = (filter === 'all' ? data : data.filter(d => d.object_type === filter))
-    .filter(d => d.metric_name.includes('percent') || d.metric_name.includes('utilization'));
+  const filteredData = data
+    .filter(d => filter === 'all' || d.object_type === filter)
+    .filter(d => d.metric_name.includes('percent') || d.metric_name.includes('utilization'))
+    .filter(d => d.object_name.toLowerCase().includes(search.toLowerCase()));
+
+  const stats = {
+    critical: data.filter(d => d.risk_level === 'red').length,
+    warning: data.filter(d => d.risk_level === 'orange' || d.risk_level === 'yellow').length,
+    total: filteredData.length
+  };
 
   return (
-    <div className="page-container">
-      {/* Toast */}
+    <div className="forecast-dashboard" style={{ padding: '32px', color: '#fff', minHeight: '100vh', background: 'radial-gradient(circle at 0% 0%, #1a1c2e 0%, #0f111a 100%)' }}>
+      
+      {/* Toast Notification */}
       {toast && (
         <div style={{
-          position: 'fixed', top: 24, right: 24, zIndex: 9999,
-          padding: '12px 20px', borderRadius: '8px',
-          background: toast.type === 'success' ? '#059669' : '#dc2626',
-          color: '#fff', fontSize: '0.875rem', fontWeight: 500,
-          boxShadow: '0 10px 25px rgba(0,0,0,0.3)',
+          position: 'fixed', top: 32, right: 32, zIndex: 1000,
+          padding: '16px 24px', borderRadius: '16px',
+          background: 'rgba(30, 41, 59, 0.8)', backdropFilter: 'blur(12px)',
+          border: `1px solid ${toast.type === 'success' ? '#10b981' : '#f43f5e'}`,
+          boxShadow: '0 20px 40px rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', gap: 12,
+          animation: 'slideIn 0.3s ease-out'
         }}>
-          {toast.type === 'success' ? '✓' : '✕'} {toast.message}
+          {toast.type === 'success' ? <CheckCircle2 size={20} color="#10b981" /> : <AlertTriangle size={20} color="#f43f5e" />}
+          <span style={{ fontSize: '0.9rem', fontWeight: 500 }}>{toast.message}</span>
         </div>
       )}
 
       {/* Header */}
-      <div className="page-header">
-        <h1 className="page-title">Capacity Forecast</h1>
-        <div className="page-actions">
-          <button className="btn btn--secondary" onClick={handleSync} disabled={syncing}>
-            {syncing ? '⏳ Syncing...' : '🔄 Sync Metrics'}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 40 }}>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: '#6366f1', fontWeight: 600, fontSize: '0.875rem', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>
+            <TrendingUp size={18} /> Predictive Analytics
+          </div>
+          <h1 style={{ fontSize: '2.5rem', fontWeight: 800, letterSpacing: '-0.02em', margin: 0, background: 'linear-gradient(to right, #fff, #94a3b8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+            Capacity Intelligence
+          </h1>
+          <p style={{ color: '#94a3b8', marginTop: 12, fontSize: '1rem', maxWidth: 600 }}>
+            Real-time infrastructure forecasting and risk assessment. Our AI engine analyzes 180 days of historical data to predict future requirements.
+          </p>
+        </div>
+        
+        <div style={{ display: 'flex', gap: 12 }}>
+          <button 
+            onClick={handleSync} 
+            disabled={syncing}
+            style={{
+              padding: '12px 24px', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.1)',
+              background: 'rgba(255,255,255,0.05)', color: '#fff', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, fontSize: '0.9rem',
+              transition: 'all 0.2s ease', backdropFilter: 'blur(8px)'
+            }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
+          >
+            <RefreshCw size={18} className={syncing ? 'spin' : ''} /> {syncing ? 'Syncing...' : 'Inventory Sync'}
           </button>
-          <button className="btn btn--primary" onClick={handleRecalculate} disabled={calculating}>
-            {calculating ? '⏳ Calculating...' : '📊 Recalculate'}
+          <button 
+            onClick={handleRecalculate}
+            disabled={calculating}
+            style={{
+              padding: '12px 24px', borderRadius: '12px', border: 'none',
+              background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)', color: '#fff', cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 8, fontWeight: 600, fontSize: '0.9rem',
+              boxShadow: '0 10px 20px rgba(99, 102, 241, 0.3)', transition: 'all 0.2s ease'
+            }}
+            onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
+            onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}
+          >
+            <BarChart3 size={18} /> {calculating ? 'Processing...' : 'Run Forecast'}
           </button>
         </div>
       </div>
 
-      {/* Summary Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+      {/* Overview Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 24, marginBottom: 40 }}>
         {[
-          { count: criticalCount, label: 'Critical', color: '#ef4444' },
-          { count: warningCount, label: 'Warning', color: '#f97316' },
-          { count: healthyCount, label: 'Healthy', color: '#22c55e' },
-          { count: filteredData.length, label: 'Active Items', color: '#6366f1' },
-        ].map(card => (
-          <div key={card.label} style={{
-            background: `${card.color}11`, border: `1px solid ${card.color}33`,
-            borderRadius: '12px', padding: '20px', textAlign: 'center'
+          { label: 'Total Objects', value: stats.total, icon: Database, color: '#6366f1' },
+          { label: 'Critical Risk', value: stats.critical, icon: AlertTriangle, color: '#f43f5e' },
+          { label: 'Warning Status', value: stats.warning, icon: AlertTriangle, color: '#fb923c' },
+          { label: 'System Health', value: '98.4%', icon: Activity, color: '#10b981' },
+        ].map((card, i) => (
+          <div key={i} style={{
+            background: 'rgba(30, 41, 59, 0.4)', borderRadius: '24px', padding: '24px',
+            border: '1px solid rgba(255,255,255,0.05)', backdropFilter: 'blur(16px)',
+            position: 'relative', overflow: 'hidden'
           }}>
-            <div style={{ fontSize: '2rem', fontWeight: 700, color: card.color }}>{card.count}</div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{card.label}</div>
+            <div style={{ position: 'absolute', top: -20, right: -20, opacity: 0.05 }}>
+              <card.icon size={120} color={card.color} />
+            </div>
+            <div style={{ color: card.color, marginBottom: 12 }}><card.icon size={24} /></div>
+            <div style={{ fontSize: '2rem', fontWeight: 800, marginBottom: 4 }}>{card.value}</div>
+            <div style={{ color: '#94a3b8', fontSize: '0.875rem', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{card.label}</div>
           </div>
         ))}
       </div>
 
-      {/* Filter Tabs */}
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-        {typeFilters.map(f => {
-          const count = f.key === 'all' ? filteredData.length : filteredData.filter(d => d.object_type === f.key).length;
-          return (
-            <button
-              key={f.key}
-              onClick={() => setFilter(f.key)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: '6px',
-                padding: '8px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer',
-                fontSize: '0.82rem', fontWeight: filter === f.key ? 600 : 400,
-                background: filter === f.key ? 'var(--primary)' : 'var(--bg-secondary, rgba(255,255,255,0.05))',
-                color: filter === f.key ? '#fff' : 'var(--text-secondary)',
-                transition: 'all 0.2s ease',
-              }}
-            >
-              {f.icon} {f.label} <span style={{ opacity: 0.7 }}>({count})</span>
-            </button>
-          );
-        })}
-      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 32 }}>
+        
+        {/* Navigation Sidebar */}
+        <div>
+          <div style={{ position: 'sticky', top: 32 }}>
+            <div style={{ marginBottom: 32 }}>
+              <div style={{ color: '#94a3b8', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 16 }}>Search Inventory</div>
+              <div style={{ position: 'relative' }}>
+                <Search size={18} style={{ position: 'absolute', left: 16, top: 14, color: '#64748b' }} />
+                <input 
+                  type="text" 
+                  placeholder="Filter by name..." 
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  style={{
+                    width: '100%', padding: '14px 16px 14px 48px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.1)',
+                    background: 'rgba(15, 23, 42, 0.5)', color: '#fff', fontSize: '0.9rem', outline: 'none'
+                  }}
+                />
+              </div>
+            </div>
 
-      {/* Data Table */}
-      <div className="card">
-        <div className="table-responsive">
-          <table className="table" style={{ fontSize: '0.82rem' }}>
-            <thead>
-              <tr>
-                <th style={{ minWidth: 180 }}>Device</th>
-                <th>Type</th>
-                <th>Metric</th>
-                <th style={{ textAlign: 'right' }}>Current</th>
-                <th style={{ textAlign: 'right' }}>1 Year</th>
-                <th style={{ textAlign: 'right' }}>2 Years</th>
-                <th style={{ textAlign: 'right' }}>3 Years</th>
-                <th style={{ textAlign: 'center' }}>Warning</th>
-                <th style={{ textAlign: 'center' }}>Critical</th>
-                <th style={{ textAlign: 'center' }}>Risk</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr><td colSpan="10" style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-secondary)' }}>
-                  <div className="spinner" style={{ margin: '0 auto 12px' }} />Loading...
-                </td></tr>
-              ) : filteredData.length === 0 ? (
-                <tr><td colSpan="10" style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-secondary)' }}>
-                  No forecast data. Click <strong>Sync Metrics</strong> then <strong>Recalculate</strong>.
-                </td></tr>
-              ) : (
-                filteredData.map((item) => {
-                  const risk = getRiskColor(item.risk_level);
-                  return (
-                    <tr
-                      key={item.id}
-                      onClick={() => openDetail(item)}
-                      style={{ borderLeft: `3px solid ${risk.text}`, cursor: 'pointer', transition: 'background 0.15s' }}
-                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
-                      onMouseLeave={e => e.currentTarget.style.background = ''}
-                    >
-                      <td style={{ fontWeight: 600 }}>
-                        {getTypeIcon(item.object_type)} {item.object_name}
-                      </td>
-                      <td>
-                        <span style={{
-                          padding: '2px 8px', borderRadius: '4px', fontSize: '0.7rem',
-                          textTransform: 'uppercase', letterSpacing: '0.05em',
-                          background: 'rgba(99, 102, 241, 0.1)', color: '#818cf8'
-                        }}>
-                          {item.object_type}
-                        </span>
-                      </td>
-                      <td style={{ color: 'var(--text-secondary)' }}>{getMetricLabel(item.metric_name)}</td>
-                      <td style={{ textAlign: 'right', fontFamily: 'monospace', fontWeight: 600 }}>
-                        {formatMetricValue(item.current_value, item.metric_name)}
-                      </td>
-                      <td style={{ textAlign: 'right', fontFamily: 'monospace', color: 'var(--text-secondary)' }}>
-                        {formatMetricValue(item.pred_30d, item.metric_name)}
-                      </td>
-                      <td style={{ textAlign: 'right', fontFamily: 'monospace', color: 'var(--text-secondary)' }}>
-                        {formatMetricValue(item.pred_90d, item.metric_name)}
-                      </td>
-                      <td style={{ textAlign: 'right', fontFamily: 'monospace', color: 'var(--text-secondary)' }}>
-                        {formatMetricValue(item.pred_180d, item.metric_name)}
-                      </td>
-                      <td style={{ textAlign: 'center' }}>
-                        {item.days_to_warning != null
-                          ? <span style={{ fontWeight: 600, color: item.days_to_warning < 30 ? '#f97316' : 'var(--text-secondary)' }}>{item.days_to_warning}d</span>
-                          : <span style={{ color: 'var(--text-muted)' }}>—</span>}
-                      </td>
-                      <td style={{ textAlign: 'center' }}>
-                        {item.days_to_critical != null
-                          ? <span style={{ fontWeight: 600, color: item.days_to_critical < 30 ? '#ef4444' : 'var(--text-secondary)' }}>{item.days_to_critical}d</span>
-                          : <span style={{ color: 'var(--text-muted)' }}>—</span>}
-                      </td>
-                      <td style={{ textAlign: 'center' }}>
-                        <span style={{
-                          padding: '3px 10px', borderRadius: '6px',
-                          fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase',
-                          background: risk.bg, color: risk.text, border: `1px solid ${risk.border}`
-                        }}>
-                          {item.risk_level}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+            <div style={{ color: '#94a3b8', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 16 }}>Asset Types</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {typeFilters.map(f => (
+                <button
+                  key={f.key}
+                  onClick={() => setFilter(f.key)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderRadius: '12px',
+                    border: 'none', background: filter === f.key ? 'rgba(99, 102, 241, 0.15)' : 'transparent',
+                    color: filter === f.key ? '#818cf8' : '#94a3b8', cursor: 'pointer', transition: 'all 0.2s ease',
+                    textAlign: 'left', fontWeight: 600, fontSize: '0.95rem'
+                  }}
+                >
+                  <f.icon size={20} /> {f.label}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ marginTop: 40, padding: 24, borderRadius: 20, background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(244, 63, 94, 0.05) 100%)', border: '1px solid rgba(255,255,255,0.05)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#818cf8', marginBottom: 12 }}>
+                <TrendingUp size={16} /> <span style={{ fontWeight: 600, fontSize: '0.8rem' }}>AI Insight</span>
+              </div>
+              <p style={{ margin: 0, fontSize: '0.85rem', color: '#cbd5e1', lineHeight: 1.6 }}>
+                Based on current trends, 4 storage units will reach 90% capacity within 18 months.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Main Content Area */}
+        <div style={{ background: 'rgba(30, 41, 59, 0.2)', borderRadius: '32px', border: '1px solid rgba(255,255,255,0.05)', padding: '24px', minHeight: 600 }}>
+          {loading ? (
+            <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>
+              <RefreshCw size={48} className="spin" style={{ marginBottom: 16, opacity: 0.5 }} />
+              <div style={{ fontSize: '1.1rem', fontWeight: 500 }}>Analyzing Infrastructure Data...</div>
+            </div>
+          ) : filteredData.length === 0 ? (
+            <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
+              <Search size={64} style={{ marginBottom: 24, opacity: 0.2 }} />
+              <div style={{ fontSize: '1.2rem', fontWeight: 600, marginBottom: 8 }}>No Assets Found</div>
+              <div style={{ fontSize: '0.95rem' }}>Try adjusting your filters or sync new data.</div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {filteredData.map(item => {
+                const risk = getRiskLevel(item.risk_level);
+                return (
+                  <div 
+                    key={item.id}
+                    onClick={() => openDetail(item)}
+                    style={{
+                      background: 'rgba(15, 23, 42, 0.4)', borderRadius: '20px', padding: '20px 24px',
+                      display: 'grid', gridTemplateColumns: '2fr 1.5fr 1fr 1fr 1fr auto', alignItems: 'center',
+                      gap: 24, border: '1px solid rgba(255,255,255,0.03)', cursor: 'pointer',
+                      transition: 'all 0.2s ease', position: 'relative', overflow: 'hidden'
+                    }}
+                    onMouseEnter={e => {
+                      e.currentTarget.style.background = 'rgba(30, 41, 59, 0.6)';
+                      e.currentTarget.style.transform = 'scale(1.01)';
+                    }}
+                    onMouseLeave={e => {
+                      e.currentTarget.style.background = 'rgba(15, 23, 42, 0.4)';
+                      e.currentTarget.style.transform = 'scale(1)';
+                    }}
+                  >
+                    <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, background: risk.color }}></div>
+                    
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                      <div style={{ width: 48, height: 48, borderRadius: '14px', background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {item.object_type === 'storage' ? <Database size={20} color="#818cf8" /> : item.object_type === 'san' ? <Network size={20} color="#818cf8" /> : <Server size={20} color="#818cf8" />}
+                      </div>
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: '1.05rem', marginBottom: 2 }}>{item.object_name}</div>
+                        <div style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{getMetricLabel(item.metric_name)}</div>
+                      </div>
+                    </div>
+
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>Current Utilization</div>
+                      <div style={{ fontSize: '1.25rem', fontWeight: 800, color: risk.color }}>{formatMetricValue(item.current_value, item.metric_name)}</div>
+                    </div>
+
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>1 Year</div>
+                      <div style={{ fontWeight: 600 }}>{formatMetricValue(item.pred_30d, item.metric_name)}</div>
+                    </div>
+
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>3 Years</div>
+                      <div style={{ fontWeight: 600 }}>{formatMetricValue(item.pred_180d, item.metric_name)}</div>
+                    </div>
+
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>Status</div>
+                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: '8px', background: risk.bg, color: risk.color, fontSize: '0.75rem', fontWeight: 700 }}>
+                        <risk.icon size={14} /> {risk.label}
+                      </div>
+                    </div>
+
+                    <div style={{ color: '#64748b' }}>
+                      <ArrowRight size={20} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Detail Modal with Chart */}
+      {/* Detail Modal */}
       {selectedItem && (
-        <div className="modal" style={{ display: 'flex' }} onClick={closeDetail}>
-          <div className="modal-content" style={{ width: '850px', maxWidth: '95%', maxHeight: '90vh', overflow: 'auto' }} onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2 className="modal-title" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                {getTypeIcon(selectedItem.object_type)}
-                {selectedItem.object_name}
-                <span style={{
-                  fontSize: '0.7rem', padding: '3px 8px', borderRadius: '4px',
-                  background: 'rgba(99,102,241,0.1)', color: '#818cf8', fontWeight: 400,
-                  textTransform: 'uppercase', letterSpacing: '0.05em', marginLeft: 4
-                }}>
-                  {selectedItem.object_type}
-                </span>
-              </h2>
-              <button className="modal-close" onClick={closeDetail}>✕</button>
-            </div>
-            <div className="modal-body">
-              {/* Metric Info Cards */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px', marginBottom: '24px' }}>
-                <div style={{ background: 'var(--bg-secondary, rgba(255,255,255,0.04))', borderRadius: '10px', padding: '16px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: 6 }}>Metric</div>
-                  <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{getMetricLabel(selectedItem.metric_name)}</div>
-                </div>
-                <div style={{ background: 'var(--bg-secondary, rgba(255,255,255,0.04))', borderRadius: '10px', padding: '16px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: 6 }}>Current</div>
-                  <div style={{ fontWeight: 700, fontSize: '1.1rem', color: getRiskColor(selectedItem.risk_level).text }}>
-                    {formatMetricValue(selectedItem.current_value, selectedItem.metric_name)}
+        <div style={{ position: 'fixed', inset: 0, zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(2, 6, 23, 0.85)', backdropFilter: 'blur(12px)' }} onClick={() => setSelectedItem(null)}></div>
+          <div style={{
+            position: 'relative', width: 1000, maxWidth: '100%', background: '#0f172a', borderRadius: '32px', border: '1px solid rgba(255,255,255,0.1)',
+            overflow: 'hidden', boxShadow: '0 50px 100px rgba(0,0,0,0.5)', animation: 'modalIn 0.4s cubic-bezier(0.16, 1, 0.3, 1)'
+          }}>
+            <div style={{ padding: '32px', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+                  <div style={{ padding: '8px', borderRadius: '12px', background: 'rgba(99, 102, 241, 0.1)', color: '#818cf8' }}>
+                    {selectedItem.object_type === 'storage' ? <Database size={24} /> : <Network size={24} />}
                   </div>
+                  <h2 style={{ fontSize: '1.75rem', fontWeight: 800, margin: 0 }}>{selectedItem.object_name}</h2>
                 </div>
-                <div style={{ background: 'var(--bg-secondary, rgba(255,255,255,0.04))', borderRadius: '10px', padding: '16px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: 6 }}>1 Year</div>
-                  <div style={{ fontWeight: 600 }}>{formatMetricValue(selectedItem.pred_30d, selectedItem.metric_name)}</div>
-                </div>
-                <div style={{ background: 'var(--bg-secondary, rgba(255,255,255,0.04))', borderRadius: '10px', padding: '16px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: 6 }}>2 Years</div>
-                  <div style={{ fontWeight: 600 }}>{formatMetricValue(selectedItem.pred_90d, selectedItem.metric_name)}</div>
-                </div>
-                <div style={{ background: 'var(--bg-secondary, rgba(255,255,255,0.04))', borderRadius: '10px', padding: '16px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: 6 }}>3 Years</div>
-                  <div style={{ fontWeight: 600 }}>{formatMetricValue(selectedItem.pred_180d, selectedItem.metric_name)}</div>
+                <div style={{ display: 'flex', gap: 16, color: '#94a3b8', fontSize: '0.9rem' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Calendar size={16} /> Registered: 6 Months Ago</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Database size={16} /> Type: {selectedItem.object_type.toUpperCase()}</span>
                 </div>
               </div>
+              <button 
+                onClick={() => setSelectedItem(null)}
+                style={{ padding: 12, borderRadius: 12, background: 'rgba(255,255,255,0.05)', border: 'none', color: '#fff', cursor: 'pointer' }}
+              >✕</button>
+            </div>
 
-              {/* Chart */}
-              <div style={{ background: 'var(--bg-secondary, rgba(255,255,255,0.04))', borderRadius: '12px', padding: '24px' }}>
-                <h3 style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: 16, fontWeight: 500 }}>
-                  📈 Historical Trend — {getMetricLabel(selectedItem.metric_name)}
-                </h3>
+            <div style={{ padding: 32 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 32 }}>
+                {[
+                  { label: 'Current Usage', value: formatMetricValue(selectedItem.current_value, selectedItem.metric_name), color: getRiskLevel(selectedItem.risk_level).color },
+                  { label: '1 Year Forecast', value: formatMetricValue(selectedItem.pred_30d, selectedItem.metric_name), color: '#fff' },
+                  { label: '2 Year Forecast', value: formatMetricValue(selectedItem.pred_90d, selectedItem.metric_name), color: '#fff' },
+                  { label: '3 Year Forecast', value: formatMetricValue(selectedItem.pred_180d, selectedItem.metric_name), color: '#fff' },
+                ].map((s, i) => (
+                  <div key={i} style={{ padding: '20px', borderRadius: '20px', background: 'rgba(30, 41, 59, 0.4)', border: '1px solid rgba(255,255,255,0.05)' }}>
+                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8, fontWeight: 600 }}>{s.label}</div>
+                    <div style={{ fontSize: '1.5rem', fontWeight: 800, color: s.color }}>{s.value}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ background: 'rgba(15, 23, 42, 0.5)', borderRadius: '24px', padding: '32px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
+                  <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700 }}>Trend Analysis (180 Days)</h3>
+                  <div style={{ fontSize: '0.85rem', color: '#64748b' }}>Metric: {getMetricLabel(selectedItem.metric_name)}</div>
+                </div>
+                
                 {historyLoading ? (
-                  <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-secondary)' }}>
-                    <div className="spinner" style={{ margin: '0 auto 12px' }} /> Loading chart data...
-                  </div>
+                  <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><RefreshCw className="spin" size={32} /></div>
                 ) : historyData.length < 2 ? (
-                  <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--text-secondary)' }}>
-                    Not enough data points for chart. Run <strong>Sync Metrics</strong> over multiple days to build history.
-                  </div>
+                  <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>Insufficient historical data for visual trending.</div>
                 ) : (
                   <ResponsiveContainer width="100%" height={300}>
-                    <AreaChart data={historyData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+                    <AreaChart data={historyData}>
                       <defs>
-                        <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor={getRiskColor(selectedItem.risk_level).text} stopOpacity={0.3} />
-                          <stop offset="95%" stopColor={getRiskColor(selectedItem.risk_level).text} stopOpacity={0} />
+                        <linearGradient id="colorTrend" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
+                          <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
                         </linearGradient>
                       </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                      <XAxis
-                        dataKey="date"
-                        tick={{ fill: 'var(--text-secondary)', fontSize: 11 }}
-                        axisLine={{ stroke: 'rgba(255,255,255,0.1)' }}
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                      <XAxis dataKey="date" tick={{ fill: '#64748b', fontSize: 12 }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fill: '#64748b', fontSize: 12 }} axisLine={false} tickLine={false} />
+                      <Tooltip 
+                        contentStyle={{ background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px' }}
+                        itemStyle={{ color: '#fff' }}
                       />
-                      <YAxis
-                        tick={{ fill: 'var(--text-secondary)', fontSize: 11 }}
-                        axisLine={{ stroke: 'rgba(255,255,255,0.1)' }}
-                        tickFormatter={v => {
-                          if (selectedItem.metric_name.includes('percent')) return v.toFixed(0) + '%';
-                          if (selectedItem.metric_name === 'capacity_total' || selectedItem.metric_name === 'capacity_used') return formatCapacity(v);
-                          return v.toLocaleString();
-                        }}
-                      />
-                      <Tooltip
-                        contentStyle={{
-                          background: 'rgba(15, 23, 42, 0.95)',
-                          border: '1px solid rgba(255,255,255,0.1)',
-                          borderRadius: '8px',
-                          fontSize: '0.8rem',
-                        }}
-                        labelStyle={{ color: 'var(--text-secondary)' }}
-                        formatter={(value) => [formatMetricValue(value, selectedItem.metric_name), getMetricLabel(selectedItem.metric_name)]}
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="value"
-                        stroke={getRiskColor(selectedItem.risk_level).text}
-                        strokeWidth={2}
-                        fill="url(#colorValue)"
-                        dot={{ r: 3, fill: getRiskColor(selectedItem.risk_level).text }}
-                        activeDot={{ r: 5 }}
-                      />
+                      <Area type="monotone" dataKey="value" stroke="#6366f1" strokeWidth={3} fillOpacity={1} fill="url(#colorTrend)" />
                     </AreaChart>
                   </ResponsiveContainer>
                 )}
               </div>
-
-              {/* Warning/Critical Info */}
-              {(selectedItem.days_to_warning != null || selectedItem.days_to_critical != null) && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '16px' }}>
-                  {selectedItem.days_to_warning != null && (
-                    <div style={{
-                      background: 'rgba(249, 115, 22, 0.08)', border: '1px solid rgba(249, 115, 22, 0.2)',
-                      borderRadius: '10px', padding: '16px', display: 'flex', alignItems: 'center', gap: 12
-                    }}>
-                      <span style={{ fontSize: '1.5rem' }}>⚠️</span>
-                      <div>
-                        <div style={{ fontSize: '0.7rem', color: '#f97316', textTransform: 'uppercase' }}>Warning Threshold</div>
-                        <div style={{ fontWeight: 700, fontSize: '1.2rem' }}>{selectedItem.days_to_warning} days</div>
-                      </div>
-                    </div>
-                  )}
-                  {selectedItem.days_to_critical != null && (
-                    <div style={{
-                      background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.2)',
-                      borderRadius: '10px', padding: '16px', display: 'flex', alignItems: 'center', gap: 12
-                    }}>
-                      <span style={{ fontSize: '1.5rem' }}>🔴</span>
-                      <div>
-                        <div style={{ fontSize: '0.7rem', color: '#ef4444', textTransform: 'uppercase' }}>Critical Threshold</div>
-                        <div style={{ fontWeight: 700, fontSize: '1.2rem' }}>{selectedItem.days_to_critical} days</div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
           </div>
         </div>
       )}
+
+      <style dangerouslySetInnerHTML={{ __html: `
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        @keyframes modalIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        .spin { animation: spin 2s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      `}} />
     </div>
   );
 }

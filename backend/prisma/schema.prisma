@@ -304,6 +304,7 @@ model ForecastMetricSnapshot {
   
   captured_at     DateTime @default(now())
 
+  @@unique([object_id, metric_name, captured_at])
   @@index([object_id, metric_name])
   @@index([captured_at])
   @@map("forecast_metric_snapshot")
