@@ -22,6 +22,8 @@ export const forecastQueue = new Queue('forecast-jobs', { connection });
 
 export function startForecastWorker() {
   const worker = new Worker('forecast-jobs', async job => {
+    if (job.name === 'sync-all') {
+      console.log('[Forecast Worker] Starting periodic sync...');
       // Collect from specialized integration sources (Xormon, vROps) only
       const sources = await prisma.integrationConfig.findMany({ 
         where: { 
