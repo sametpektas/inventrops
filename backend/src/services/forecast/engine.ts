@@ -20,11 +20,31 @@ export function calculateForecast(
   criticalThreshold: number,
   direction: 'up' | 'down' = 'up'
 ): ForecastOutput {
-  if (history.length < 3) {
+  if (history.length === 0) {
     return {
       pred_30d: null, pred_90d: null, pred_180d: null, pred_365d: null,
       days_to_warning: null, days_to_critical: null,
       confidence_score: 0, risk_level: 'green'
+    };
+  }
+
+  // With 1-2 points, use current value as flat projection (no trend)
+  if (history.length < 3) {
+    const currentVal = history[history.length - 1].value;
+    let risk_level: 'green' | 'yellow' | 'orange' | 'red' = 'green';
+    let days_to_warning: number | null = null;
+    let days_to_critical: number | null = null;
+
+    // For percentage metrics, check current value against thresholds
+    if (direction === 'up') {
+      if (currentVal >= criticalThreshold) { risk_level = 'red'; days_to_critical = 0; days_to_warning = 0; }
+      else if (currentVal >= warningThreshold) { risk_level = 'orange'; days_to_warning = 0; }
+    }
+
+    return {
+      pred_30d: currentVal, pred_90d: currentVal, pred_180d: currentVal, pred_365d: currentVal,
+      days_to_warning, days_to_critical,
+      confidence_score: 0.1, risk_level
     };
   }
 

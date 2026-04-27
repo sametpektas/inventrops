@@ -211,12 +211,43 @@ export const testIntegrationConnection = async (req: Request, res: Response) => 
     else if (integration_type === 'vrops') {
       const axios = (await import('axios')).default;
       const https = (await import('https')).default;
-      const testRes = await axios.get(`${base_url}/suite-api/api/versions`, {
-        headers: { 'Authorization': `vRealizeOpsToken ${api_key}`, 'Accept': 'application/json' },
-        httpsAgent: new https.Agent({ rejectUnauthorized: false }),
-        timeout: 10000
-      });
-      return res.json({ message: 'Connection successful', version: testRes.data });
+      const agent = new https.Agent({ rejectUnauthorized: false });
+
+      // Try 1: Token auth (vROps 8.x requires authSource)
+      if (username && password) {
+        try {
+          const tokenRes = await axios.post(`${base_url}/suite-api/api/auth/token/acquire`, {
+            username, password, authSource: 'LOCAL'
+          }, { httpsAgent: agent, timeout: 10000 });
+          if (tokenRes.data?.token) {
+            return res.json({ message: 'Connection successful (Token Auth)', version: tokenRes.data });
+          }
+        } catch (e: any) {
+          console.warn(`[vROps Test] Token auth failed: ${e.response?.status} ${e.response?.data?.message || e.message}`);
+        }
+        // Try 2: Basic auth
+        try {
+          const basic = Buffer.from(`${username}:${password}`).toString('base64');
+          const basicRes = await axios.get(`${base_url}/suite-api/api/versions`, {
+            headers: { 'Authorization': `Basic ${basic}`, 'Accept': 'application/json' },
+            httpsAgent: agent, timeout: 10000
+          });
+          return res.json({ message: 'Connection successful (Basic Auth)', version: basicRes.data });
+        } catch (e: any) {
+          console.warn(`[vROps Test] Basic auth failed: ${e.message}`);
+        }
+      }
+      // Try 3: API Key
+      if (api_key) {
+        try {
+          const keyRes = await axios.get(`${base_url}/suite-api/api/versions`, {
+            headers: { 'Authorization': `vRealizeOpsToken ${api_key}`, 'Accept': 'application/json' },
+            httpsAgent: agent, timeout: 10000
+          });
+          return res.json({ message: 'Connection successful (API Key)', version: keyRes.data });
+        } catch {}
+      }
+      return res.status(422).json({ error: 'vROps connection failed. Check URL, username/password or API key.' });
     }
     else return res.status(400).json({ error: 'Invalid integration type' });
 

@@ -20,15 +20,34 @@ export class VRopsForecastProvider implements ForecastProvider {
     });
 
     try {
-      // Authenticate: vROps uses token-based auth
+      // Authenticate: vROps 8.x uses token-based auth
       let token = source.api_key ? decrypt(source.api_key) : null;
 
       if (!token && source.username && source.password) {
-        const authRes = await client.post('/suite-api/api/auth/token/acquire', {
-          username: source.username,
-          password: decrypt(source.password)
-        });
-        token = authRes.data?.token;
+        try {
+          const authRes = await client.post('/suite-api/api/auth/token/acquire', {
+            username: source.username,
+            authSource: 'LOCAL',
+            password: decrypt(source.password)
+          });
+          token = authRes.data?.token;
+          console.log('[VRopsForecast] Token acquired successfully.');
+        } catch (authErr: any) {
+          console.error(`[VRopsForecast] Auth failed (${authErr.response?.status}): ${authErr.response?.data?.message || authErr.message}`);
+          // Fallback: try basic auth header
+          const basicAuth = Buffer.from(`${source.username}:${decrypt(source.password)}`).toString('base64');
+          try {
+            const testRes = await client.get('/suite-api/api/versions', {
+              headers: { 'Authorization': `Basic ${basicAuth}` }
+            });
+            if (testRes.status === 200) {
+              console.log('[VRopsForecast] Basic auth works, using it for requests.');
+              token = `BASIC:${basicAuth}`;
+            }
+          } catch {
+            console.error('[VRopsForecast] Basic auth also failed.');
+          }
+        }
       }
 
       if (!token) {
@@ -36,8 +55,13 @@ export class VRopsForecastProvider implements ForecastProvider {
         return metrics;
       }
 
+      // Determine auth header
+      const authHeader = token.startsWith('BASIC:')
+        ? `Basic ${token.replace('BASIC:', '')}`
+        : `vRealizeOpsToken ${token}`;
+
       const headers = {
-        'Authorization': `vRealizeOpsToken ${token}`,
+        'Authorization': authHeader,
         'Accept': 'application/json'
       };
 
