@@ -1,13 +1,22 @@
 import { Queue, Worker } from 'bullmq';
+import IORedis from 'ioredis';
 import { prisma } from '../lib/prisma';
 import { XormonForecastProvider } from '../services/forecast/providers/xormonForecast.provider';
 import { VRopsForecastProvider } from '../services/forecast/providers/vropsForecast.provider';
 import { calculateForecast } from '../services/forecast/engine';
 
-const connection = {
-  host: process.env.REDIS_HOST || 'localhost',
-  port: parseInt(process.env.REDIS_PORT || '6379')
-};
+const connection = new IORedis(process.env.REDIS_URL || 'redis://localhost:6379/0', {
+  maxRetriesPerRequest: null
+});
+
+connection.on('error', (err: any) => {
+  // Prevent unhandled promise rejections on connection failure
+  if (err.code === 'ECONNREFUSED') {
+    // Suppress logs if we intentionally run without Redis locally
+  } else {
+    console.warn('[Forecast Redis] Connection error:', err.message);
+  }
+});
 
 export const forecastQueue = new Queue('forecast-jobs', { connection });
 
