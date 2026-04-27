@@ -321,10 +321,9 @@ model ForecastResult {
   metric_name     String
   
   current_value   Float
-  pred_30d        Float?
-  pred_90d        Float?
-  pred_180d       Float?
-  pred_365d       Float?
+  pred_1y         Float?
+  pred_2y         Float?
+  pred_3y         Float?
   
   days_to_warning  Int?
   days_to_critical Int?

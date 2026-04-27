@@ -343,12 +343,17 @@ export default function ForecastDashboard() {
 
                     <div style={{ textAlign: 'center' }}>
                       <div style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>1 Year</div>
-                      <div style={{ fontWeight: 600 }}>{formatMetricValue(item.pred_30d, item.metric_name)}</div>
+                      <div style={{ fontWeight: 600 }}>{formatMetricValue(item.pred_1y, item.metric_name)}</div>
+                    </div>
+
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>2 Years</div>
+                      <div style={{ fontWeight: 600 }}>{formatMetricValue(item.pred_2y, item.metric_name)}</div>
                     </div>
 
                     <div style={{ textAlign: 'center' }}>
                       <div style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>3 Years</div>
-                      <div style={{ fontWeight: 600 }}>{formatMetricValue(item.pred_180d, item.metric_name)}</div>
+                      <div style={{ fontWeight: 600 }}>{formatMetricValue(item.pred_3y, item.metric_name)}</div>
                     </div>
 
                     <div style={{ textAlign: 'center' }}>
@@ -398,17 +403,22 @@ export default function ForecastDashboard() {
 
             <div style={{ padding: 32 }}>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 32 }}>
-                {[
-                  { label: 'Current Usage', value: formatMetricValue(selectedItem.current_value, selectedItem.metric_name), color: getRiskLevel(selectedItem.risk_level).color },
-                  { label: '1 Year Forecast', value: formatMetricValue(selectedItem.pred_30d, selectedItem.metric_name), color: '#fff' },
-                  { label: '2 Year Forecast', value: formatMetricValue(selectedItem.pred_90d, selectedItem.metric_name), color: '#fff' },
-                  { label: '3 Year Forecast', value: formatMetricValue(selectedItem.pred_180d, selectedItem.metric_name), color: '#fff' },
-                ].map((s, i) => (
-                  <div key={i} style={{ padding: '20px', borderRadius: '20px', background: 'rgba(30, 41, 59, 0.4)', border: '1px solid rgba(255,255,255,0.05)' }}>
-                    <div style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8, fontWeight: 600 }}>{s.label}</div>
-                    <div style={{ fontSize: '1.5rem', fontWeight: 800, color: s.color }}>{s.value}</div>
-                  </div>
-                ))}
+                <div style={{ padding: '20px', borderRadius: '20px', background: 'rgba(30, 41, 59, 0.4)', border: '1px solid rgba(255,255,255,0.05)' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8, fontWeight: 600 }}>Current Usage</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 800, color: getRiskLevel(selectedItem.risk_level).color }}>{formatMetricValue(selectedItem.current_value, selectedItem.metric_name)}</div>
+                </div>
+                <div key="p1y" style={{ background: 'rgba(255,255,255,0.03)', padding: '20px', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', marginBottom: 8 }}>Forecast 1 Year</div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 700 }}>{formatMetricValue(selectedItem.pred_1y, selectedItem.metric_name)}</div>
+                </div>
+                <div key="p2y" style={{ background: 'rgba(255,255,255,0.03)', padding: '20px', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', marginBottom: 8 }}>Forecast 2 Years</div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 700 }}>{formatMetricValue(selectedItem.pred_2y, selectedItem.metric_name)}</div>
+                </div>
+                <div key="p3y" style={{ background: 'rgba(255,255,255,0.03)', padding: '20px', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                  <div style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', marginBottom: 8 }}>Forecast 3 Years</div>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 700 }}>{formatMetricValue(selectedItem.pred_3y, selectedItem.metric_name)}</div>
+                </div>
               </div>
 
               <div style={{ background: 'rgba(15, 23, 42, 0.5)', borderRadius: '24px', padding: '32px', border: '1px solid rgba(255,255,255,0.05)' }}>

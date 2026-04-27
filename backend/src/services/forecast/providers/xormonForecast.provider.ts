@@ -99,44 +99,36 @@ export class XormonForecastProvider implements ForecastProvider {
         }
 
         try {
-          // 1. Fetch Capacity Metrics (Standardized for all storage devices)
-          const capRes = await client.post(
-            '/api/public/v1/exporter/capacity',
-            { uuids: [itemId], format: 'json' },
-            { headers }
-          );
+          // 1. Fetch Capacity Metrics (Standardized)
+          let totalGB = 0;
+          let usedGB = 0;
 
-          const capData = capRes.data;
-          let capMetrics: any = null;
+          try {
+            const capRes = await client.post(
+              '/api/public/v1/exporter/capacity',
+              { uuids: [itemId], format: 'json' },
+              { headers }
+            );
 
-          if (Array.isArray(capData) && capData.length > 0) {
-            capMetrics = capData[0]?.capacity_metrics || capData[0];
-          } else if (capData?.data && Array.isArray(capData.data) && capData.data.length > 0) {
-            capMetrics = capData.data[0]?.capacity_metrics || capData.data[0];
-          }
+            const capData = capRes.data;
+            let capMetrics: any = null;
 
-          if (capMetrics) {
-            // Priority: usable_gb -> total_raw_gb -> capacity_total
-            const totalGB = parseFloat(String(capMetrics.total_usable_gb || capMetrics.total_raw_gb || capMetrics.capacity_total || capMetrics.total || '0'));
-            const usedGB = parseFloat(String(capMetrics.used_gb || capMetrics.capacity_used || capMetrics.used || '0'));
-            
-            if (totalGB > 0) {
-              metrics.push({
-                objectId: itemId, objectName: label, objectType: finalType,
-                metricName: 'capacity_total', metricValue: totalGB, timestamp
-              });
-              
-              const usagePercent = Math.min(100, (usedGB / totalGB) * 100);
-              metrics.push({
-                objectId: itemId, objectName: label, objectType: finalType,
-                metricName: 'capacity_used_percent', 
-                metricValue: Math.round(usagePercent * 100) / 100, 
-                timestamp
-              });
+            if (Array.isArray(capData) && capData.length > 0) {
+              capMetrics = capData[0]?.capacity_metrics || capData[0];
+            } else if (capData?.data && Array.isArray(capData.data) && capData.data.length > 0) {
+              capMetrics = capData.data[0]?.capacity_metrics || capData.data[0];
             }
+
+            if (capMetrics) {
+              totalGB = parseFloat(String(capMetrics.total_usable_gb || capMetrics.total_raw_gb || capMetrics.capacity_total || capMetrics.total || '0'));
+              usedGB = parseFloat(String(capMetrics.used_gb || capMetrics.capacity_used || capMetrics.used || '0'));
+              console.log(`[XormonForecast] Capacity for ${label}: ${totalGB}GB Total, ${usedGB}GB Used`);
+            }
+          } catch (e: any) {
+            console.warn(`[XormonForecast] /exporter/capacity failed for ${label}: ${e.message}`);
           }
 
-          // 2. Fetch Configuration (Metadata fallback + SAN ports)
+          // 2. Fetch Configuration (Metadata + Fallback)
           const configRes = await client.post(
             '/api/public/v1/exporter/configuration',
             { uuids: [itemId], format: 'json' },
@@ -161,29 +153,59 @@ export class XormonForecastProvider implements ForecastProvider {
             return num / 1024; // Default MB to GB
           };
 
-          // Fallback if /capacity didn't have totalGB
-          if (metrics.filter(m => m.objectId === itemId && m.metricName === 'capacity_total').length === 0) {
+          // Fallback for storage if /capacity was empty
+          if (totalGB === 0) {
             const totalVal = conf.capacity_total || conf.total_capacity || conf.pool_total_capacity || 
                              conf.physical_capacity || conf.real_capacity || conf.cap_p || '0';
-            const totalGB = parseXormonValue(totalVal);
-            if (totalGB > 0) {
-               metrics.push({
-                objectId: itemId, objectName: label, objectType: finalType,
-                metricName: 'capacity_total', metricValue: totalGB, timestamp
-              });
-            }
+            const usedVal = conf.capacity_used || conf.used_capacity || conf.pool_used_capacity || 
+                            conf.physical_used_capacity || conf.used_real_capacity || conf.cap_r || '0';
+            totalGB = parseXormonValue(totalVal);
+            usedGB = parseXormonValue(usedVal);
+            if (totalGB > 0) console.log(`[XormonForecast] Config Fallback for ${label}: ${totalGB}GB Total`);
           }
 
-          // SAN specific metrics from Config (Fallback)
+          if (totalGB > 0) {
+            metrics.push({
+              objectId: itemId, objectName: label, objectType: 'storage',
+              metricName: 'capacity_total', metricValue: totalGB, timestamp
+            });
+            
+            const usagePercent = Math.min(100, (usedGB / totalGB) * 100);
+            metrics.push({
+              objectId: itemId, objectName: label, objectType: 'storage',
+              metricName: 'capacity_used_percent', 
+              metricValue: Math.round(usagePercent * 100) / 100, 
+              timestamp
+            });
+          }
+
+          // 3. SAN specific metrics (Optimized)
           if (finalType === 'san' || hwType === 'brocade' || label.toLowerCase().includes('sw')) {
             const pTotal = conf.ports_total || conf.total_ports || conf.port_count || conf.ports || '0';
-            const pOnline = conf.ports_online || conf.active_ports || conf.online_ports || conf.port_usage || '0';
+            let pOnline = conf.ports_online || conf.active_ports || conf.online_ports || conf.port_usage || '0';
             
             const portsTotal = parseFloat(String(pTotal));
-            const portsOnline = parseFloat(String(pOnline));
+            let portsOnline = parseFloat(String(pOnline));
             
+            // If config reports 0, try to find current value from timeseries
+            if (portsTotal > 0 && portsOnline === 0) {
+               try {
+                 const tsNow = await client.post('/api/public/v1/exporter/timeseries', {
+                    uuids: [itemId], metrics: ['ports_online'], start: Math.floor(Date.now()/1000) - 3600, end: Math.floor(Date.now()/1000), format: 'json'
+                 }, { headers });
+                 const series = tsNow.data?.data || tsNow.data;
+                 if (Array.isArray(series) && series.length > 0) {
+                    const vals = series[0].values || series[0].data || [];
+                    if (vals.length > 0) {
+                      portsOnline = parseFloat(String(vals[vals.length - 1].v || vals[vals.length - 1][1]));
+                    }
+                 }
+               } catch (e) {}
+            }
+
             if (portsTotal > 0) {
               const portUsedPercent = (portsOnline / portsTotal) * 100;
+              console.log(`[XormonForecast] SAN ${label}: ${portsOnline}/${portsTotal} ports used (${portUsedPercent.toFixed(2)}%)`);
               metrics.push({
                 objectId: itemId, objectName: label, objectType: 'san',
                 metricName: 'port_utilization_percent', metricValue: Math.round(portUsedPercent * 100) / 100, timestamp
@@ -191,18 +213,18 @@ export class XormonForecastProvider implements ForecastProvider {
             }
           }
 
-          // 2. Fetch Time-Series History (Last 180 days) - ALWAYS TRY for all devices
+          // 4. Fetch Time-Series History (Last 180 days) - Per Device with Milliseconds
           try {
-            const endTime = Math.floor(Date.now() / 1000);
-            const startTime = endTime - (180 * 24 * 3600); // 180 days ago
+            const endTimeMs = Date.now();
+            const startTimeMs = endTimeMs - (180 * 24 * 3600 * 1000);
 
             const tsRes = await client.post(
               '/api/public/v1/exporter/timeseries',
               {
                 uuids: [itemId],
                 metrics: ['capacity_usage', 'cpu_usage', 'mem_usage', 'data_rate', 'ports_online'],
-                start: startTime,
-                end: endTime,
+                start: startTimeMs,
+                end: endTimeMs,
                 format: 'json'
               },
               { headers }
@@ -211,6 +233,7 @@ export class XormonForecastProvider implements ForecastProvider {
             const tsData = tsRes.data;
             const series = Array.isArray(tsData) ? tsData : (tsData?.data || tsData?.items || []);
             
+            let pointsFound = 0;
             for (const s of series) {
               const mName = s.metric || s.metric_name;
               const values = s.values || s.data || [];
@@ -229,16 +252,22 @@ export class XormonForecastProvider implements ForecastProvider {
                   else if (mName === 'ports_online') normalizedMetric = 'ports_online_count';
 
                   if (normalizedMetric) {
+                    // Xormon might return ts in seconds or ms, we normalize
+                    const timestampObj = new Date(ts > 9999999999 ? ts : ts * 1000);
                     metrics.push({
                       objectId: itemId, objectName: label, objectType: finalType,
-                      metricName: normalizedMetric, metricValue: finalValue, timestamp: new Date(ts * 1000)
+                      metricName: normalizedMetric, metricValue: finalValue, timestamp: timestampObj
                     });
+                    pointsFound++;
                   }
                 }
               }
             }
+            if (pointsFound > 0) {
+               console.log(`[XormonForecast] Found ${pointsFound} history points for ${label}`);
+            }
           } catch (tsErr: any) {
-            // Silently continue if history fails for a specific device
+             console.warn(`[XormonForecast] Timeseries failed for ${label}: ${tsErr.message}`);
           }
 
         } catch (err: any) {
