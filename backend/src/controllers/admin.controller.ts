@@ -209,10 +209,11 @@ export const testIntegrationConnection = async (req: Request, res: Response) => 
     else if (integration_type === 'hpe_oneview') adapter = new HPEOneViewAdapter(config);
     else if (integration_type === 'xormon') adapter = new XormonAdapter(config);
     else if (integration_type === 'vrops') {
-      // vROps test connection: try to reach the suite-api
       const axios = (await import('axios')).default;
+      const https = (await import('https')).default;
       const testRes = await axios.get(`${base_url}/suite-api/api/versions`, {
         headers: { 'Authorization': `vRealizeOpsToken ${api_key}`, 'Accept': 'application/json' },
+        httpsAgent: new https.Agent({ rejectUnauthorized: false }),
         timeout: 10000
       });
       return res.json({ message: 'Connection successful', version: testRes.data });

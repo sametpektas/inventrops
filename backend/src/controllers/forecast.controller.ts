@@ -10,8 +10,7 @@ export const getForecastSummary = async (req: Request, res: Response) => {
     const where = role === 'admin' ? {} : { source: { team_id } };
     const results = await prisma.forecastResult.findMany({
       where,
-      orderBy: { risk_level: 'desc' }, // Need custom logic to sort red > orange > yellow > green
-      take: 20,
+      orderBy: { risk_level: 'desc' },
     });
     // Sort logic hack for risk_level
     const riskWeight = { red: 4, orange: 3, yellow: 2, green: 1 };
