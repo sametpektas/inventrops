@@ -39,7 +39,6 @@ export class XormonForecastProvider implements ForecastProvider {
 
       const headers = { 'apiKey': apiKey, 'X-API-KEY': apiKey };
 
-    try {
       // 1. Discover and Fetch Bulk Exporters (Storage & SAN)
       console.log(`[XormonForecast] Discovering Bulk Exporters...`);
       try {
