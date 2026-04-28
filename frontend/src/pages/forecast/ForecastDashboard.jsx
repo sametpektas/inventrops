@@ -87,10 +87,14 @@ export default function ForecastDashboard() {
 
   const toggleDC = (dc) => setOpenDCs(p=>({...p,[dc]:!p[dc]}));
 
-  // Filter data by active tab
-  const storageItems = data.filter(d=>d.object_type==='storage' && (d.metric_name.includes('percent')||d.metric_name.includes('capacity'))).filter(d=>d.object_name.toLowerCase().includes(search.toLowerCase()));
+  // Filter data by active tab — storage only shows capacity_used_percent
+  const storageItems = data.filter(d=>d.object_type==='storage' && d.metric_name==='capacity_used_percent').filter(d=>d.object_name.toLowerCase().includes(search.toLowerCase()));
   const sanItems = data.filter(d=>d.object_type==='san').filter(d=>d.object_name.toLowerCase().includes(search.toLowerCase()));
   const virtItems = data.filter(d=>d.object_type==='cluster'||d.object_type==='virtualization').filter(d=>d.object_name.toLowerCase().includes(search.toLowerCase()));
+
+  // Build a lookup: object_id -> capacity_total current value (in GB)
+  const capacityTotalMap = {};
+  data.filter(d=>d.metric_name==='capacity_total').forEach(d=>{ capacityTotalMap[d.object_id] = d.current_value; });
 
   // Group virt items by DC
   const clustersById = {};
@@ -115,8 +119,18 @@ export default function ForecastDashboard() {
     { key:'virtualization', label:'Virtualization', icon:Server, count:virtItems.length },
   ];
 
+  // Helper: convert % to TB text using capacity_total lookup
+  const pctToTB = (pct, objectId) => {
+    const totalGb = capacityTotalMap[objectId];
+    if (!totalGb || pct == null) return null;
+    const usedGb = totalGb * (pct / 100);
+    const fmt = (gb) => gb >= 1024 ? (gb/1024).toFixed(2)+' TB' : gb.toFixed(0)+' GB';
+    return `${fmt(usedGb)} / ${fmt(totalGb)}`;
+  };
+
   const renderRow = (item, icon) => {
     const risk = getRiskLevel(item.risk_level);
+    const tbText = item.metric_name === 'capacity_used_percent' ? pctToTB(item.current_value, item.object_id) : null;
     return (
       <div key={item.id} onClick={()=>openGraph(item)} style={{ background:'rgba(15,23,42,0.4)', borderRadius:16, padding:'14px 20px', display:'flex', flexWrap:'wrap', alignItems:'center', justifyContent:'space-between', gap:16, border:'1px solid rgba(255,255,255,0.03)', cursor:'pointer', transition:'all 0.2s', position:'relative' }}
         onMouseEnter={e=>{e.currentTarget.style.background='rgba(30,41,59,0.6)';e.currentTarget.style.borderColor='rgba(255,255,255,0.1)';}}
@@ -128,6 +142,7 @@ export default function ForecastDashboard() {
           <div>
             <div style={{fontWeight:700,fontSize:'0.95rem',color:'#f8fafc'}}>{item.object_name}</div>
             <div style={{fontSize:'0.75rem',color:'#64748b',textTransform:'uppercase',letterSpacing:'0.05em'}}>{metricLabel(item.metric_name)}</div>
+            {tbText && <div style={{fontSize:'0.75rem',color:'#94a3b8',marginTop:2}}>{tbText}</div>}
           </div>
         </div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(4,minmax(70px,1fr))',gap:12,flex:'2 1 350px'}}>
@@ -283,12 +298,16 @@ export default function ForecastDashboard() {
             </div>
             <div style={{padding:32}}>
               <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:16,marginBottom:28}}>
-                {[{l:'Current',v:modal.current_value,h:true},{l:'1 Year',v:modal.pred_1y},{l:'2 Years',v:modal.pred_2y},{l:'3 Years',v:modal.pred_3y}].map((c,i)=>(
-                  <div key={i} style={{padding:18,borderRadius:16,background:c.h?'rgba(30,41,59,0.4)':'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.05)'}}>
-                    <div style={{fontSize:'0.75rem',color:'#94a3b8',textTransform:'uppercase',marginBottom:8,fontWeight:600}}>{c.l}</div>
-                    <div style={{fontSize:'1.3rem',fontWeight:800,color:c.h?getRiskLevel(modal.risk_level).color:'#f8fafc'}}>{fmtVal(c.v,modal.metric_name)}</div>
-                  </div>
-                ))}
+                {[{l:'Current',v:modal.current_value,h:true},{l:'1 Year',v:modal.pred_1y},{l:'2 Years',v:modal.pred_2y},{l:'3 Years',v:modal.pred_3y}].map((c,i)=>{
+                  const tb = (modal.metric_name==='capacity_used_percent' && c.v!=null) ? pctToTB(c.v,modal.object_id) : null;
+                  return (
+                    <div key={i} style={{padding:18,borderRadius:16,background:c.h?'rgba(30,41,59,0.4)':'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.05)'}}>
+                      <div style={{fontSize:'0.75rem',color:'#94a3b8',textTransform:'uppercase',marginBottom:8,fontWeight:600}}>{c.l}</div>
+                      <div style={{fontSize:'1.3rem',fontWeight:800,color:c.h?getRiskLevel(modal.risk_level).color:'#f8fafc'}}>{fmtVal(c.v,modal.metric_name)}</div>
+                      {tb && <div style={{fontSize:'0.8rem',color:'#94a3b8',marginTop:4}}>{tb}</div>}
+                    </div>
+                  );
+                })}
               </div>
               <div style={{background:'rgba(15,23,42,0.5)',borderRadius:20,padding:28,border:'1px solid rgba(255,255,255,0.05)'}}>
                 <h3 style={{margin:'0 0 24px',fontSize:'1rem',fontWeight:700}}>180-Day Trend</h3>

@@ -152,13 +152,23 @@ export class VRopsForecastProvider implements ForecastProvider {
 
             // Fetch historical stats for this resource
             try {
+              // Broad coverage of all common vROps cluster CPU/MEM stat keys
               const statKeys = [
                 'cpu|usage_average', 
-                'mem|usage_average', 
+                'cpu|usagemhz_average',
+                'cpu|demandmhz',
+                'cpu|demandPct',
+                'cpu|workload',
+                'cpu|capacity_usagepct_average',
+                'mem|usage_average',
+                'mem|workload', 
+                'mem|host_demand',
+                'mem|capacity_usagepct_average',
                 'cpu|capacity_provisioned', 
                 'cpu|totalCapacity_average',
                 'mem|host_usable', 
-                'mem|capacity_provisioned'
+                'mem|capacity_provisioned',
+                'mem|totalCapacity_average'
               ];
 
               let statsRes;
@@ -177,7 +187,6 @@ export class VRopsForecastProvider implements ForecastProvider {
                   { headers }
                 );
               } catch (err: any) {
-                // If 403 Forbidden with token, try fallback to Basic Auth for this specific request
                 if (err.response?.status === 403 && source.username && source.password) {
                   const basicAuth = Buffer.from(`${source.username}:${decrypt(source.password)}`).toString('base64');
                   statsRes = await client.post(
@@ -199,10 +208,23 @@ export class VRopsForecastProvider implements ForecastProvider {
               }
 
               const resourceStats = statsRes.data?.values || [statsRes.data];
+              
+              // Debug: log all returned stat keys for first cluster only
+              if (resources.indexOf(resource) === 0) {
+                const debugKeys: string[] = [];
+                for (const rs of resourceStats) {
+                  if (!rs) continue;
+                  const sl = rs['stat-list']?.stat || rs.statList?.stat || rs.stat || [];
+                  for (const s of sl) {
+                    const k = s.statKey?.key || s.key;
+                    if (k) debugKeys.push(k);
+                  }
+                }
+                console.log(`[VRopsForecast] DEBUG: Returned stat keys for ${resourceName}: ${JSON.stringify(debugKeys)}`);
+              }
 
               for (const resStat of resourceStats) {
                 if (!resStat) continue;
-                // vROps can return it in different nested structures
                 const statList = resStat['stat-list']?.stat || resStat.statList?.stat || resStat.stat || [];
 
                 for (const stat of statList) {
@@ -215,8 +237,10 @@ export class VRopsForecastProvider implements ForecastProvider {
                   if (timestamps.length > 0 && values.length > 0 && timestamps.length === values.length) {
                     let metricName = key.replace(/\|/g, '_');
 
-                    if (metricName.includes('cpu_usage')) metricName = 'cpu_usage_percent';
-                    else if (metricName.includes('mem_usage')) metricName = 'memory_usage_percent';
+                    // CPU percentage variants
+                    if (metricName.includes('cpu_usage') || metricName.includes('cpu_workload') || metricName.includes('cpu_demandPct') || metricName.includes('cpu_capacity_usagepct')) metricName = 'cpu_usage_percent';
+                    // MEM percentage variants 
+                    else if (metricName.includes('mem_usage') || metricName.includes('mem_workload') || metricName.includes('mem_capacity_usagepct')) metricName = 'memory_usage_percent';
                     else if (metricName.includes('capacity_usage')) metricName = 'capacity_used_percent';
                     else if (metricName.includes('total_capacity')) metricName = 'capacity_total';
                     else if (metricName.includes('used_space')) metricName = 'capacity_used';
