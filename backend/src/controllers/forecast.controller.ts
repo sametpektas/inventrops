@@ -58,7 +58,7 @@ export const getForecastServer = async (req: Request, res: Response) => {
 export const getForecastVirtualization = async (req: Request, res: Response) => {
   const { team_id, role } = (req as any).user || {};
   try {
-    const where = { object_type: 'virtualization', ...(role !== 'admin' && { source: { team_id } }) };
+    const where = { object_type: { in: ['virtualization', 'cluster'] }, ...(role !== 'admin' && { source: { team_id } }) };
     const results = await prisma.forecastResult.findMany({ where });
     res.json({ results });
   } catch (error) {

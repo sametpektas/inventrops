@@ -102,18 +102,40 @@ export class VRopsForecastProvider implements ForecastProvider {
             let resourceName = resource.resourceKey?.name || resource.resourceName || resourceId;
             let objectType = 'cluster';
 
-            // Attempt to fetch Datacenter name property for the cluster
+            // Attempt to fetch Datacenter name for the cluster via relationships
             if (kind === 'ClusterComputeResource') {
+              let dcFound = false;
               try {
-                const propRes = await client.get(`/suite-api/api/resources/${resourceId}/properties`, { headers });
-                const props = propRes.data?.property || [];
-                const dcProp = props.find((p: any) => p.name === 'summary|datacenter' || p.name === 'summary|parentDatacenter');
-                if (dcProp && dcProp.value) {
-                  resourceName = `${dcProp.value} | ${resourceName}`;
-                } else {
-                  resourceName = `Unknown DC | ${resourceName}`;
+                // Try relationships first (most reliable)
+                const relRes = await client.get(`/suite-api/api/resources/${resourceId}/relationships`, {
+                  headers,
+                  params: { relationshipType: 'PARENT' }
+                });
+                const parents = relRes.data?.resourceList || [];
+                const dcParent = parents.find((p: any) => 
+                  p.resourceKey?.resourceKindKey === 'Datacenter' || 
+                  p.resourceKey?.resourceKind === 'Datacenter'
+                );
+                if (dcParent) {
+                  const dcName = dcParent.resourceKey?.name || dcParent.resourceName || 'Unknown DC';
+                  resourceName = `${dcName} | ${resourceName}`;
+                  dcFound = true;
                 }
-              } catch (e) {
+              } catch {}
+              
+              if (!dcFound) {
+                try {
+                  const propRes = await client.get(`/suite-api/api/resources/${resourceId}/properties`, { headers });
+                  const props = propRes.data?.property || [];
+                  const dcProp = props.find((p: any) => p.name === 'summary|datacenter' || p.name === 'summary|parentDatacenter');
+                  if (dcProp && dcProp.value) {
+                    resourceName = `${dcProp.value} | ${resourceName}`;
+                    dcFound = true;
+                  }
+                } catch {}
+              }
+              
+              if (!dcFound) {
                 resourceName = `Unknown DC | ${resourceName}`;
               }
             }
