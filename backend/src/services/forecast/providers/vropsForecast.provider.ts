@@ -102,9 +102,9 @@ export class VRopsForecastProvider implements ForecastProvider {
             const resourceName = resource.resourceKey?.name || resource.resourceName || resourceId;
             let objectType = 'server';
 
-            if (kind === 'ClusterComputeResource') objectType = 'virtualization';
+            if (kind === 'ClusterComputeResource') objectType = 'cluster';
             else if (kind === 'Datastore') objectType = 'storage';
-            else if (kind === 'Datacenter') objectType = 'virtualization';
+            else if (kind === 'Datacenter') objectType = 'datacenter';
 
             // Determine start and end time for historical stats
             const existing = await prisma.forecastMetricSnapshot.findFirst({
