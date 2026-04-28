@@ -130,7 +130,10 @@ export class VRopsForecastProvider implements ForecastProvider {
                     resourceId: [resourceId],
                     statKey: statKeys,
                     begin: startTime,
-                    end: endTime
+                    end: endTime,
+                    rollUpType: 'AVG',
+                    intervalType: 'DAYS',
+                    intervalQuantifier: 1
                   },
                   { headers }
                 );
@@ -144,7 +147,10 @@ export class VRopsForecastProvider implements ForecastProvider {
                       resourceId: [resourceId],
                       statKey: statKeys,
                       begin: startTime,
-                      end: endTime
+                      end: endTime,
+                      rollUpType: 'AVG',
+                      intervalType: 'DAYS',
+                      intervalQuantifier: 1
                     },
                     { headers: { ...headers, 'Authorization': `Basic ${basicAuth}` } }
                   );
