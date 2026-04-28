@@ -132,68 +132,85 @@ export const syncForecastData = async (req: Request, res: Response) => {
 
 export const recalculateForecast = async (req: Request, res: Response) => {
   try {
-    const uniqueObjects = await prisma.forecastMetricSnapshot.groupBy({
-      by: ['source_id', 'object_id', 'object_name', 'object_type', 'metric_name'],
+    // Group only by the unique key to avoid duplicate group conflicts
+    const uniquePairs = await prisma.forecastMetricSnapshot.groupBy({
+      by: ['object_id', 'metric_name'],
     });
 
     let calculatedCount = 0;
+    let errorCount = 0;
 
-    for (const obj of uniqueObjects) {
-      const history = await prisma.forecastMetricSnapshot.findMany({
-        where: { object_id: obj.object_id, metric_name: obj.metric_name },
-        orderBy: { captured_at: 'asc' }
-      });
+    for (const pair of uniquePairs) {
+      try {
+        const history = await prisma.forecastMetricSnapshot.findMany({
+          where: { object_id: pair.object_id, metric_name: pair.metric_name },
+          orderBy: { captured_at: 'asc' }
+        });
 
-      const points = history.map(h => ({ date: h.captured_at, value: h.metric_value }));
-      
-      let warning = 80;
-      let critical = 90;
-      if (obj.metric_name === 'capacity_total' || obj.metric_name === 'capacity_used' || obj.metric_name === 'iops' || obj.metric_name === 'vm_count') {
-          warning = 100000;
-          critical = 120000;
-      }
-      
-      const result = calculateForecast(points, warning, critical, 'up');
+        if (history.length === 0) continue;
 
-      await prisma.forecastResult.upsert({
-        where: {
-          object_id_metric_name: {
-            object_id: obj.object_id,
-            metric_name: obj.metric_name
-          }
-        },
-        update: {
-          current_value: points[points.length - 1]?.value || 0,
-          pred_1y: result.pred_1y,
-          pred_2y: result.pred_2y,
-          pred_3y: result.pred_3y,
-          days_to_warning: result.days_to_warning,
-          days_to_critical: result.days_to_critical,
-          confidence_score: result.confidence_score,
-          risk_level: result.risk_level,
-          calculated_at: new Date()
-        },
-        create: {
-          source_id: obj.source_id,
-          object_id: obj.object_id,
-          object_name: obj.object_name,
-          object_type: obj.object_type,
-          metric_name: obj.metric_name,
-          current_value: points[points.length - 1]?.value || 0,
-          pred_1y: result.pred_1y,
-          pred_2y: result.pred_2y,
-          pred_3y: result.pred_3y,
-          days_to_warning: result.days_to_warning,
-          days_to_critical: result.days_to_critical,
-          confidence_score: result.confidence_score,
-          risk_level: result.risk_level,
+        // Get latest snapshot for metadata (name, type, source)
+        const latest = history[history.length - 1];
+
+        const points = history.map(h => ({ date: h.captured_at, value: h.metric_value }));
+        
+        let warning = 80;
+        let critical = 90;
+        if (pair.metric_name === 'capacity_total' || pair.metric_name === 'capacity_used' || pair.metric_name === 'iops' || pair.metric_name === 'vm_count') {
+            warning = 100000;
+            critical = 120000;
         }
-      });
-      calculatedCount++;
+        
+        const result = calculateForecast(points, warning, critical, 'up');
+
+        await prisma.forecastResult.upsert({
+          where: {
+            object_id_metric_name: {
+              object_id: pair.object_id,
+              metric_name: pair.metric_name
+            }
+          },
+          update: {
+            object_name: latest.object_name,
+            object_type: latest.object_type,
+            source_id: latest.source_id,
+            current_value: points[points.length - 1]?.value || 0,
+            pred_1y: result.pred_1y,
+            pred_2y: result.pred_2y,
+            pred_3y: result.pred_3y,
+            days_to_warning: result.days_to_warning,
+            days_to_critical: result.days_to_critical,
+            confidence_score: result.confidence_score,
+            risk_level: result.risk_level,
+            calculated_at: new Date()
+          },
+          create: {
+            source_id: latest.source_id,
+            object_id: pair.object_id,
+            object_name: latest.object_name,
+            object_type: latest.object_type,
+            metric_name: pair.metric_name,
+            current_value: points[points.length - 1]?.value || 0,
+            pred_1y: result.pred_1y,
+            pred_2y: result.pred_2y,
+            pred_3y: result.pred_3y,
+            days_to_warning: result.days_to_warning,
+            days_to_critical: result.days_to_critical,
+            confidence_score: result.confidence_score,
+            risk_level: result.risk_level,
+          }
+        });
+        calculatedCount++;
+      } catch (innerErr: any) {
+        errorCount++;
+        console.warn(`[Recalculate] Error for ${pair.object_id}/${pair.metric_name}: ${innerErr.message}`);
+      }
     }
 
-    res.json({ message: 'Recalculation complete', calculatedCount });
+    console.log(`[Recalculate] Done: ${calculatedCount} calculated, ${errorCount} errors.`);
+    res.json({ message: 'Recalculation complete', calculatedCount, errorCount });
   } catch (error) {
+    console.error('[Recalculate] Fatal:', (error as Error).message);
     res.status(500).json({ error: 'Recalculation failed', details: (error as Error).message });
   }
 };
