@@ -65,8 +65,8 @@ export class VRopsForecastProvider implements ForecastProvider {
         'Accept': 'application/json'
       };
 
-      // Fetch resources (Datacenters, Hosts, Clusters, Datastores)
-      const resourceKinds = ['Datacenter', 'HostSystem', 'ClusterComputeResource', 'Datastore'];
+      // Only fetch Clusters as requested, exclude individual Hosts and Datacenters
+      const resourceKinds = ['ClusterComputeResource'];
 
       for (const kind of resourceKinds) {
         try {
@@ -99,12 +99,24 @@ export class VRopsForecastProvider implements ForecastProvider {
 
           for (const resource of resources) {
             const resourceId = resource.identifier;
-            const resourceName = resource.resourceKey?.name || resource.resourceName || resourceId;
-            let objectType = 'server';
+            let resourceName = resource.resourceKey?.name || resource.resourceName || resourceId;
+            let objectType = 'cluster';
 
-            if (kind === 'ClusterComputeResource') objectType = 'cluster';
-            else if (kind === 'Datastore') objectType = 'storage';
-            else if (kind === 'Datacenter') objectType = 'datacenter';
+            // Attempt to fetch Datacenter name property for the cluster
+            if (kind === 'ClusterComputeResource') {
+              try {
+                const propRes = await client.get(`/suite-api/api/resources/${resourceId}/properties`, { headers });
+                const props = propRes.data?.property || [];
+                const dcProp = props.find((p: any) => p.name === 'summary|datacenter' || p.name === 'summary|parentDatacenter');
+                if (dcProp && dcProp.value) {
+                  resourceName = `${dcProp.value} | ${resourceName}`;
+                } else {
+                  resourceName = `Unknown DC | ${resourceName}`;
+                }
+              } catch (e) {
+                resourceName = `Unknown DC | ${resourceName}`;
+              }
+            }
 
             // Determine start and end time for historical stats
             const existing = await prisma.forecastMetricSnapshot.findFirst({
@@ -118,9 +130,14 @@ export class VRopsForecastProvider implements ForecastProvider {
 
             // Fetch historical stats for this resource
             try {
-              const statKeys = kind === 'Datastore'
-                ? ['disk|capacity_usage', 'disk|capacity_contention', 'diskspace|total_capacity', 'diskspace|used_space']
-                : ['cpu|usage_average', 'mem|usage_average', 'cpu|demandPct', 'mem|host_demand'];
+              const statKeys = [
+                'cpu|usage_average', 
+                'mem|usage_average', 
+                'cpu|capacity_provisioned', 
+                'cpu|totalCapacity_average',
+                'mem|host_usable', 
+                'mem|capacity_provisioned'
+              ];
 
               let statsRes;
               try {

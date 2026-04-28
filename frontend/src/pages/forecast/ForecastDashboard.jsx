@@ -17,28 +17,11 @@ import {
   Info,
   ChevronDown,
   ChevronRight,
-  Box
+  Box,
+  Cpu,
+  MemoryStick
 } from 'lucide-react';
 import api from '../../api/client';
-
-function formatCapacity(value) {
-  if (value === null || value === undefined || isNaN(value)) return '-';
-  const v = Number(value);
-  if (v === 0) return '0 TB';
-  if (v >= 1024 * 1024) return (v / (1024 * 1024)).toFixed(2) + ' PB';
-  return (v / 1024).toFixed(2) + ' TB';
-}
-
-function formatMetricValue(value, metricName) {
-  if (value === null || value === undefined) return '-';
-  const v = Number(value);
-  if (metricName.includes('percent')) return v.toFixed(1) + '%';
-  if (metricName === 'capacity_total' || metricName === 'capacity_used') return formatCapacity(v);
-  if (metricName.includes('iops')) return v.toLocaleString() + ' IOPS';
-  if (metricName.includes('latency')) return v.toFixed(2) + ' ms';
-  if (metricName.includes('cpu') || metricName.includes('memory')) return v.toFixed(1) + '%';
-  return v.toLocaleString();
-}
 
 function getRiskLevel(level) {
   const configs = {
@@ -50,18 +33,6 @@ function getRiskLevel(level) {
   return configs[level] || configs.green;
 }
 
-function getMetricLabel(name) {
-  const labels = {
-    capacity_total: 'Total Capacity',
-    capacity_used: 'Used Capacity',
-    capacity_used_percent: 'Capacity Usage',
-    port_utilization_percent: 'Port Utilization',
-    cpu_usage_percent: 'CPU Performance',
-    memory_usage_percent: 'Memory Usage',
-  };
-  return labels[name] || name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-}
-
 export default function ForecastDashboard() {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -69,22 +40,9 @@ export default function ForecastDashboard() {
   const [calculating, setCalculating] = useState(false);
   const [toast, setToast] = useState(null);
   const [search, setSearch] = useState('');
-  const [selectedItem, setSelectedItem] = useState(null);
-  const [historyData, setHistoryData] = useState([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
   
-  // Accordion open states
-  const [openSections, setOpenSections] = useState({
-    datacenter: true,
-    cluster: false,
-    server: false,
-    storage: false,
-    san: false
-  });
-
-  const toggleSection = (section) => {
-    setOpenSections(prev => ({ ...prev, [section]: !prev[section] }));
-  };
+  // Accordion state per Datacenter
+  const [openDCs, setOpenDCs] = useState({});
 
   useEffect(() => { fetchData(); }, []);
 
@@ -104,7 +62,7 @@ export default function ForecastDashboard() {
     setSyncing(true);
     try {
       const res = await api.post('/forecast/sync', {});
-      setToast({ message: `Inventory synchronization successful — ${res.totalSynced || 0} metrics updated`, type: 'success' });
+      setToast({ message: `Inventory synchronization successful`, type: 'success' });
       fetchData();
     } catch (err) {
       setToast({ message: 'Sync failed', type: 'error' });
@@ -128,155 +86,133 @@ export default function ForecastDashboard() {
     }
   };
 
-  const openDetail = async (item) => {
-    setSelectedItem(item);
-    setHistoryLoading(true);
-    try {
-      const res = await api.get(`/forecast/${item.object_id}/history`);
-      const snapshots = (res.results || [])
-        .filter(s => s.metric_name === item.metric_name)
-        .map(s => ({
-          date: new Date(s.captured_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-          value: s.metric_value,
-        }));
-      setHistoryData(snapshots);
-    } catch {
-      setHistoryData([]);
-    } finally {
-      setHistoryLoading(false);
+  const toggleDC = (dcName) => {
+    setOpenDCs(prev => ({ ...prev, [dcName]: !prev[dcName] }));
+  };
+
+  // 1. Filter out only clusters
+  const clusterData = data.filter(d => d.object_type === 'cluster');
+
+  // 2. Group metrics by Cluster ID
+  const clustersById = {};
+  clusterData.forEach(metricRow => {
+    if (!clustersById[metricRow.object_id]) {
+      let dcName = 'Unknown DC';
+      let clusterName = metricRow.object_name;
+      
+      if (metricRow.object_name.includes(' | ')) {
+        const parts = metricRow.object_name.split(' | ');
+        dcName = parts[0];
+        clusterName = parts[1];
+      }
+
+      clustersById[metricRow.object_id] = {
+        id: metricRow.object_id,
+        name: clusterName,
+        dc: dcName,
+        metrics: {}
+      };
+    }
+    clustersById[metricRow.object_id].metrics[metricRow.metric_name] = metricRow;
+  });
+
+  // 3. Group Clusters by Datacenter
+  const dcGroups = {};
+  Object.values(clustersById).forEach(cluster => {
+    if (!cluster.name.toLowerCase().includes(search.toLowerCase()) && 
+        !cluster.dc.toLowerCase().includes(search.toLowerCase())) {
+      return;
+    }
+    if (!dcGroups[cluster.dc]) dcGroups[cluster.dc] = [];
+    dcGroups[cluster.dc].push(cluster);
+  });
+
+  // Sort DCs alphabetically
+  const sortedDCs = Object.keys(dcGroups).sort();
+
+  // Helper to format absolute values dynamically based on total capacity
+  const renderAbsoluteText = (percentValue, clusterMetrics, isCpu) => {
+    if (percentValue === null || percentValue === undefined) return null;
+    
+    if (isCpu) {
+      // Find CPU total capacity
+      const totalKey = Object.keys(clusterMetrics).find(k => k.includes('cpu_totalCapacity') || k.includes('cpu_capacity'));
+      const totalRow = totalKey ? clusterMetrics[totalKey] : null;
+      if (totalRow && totalRow.current_value) {
+        // Assume value is in MHz
+        const totalGhz = (totalRow.current_value / 1000);
+        const usedGhz = totalGhz * (percentValue / 100);
+        // If it looks like core count (small number), format differently
+        if (totalRow.current_value < 5000) {
+           return `${Math.round(totalRow.current_value * (percentValue/100))} used of ${Math.round(totalRow.current_value)} vCPU`;
+        }
+        return `${usedGhz.toFixed(1)} GHz used of ${totalGhz.toFixed(1)} GHz`;
+      }
+      return null;
+    } else {
+      // Find RAM total capacity
+      const totalKey = Object.keys(clusterMetrics).find(k => k.includes('mem_host_usable') || k.includes('mem_capacity'));
+      const totalRow = totalKey ? clusterMetrics[totalKey] : null;
+      if (totalRow && totalRow.current_value) {
+        // Value might be KB. Check magnitude
+        let totalGb = totalRow.current_value;
+        if (totalRow.current_value > 1024 * 1024) {
+           totalGb = totalRow.current_value / (1024 * 1024); // KB to GB
+        }
+        let usedGb = totalGb * (percentValue / 100);
+        
+        let totalText = totalGb > 1024 ? `${(totalGb / 1024).toFixed(1)} TB` : `${totalGb.toFixed(0)} GB`;
+        let usedText = usedGb > 1024 ? `${(usedGb / 1024).toFixed(1)} TB` : `${usedGb.toFixed(0)} GB`;
+        
+        return `${usedText} used of ${totalText}`;
+      }
+      return null;
     }
   };
 
-  const filteredData = data
-    .filter(d => d.metric_name.includes('percent') || d.metric_name.includes('utilization'))
-    .filter(d => d.object_name.toLowerCase().includes(search.toLowerCase()));
+  const renderMetricLine = (label, icon, metricPercent, metricTotals, isCpu) => {
+    if (!metricPercent) return null;
+    const risk = getRiskLevel(metricPercent.risk_level);
+    const absoluteText = renderAbsoluteText(metricPercent.current_value, metricTotals, isCpu);
 
-  const stats = {
-    critical: data.filter(d => d.risk_level === 'red').length,
-    warning: data.filter(d => d.risk_level === 'orange' || d.risk_level === 'yellow').length,
-    total: data.length
-  };
-
-  // Group data by type for accordion
-  const groupedData = {
-    datacenter: filteredData.filter(d => d.object_type === 'datacenter' || d.object_type === 'virtualization'),
-    cluster: filteredData.filter(d => d.object_type === 'cluster'),
-    server: filteredData.filter(d => d.object_type === 'server'),
-    storage: filteredData.filter(d => d.object_type === 'storage'),
-    san: filteredData.filter(d => d.object_type === 'san')
-  };
-
-  // Modern UI component for List Rows
-  const renderList = (items, defaultIcon) => {
-    if (items.length === 0) return <div style={{ padding: 24, color: '#64748b', fontSize: '0.9rem', textAlign: 'center' }}>No items found in this category.</div>;
-    
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '16px' }}>
-        {items.map(item => {
-          const risk = getRiskLevel(item.risk_level);
-          const Icon = defaultIcon;
-          return (
-            <div 
-              key={item.id}
-              onClick={() => openDetail(item)}
-              style={{
-                background: 'rgba(15, 23, 42, 0.4)', borderRadius: '16px', padding: '16px 20px',
-                display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between',
-                gap: 16, border: '1px solid rgba(255,255,255,0.03)', cursor: 'pointer',
-                transition: 'all 0.2s ease', position: 'relative', overflow: 'hidden'
-              }}
-              onMouseEnter={e => {
-                e.currentTarget.style.background = 'rgba(30, 41, 59, 0.6)';
-                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)';
-              }}
-              onMouseLeave={e => {
-                e.currentTarget.style.background = 'rgba(15, 23, 42, 0.4)';
-                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.03)';
-              }}
-            >
-              <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, background: risk.color }}></div>
-              
-              <div style={{ display: 'flex', alignItems: 'center', gap: 16, flex: '1 1 250px', minWidth: 250 }}>
-                <div style={{ width: 40, height: 40, borderRadius: '12px', background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Icon size={18} color="#818cf8" />
-                </div>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: 2, color: '#f8fafc' }}>{item.object_name}</div>
-                  <div style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{getMetricLabel(item.metric_name)}</div>
-                </div>
-              </div>
-
-              {/* Responsive Grid for Metrics */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: 16, flex: '2 1 400px', minWidth: 300 }}>
-                <div style={{ textAlign: 'left' }}>
-                  <div style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>Current</div>
-                  <div style={{ fontSize: '1.1rem', fontWeight: 800, color: risk.color }}>{formatMetricValue(item.current_value, item.metric_name)}</div>
-                </div>
-                <div style={{ textAlign: 'left' }}>
-                  <div style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>1 Year</div>
-                  <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#cbd5e1' }}>{formatMetricValue(item.pred_1y, item.metric_name)}</div>
-                </div>
-                <div style={{ textAlign: 'left' }}>
-                  <div style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>2 Years</div>
-                  <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#cbd5e1' }}>{formatMetricValue(item.pred_2y, item.metric_name)}</div>
-                </div>
-                <div style={{ textAlign: 'left' }}>
-                  <div style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>3 Years</div>
-                  <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#cbd5e1' }}>{formatMetricValue(item.pred_3y, item.metric_name)}</div>
-                </div>
-              </div>
-
-              <div style={{ flex: '0 0 auto', display: 'flex', alignItems: 'center', gap: 16 }}>
-                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: '8px', background: risk.bg, color: risk.color, fontSize: '0.75rem', fontWeight: 700 }}>
-                  <risk.icon size={14} /> {risk.label}
-                </div>
-                <ArrowRight size={18} color="#64748b" />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    );
-  };
-
-  const AccordionSection = ({ id, title, icon: Icon, dataList, defaultIcon }) => {
-    const isOpen = openSections[id];
-    const hasData = dataList.length > 0;
-    
-    return (
-      <div style={{ 
-        background: 'rgba(30, 41, 59, 0.3)', borderRadius: '24px', border: '1px solid rgba(255,255,255,0.05)', 
-        overflow: 'hidden', marginBottom: 16 
+      <div style={{
+        background: 'rgba(15, 23, 42, 0.4)', borderRadius: '16px', padding: '16px 20px',
+        display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between',
+        gap: 16, border: '1px solid rgba(255,255,255,0.03)', position: 'relative'
       }}>
-        <div 
-          onClick={() => toggleSection(id)}
-          style={{ 
-            padding: '20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', 
-            cursor: 'pointer', background: isOpen ? 'rgba(255,255,255,0.02)' : 'transparent',
-            transition: 'background 0.2s ease'
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{ padding: 8, background: 'rgba(99, 102, 241, 0.1)', borderRadius: 10, color: '#818cf8' }}>
-              <Icon size={20} />
-            </div>
-            <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#f8fafc' }}>
-              {title}
-              <span style={{ marginLeft: 12, fontSize: '0.8rem', padding: '2px 8px', borderRadius: 12, background: 'rgba(255,255,255,0.1)', color: '#94a3b8', fontWeight: 600 }}>
-                {dataList.length} items
-              </span>
-            </h3>
+        <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, background: risk.color }}></div>
+        
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 200 }}>
+          <div style={{ width: 36, height: 36, borderRadius: '10px', background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            {icon}
           </div>
-          <div style={{ color: '#64748b' }}>
-            {isOpen ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
+          <div>
+            <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#f8fafc' }}>{label}</div>
+            {absoluteText && <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: 2 }}>{absoluteText}</div>}
           </div>
         </div>
-        
-        {isOpen && (
-          <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-            {renderList(dataList, defaultIcon)}
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(80px, 1fr))', gap: 16, flex: '1 1 auto' }}>
+          <div style={{ textAlign: 'left' }}>
+            <div style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>Current</div>
+            <div style={{ fontSize: '1.1rem', fontWeight: 800, color: risk.color }}>{Number(metricPercent.current_value).toFixed(1)}%</div>
           </div>
-        )}
+          <div style={{ textAlign: 'left' }}>
+            <div style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>1 Year</div>
+            <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#cbd5e1' }}>{metricPercent.pred_1y ? Number(metricPercent.pred_1y).toFixed(1) + '%' : '-'}</div>
+          </div>
+          <div style={{ textAlign: 'left' }}>
+            <div style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>2 Years</div>
+            <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#cbd5e1' }}>{metricPercent.pred_2y ? Number(metricPercent.pred_2y).toFixed(1) + '%' : '-'}</div>
+          </div>
+          <div style={{ textAlign: 'left' }}>
+            <div style={{ fontSize: '0.7rem', color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>Status</div>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 8px', borderRadius: '6px', background: risk.bg, color: risk.color, fontSize: '0.7rem', fontWeight: 700 }}>
+              <risk.icon size={12} /> {risk.label}
+            </div>
+          </div>
+        </div>
       </div>
     );
   };
@@ -284,7 +220,6 @@ export default function ForecastDashboard() {
   return (
     <div className="forecast-dashboard" style={{ padding: '32px', color: '#fff', minHeight: '100vh', background: 'radial-gradient(circle at 0% 0%, #1a1c2e 0%, #0f111a 100%)' }}>
       
-      {/* Toast Notification */}
       {toast && (
         <div style={{
           position: 'fixed', top: 32, right: 32, zIndex: 1000,
@@ -306,10 +241,10 @@ export default function ForecastDashboard() {
             <TrendingUp size={18} /> Predictive Analytics
           </div>
           <h1 style={{ fontSize: '2.5rem', fontWeight: 800, letterSpacing: '-0.02em', margin: 0, background: 'linear-gradient(to right, #fff, #94a3b8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-            Capacity Intelligence
+            Datacenter Capacity
           </h1>
           <p style={{ color: '#94a3b8', marginTop: 12, fontSize: '1rem', maxWidth: 600 }}>
-            Real-time infrastructure forecasting and risk assessment grouped by architectural layers.
+            Real-time cluster infrastructure forecasting. Expand a Datacenter to view CPU and RAM growth trends.
           </p>
         </div>
         
@@ -318,7 +253,7 @@ export default function ForecastDashboard() {
             <Search size={18} style={{ position: 'absolute', left: 16, top: 13, color: '#64748b' }} />
             <input 
               type="text" 
-              placeholder="Filter by name..." 
+              placeholder="Search datacenters or clusters..." 
               value={search}
               onChange={e => setSearch(e.target.value)}
               style={{
@@ -354,29 +289,6 @@ export default function ForecastDashboard() {
         </div>
       </div>
 
-      {/* Overview Cards - More responsive layout */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 24, marginBottom: 40 }}>
-        {[
-          { label: 'Total Objects', value: stats.total, icon: Database, color: '#6366f1' },
-          { label: 'Critical Risk', value: stats.critical, icon: AlertTriangle, color: '#f43f5e' },
-          { label: 'Warning Status', value: stats.warning, icon: AlertTriangle, color: '#fb923c' },
-          { label: 'System Health', value: '98.4%', icon: Activity, color: '#10b981' },
-        ].map((card, i) => (
-          <div key={i} style={{
-            background: 'rgba(30, 41, 59, 0.4)', borderRadius: '24px', padding: '24px',
-            border: '1px solid rgba(255,255,255,0.05)', backdropFilter: 'blur(16px)',
-            position: 'relative', overflow: 'hidden'
-          }}>
-            <div style={{ position: 'absolute', top: -20, right: -20, opacity: 0.05 }}>
-              <card.icon size={120} color={card.color} />
-            </div>
-            <div style={{ color: card.color, marginBottom: 12 }}><card.icon size={24} /></div>
-            <div style={{ fontSize: '2rem', fontWeight: 800, marginBottom: 4 }}>{card.value}</div>
-            <div style={{ color: '#94a3b8', fontSize: '0.875rem', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{card.label}</div>
-          </div>
-        ))}
-      </div>
-
       {/* Main Content Area - Accordions */}
       <div style={{ minHeight: 600 }}>
         {loading ? (
@@ -384,109 +296,80 @@ export default function ForecastDashboard() {
             <RefreshCw size={48} className="spin" style={{ marginBottom: 16, opacity: 0.5 }} />
             <div style={{ fontSize: '1.1rem', fontWeight: 500 }}>Analyzing Infrastructure Data...</div>
           </div>
-        ) : filteredData.length === 0 ? (
+        ) : sortedDCs.length === 0 ? (
           <div style={{ height: 400, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
             <Search size={64} style={{ marginBottom: 24, opacity: 0.2 }} />
-            <div style={{ fontSize: '1.2rem', fontWeight: 600, marginBottom: 8 }}>No Assets Found</div>
-            <div style={{ fontSize: '0.95rem' }}>Try adjusting your filters or sync new data.</div>
+            <div style={{ fontSize: '1.2rem', fontWeight: 600, marginBottom: 8 }}>No Datacenters Found</div>
+            <div style={{ fontSize: '0.95rem' }}>Sync vROps to populate physical capacity data.</div>
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <AccordionSection id="datacenter" title="Datacenters" icon={Box} dataList={groupedData.datacenter} defaultIcon={Box} />
-            <AccordionSection id="cluster" title="Compute Clusters" icon={Server} dataList={groupedData.cluster} defaultIcon={Server} />
-            <AccordionSection id="server" title="Physical Hosts (Servers)" icon={Server} dataList={groupedData.server} defaultIcon={Server} />
-            <AccordionSection id="storage" title="Storage Units" icon={Database} dataList={groupedData.storage} defaultIcon={Database} />
-            <AccordionSection id="san" title="SAN Fabrics" icon={Network} dataList={groupedData.san} defaultIcon={Network} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+            {sortedDCs.map(dcName => {
+              const isOpen = openDCs[dcName] !== false; // Default to open
+              const clusters = dcGroups[dcName];
+
+              return (
+                <div key={dcName} style={{ 
+                  background: 'rgba(30, 41, 59, 0.3)', borderRadius: '24px', border: '1px solid rgba(255,255,255,0.05)', 
+                  overflow: 'hidden'
+                }}>
+                  <div 
+                    onClick={() => toggleDC(dcName)}
+                    style={{ 
+                      padding: '20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', 
+                      cursor: 'pointer', background: isOpen ? 'rgba(255,255,255,0.02)' : 'transparent',
+                      transition: 'background 0.2s ease'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                      <div style={{ padding: 10, background: 'rgba(99, 102, 241, 0.1)', borderRadius: 12, color: '#818cf8' }}>
+                        <Box size={24} />
+                      </div>
+                      <div>
+                        <h3 style={{ margin: 0, fontSize: '1.3rem', fontWeight: 800, color: '#f8fafc' }}>{dcName}</h3>
+                        <div style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: 4 }}>{clusters.length} active clusters</div>
+                      </div>
+                    </div>
+                    <div style={{ color: '#64748b', padding: 8, background: 'rgba(255,255,255,0.05)', borderRadius: '50%' }}>
+                      {isOpen ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
+                    </div>
+                  </div>
+                  
+                  {isOpen && (
+                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', padding: '24px', display: 'flex', flexDirection: 'column', gap: 32 }}>
+                      {clusters.map(cluster => (
+                        <div key={cluster.id} style={{ 
+                          background: 'rgba(15, 23, 42, 0.3)', borderRadius: '20px', padding: '24px', 
+                          border: '1px solid rgba(99, 102, 241, 0.1)' 
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+                            <Server size={20} color="#818cf8" />
+                            <h4 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700, color: '#fff' }}>{cluster.name}</h4>
+                          </div>
+                          
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                            {renderMetricLine('CPU Utilization', <Cpu color="#f43f5e" size={18} />, cluster.metrics['cpu_usage_percent'], cluster.metrics, true)}
+                            {renderMetricLine('Memory Utilization', <MemoryStick color="#10b981" size={18} />, cluster.metrics['memory_usage_percent'], cluster.metrics, false)}
+                            
+                            {(!cluster.metrics['cpu_usage_percent'] && !cluster.metrics['memory_usage_percent']) && (
+                              <div style={{ padding: 16, textAlign: 'center', color: '#64748b', fontSize: '0.9rem' }}>
+                                Awaiting capacity analytics for this cluster. Run a sync to pull current data.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
 
-      {/* Detail Modal */}
-      {selectedItem && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-          <div style={{ position: 'absolute', inset: 0, background: 'rgba(2, 6, 23, 0.85)', backdropFilter: 'blur(12px)' }} onClick={() => setSelectedItem(null)}></div>
-          <div style={{
-            position: 'relative', width: 1000, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', background: '#0f172a', borderRadius: '32px', border: '1px solid rgba(255,255,255,0.1)',
-            boxShadow: '0 50px 100px rgba(0,0,0,0.5)', animation: 'modalIn 0.4s cubic-bezier(0.16, 1, 0.3, 1)'
-          }}>
-            <div style={{ padding: '32px', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-                  <div style={{ padding: '8px', borderRadius: '12px', background: 'rgba(99, 102, 241, 0.1)', color: '#818cf8' }}>
-                    {selectedItem.object_type === 'storage' ? <Database size={24} /> : <Network size={24} />}
-                  </div>
-                  <h2 style={{ fontSize: '1.75rem', fontWeight: 800, margin: 0 }}>{selectedItem.object_name}</h2>
-                </div>
-                <div style={{ display: 'flex', gap: 16, color: '#94a3b8', fontSize: '0.9rem' }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><Calendar size={16} /> Metrics synced via AI Predictor</span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, textTransform: 'uppercase' }}><Database size={16} /> Type: {selectedItem.object_type}</span>
-                </div>
-              </div>
-              <button 
-                onClick={() => setSelectedItem(null)}
-                style={{ padding: 12, borderRadius: 12, background: 'rgba(255,255,255,0.05)', border: 'none', color: '#fff', cursor: 'pointer' }}
-              >✕</button>
-            </div>
-
-            <div style={{ padding: 32 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 16, marginBottom: 32 }}>
-                <div style={{ padding: '20px', borderRadius: '20px', background: 'rgba(30, 41, 59, 0.4)', border: '1px solid rgba(255,255,255,0.05)' }}>
-                  <div style={{ fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase', marginBottom: 8, fontWeight: 600 }}>Current Usage</div>
-                  <div style={{ fontSize: '1.5rem', fontWeight: 800, color: getRiskLevel(selectedItem.risk_level).color }}>{formatMetricValue(selectedItem.current_value, selectedItem.metric_name)}</div>
-                </div>
-                <div key="p1y" style={{ background: 'rgba(255,255,255,0.03)', padding: '20px', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                  <div style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', marginBottom: 8 }}>Forecast 1 Year</div>
-                  <div style={{ fontSize: '1.25rem', fontWeight: 700 }}>{formatMetricValue(selectedItem.pred_1y, selectedItem.metric_name)}</div>
-                </div>
-                <div key="p2y" style={{ background: 'rgba(255,255,255,0.03)', padding: '20px', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                  <div style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', marginBottom: 8 }}>Forecast 2 Years</div>
-                  <div style={{ fontSize: '1.25rem', fontWeight: 700 }}>{formatMetricValue(selectedItem.pred_2y, selectedItem.metric_name)}</div>
-                </div>
-                <div key="p3y" style={{ background: 'rgba(255,255,255,0.03)', padding: '20px', borderRadius: '20px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                  <div style={{ fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', marginBottom: 8 }}>Forecast 3 Years</div>
-                  <div style={{ fontSize: '1.25rem', fontWeight: 700 }}>{formatMetricValue(selectedItem.pred_3y, selectedItem.metric_name)}</div>
-                </div>
-              </div>
-
-              <div style={{ background: 'rgba(15, 23, 42, 0.5)', borderRadius: '24px', padding: '32px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
-                  <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 700 }}>Trend Analysis (180 Days)</h3>
-                  <div style={{ fontSize: '0.85rem', color: '#64748b' }}>Metric: {getMetricLabel(selectedItem.metric_name)}</div>
-                </div>
-                
-                {historyLoading ? (
-                  <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><RefreshCw className="spin" size={32} /></div>
-                ) : historyData.length < 2 ? (
-                  <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>Insufficient historical data for visual trending.</div>
-                ) : (
-                  <ResponsiveContainer width="100%" height={300}>
-                    <AreaChart data={historyData}>
-                      <defs>
-                        <linearGradient id="colorTrend" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
-                          <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                      <XAxis dataKey="date" tick={{ fill: '#64748b', fontSize: 12 }} axisLine={false} tickLine={false} />
-                      <YAxis tick={{ fill: '#64748b', fontSize: 12 }} axisLine={false} tickLine={false} />
-                      <Tooltip 
-                        contentStyle={{ background: '#0f172a', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px' }}
-                        itemStyle={{ color: '#fff' }}
-                      />
-                      <Area type="monotone" dataKey="value" stroke="#6366f1" strokeWidth={3} fillOpacity={1} fill="url(#colorTrend)" />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       <style dangerouslySetInnerHTML={{ __html: `
         @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-        @keyframes modalIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
         .spin { animation: spin 2s linear infinite; }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       `}} />
