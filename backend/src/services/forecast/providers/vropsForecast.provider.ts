@@ -70,12 +70,31 @@ export class VRopsForecastProvider implements ForecastProvider {
 
       for (const kind of resourceKinds) {
         try {
-          const resResponse = await client.get('/suite-api/api/resources', {
-            headers,
-            params: { resourceKind: kind, pageSize: 100 }
-          });
+          let page = 0;
+          let hasMore = true;
+          let resources: any[] = [];
 
-          const resources = resResponse.data?.resourceList || [];
+          while (hasMore) {
+            const resResponse = await client.get('/suite-api/api/resources', {
+              headers,
+              params: { resourceKind: kind, pageSize: 1000, page }
+            });
+
+            const pageResources = resResponse.data?.resourceList || [];
+            if (pageResources.length > 0) {
+              resources.push(...pageResources);
+              const pageInfo = resResponse.data?.pageInfo;
+              if (pageInfo && pageInfo.totalCount !== undefined) {
+                 hasMore = resources.length < pageInfo.totalCount;
+              } else {
+                 hasMore = pageResources.length === 1000;
+              }
+              page++;
+            } else {
+              hasMore = false;
+            }
+          }
+
           console.log(`[VRopsForecast] Found ${resources.length} ${kind} resources.`);
 
           for (const resource of resources) {
@@ -87,7 +106,17 @@ export class VRopsForecastProvider implements ForecastProvider {
             else if (kind === 'Datastore') objectType = 'storage';
             else if (kind === 'VirtualMachine') objectType = 'virtualization';
 
-            // Fetch latest stats for this resource
+            // Determine start and end time for historical stats
+            const existing = await prisma.forecastMetricSnapshot.findFirst({
+              where: { object_id: resourceId },
+              orderBy: { captured_at: 'desc' }
+            });
+
+            const endTime = Date.now();
+            const daysToFetch = existing ? 2 : 180;
+            const startTime = endTime - (daysToFetch * 24 * 3600 * 1000);
+
+            // Fetch historical stats for this resource
             try {
               const statKeys = kind === 'Datastore'
                 ? ['disk|capacity_usage', 'disk|capacity_contention', 'diskspace|total_capacity', 'diskspace|used_space']
@@ -96,8 +125,13 @@ export class VRopsForecastProvider implements ForecastProvider {
               let statsRes;
               try {
                 statsRes = await client.post(
-                  `/suite-api/api/resources/${resourceId}/stats/latest`,
-                  { resourceId: [resourceId], statKey: statKeys },
+                  `/suite-api/api/resources/stats/query`,
+                  {
+                    resourceId: [resourceId],
+                    statKey: statKeys,
+                    begin: startTime,
+                    end: endTime
+                  },
                   { headers }
                 );
               } catch (err: any) {
@@ -105,8 +139,13 @@ export class VRopsForecastProvider implements ForecastProvider {
                 if (err.response?.status === 403 && source.username && source.password) {
                   const basicAuth = Buffer.from(`${source.username}:${decrypt(source.password)}`).toString('base64');
                   statsRes = await client.post(
-                    `/suite-api/api/resources/${resourceId}/stats/latest`,
-                    { resourceId: [resourceId], statKey: statKeys },
+                    `/suite-api/api/resources/stats/query`,
+                    {
+                      resourceId: [resourceId],
+                      statKey: statKeys,
+                      begin: startTime,
+                      end: endTime
+                    },
                     { headers: { ...headers, 'Authorization': `Basic ${basicAuth}` } }
                   );
                 } else {
@@ -118,36 +157,43 @@ export class VRopsForecastProvider implements ForecastProvider {
 
               for (const stat of statList) {
                 const key = stat.statKey?.key || stat.key;
-                const dataPoints = stat['stat-list']?.stat || stat.data || [];
-                const latestValue = Array.isArray(dataPoints) && dataPoints.length > 0
-                  ? dataPoints[dataPoints.length - 1]?.data || dataPoints[dataPoints.length - 1]
-                  : null;
+                const dataPoints = stat['stat-list']?.stat || stat.data || stat['stat-list'] || stat.statList || [];
 
-                if (key && latestValue !== null && latestValue !== undefined) {
-                  // Normalize metric name
-                  let metricName = key.replace(/\|/g, '_');
-                  let finalValue = Number(latestValue);
+                // Stat list might contain multiple data points across time
+                let pointArray = Array.isArray(dataPoints) ? dataPoints : [];
+                // Some vROps versions return `{ "stat-list": { "stat": [ { "timestamps": [], "data": [] } ] } }`
+                // Wait, typically stats/query returns values[0]['stat-list']['stat'][0]
+                
+                // Ensure pointArray is flat if nested
+                for (const pt of pointArray) {
+                  const timestamps = pt.timestamps || [];
+                  const values = pt.data || pt.values || [];
 
-                  if (metricName.includes('cpu_usage')) metricName = 'cpu_usage_percent';
-                  else if (metricName.includes('mem_usage')) metricName = 'memory_usage_percent';
-                  else if (metricName.includes('capacity_usage')) metricName = 'capacity_used_percent';
-                  else if (metricName.includes('total_capacity')) {
-                    metricName = 'capacity_total';
-                    if (finalValue > 100000000) finalValue = finalValue / (1024 * 1024 * 1024); // Byte to GB
+                  if (timestamps.length && values.length && timestamps.length === values.length) {
+                    let metricName = key.replace(/\|/g, '_');
+
+                    if (metricName.includes('cpu_usage')) metricName = 'cpu_usage_percent';
+                    else if (metricName.includes('mem_usage')) metricName = 'memory_usage_percent';
+                    else if (metricName.includes('capacity_usage')) metricName = 'capacity_used_percent';
+                    else if (metricName.includes('total_capacity')) metricName = 'capacity_total';
+                    else if (metricName.includes('used_space')) metricName = 'capacity_used';
+
+                    for (let i = 0; i < timestamps.length; i++) {
+                      let finalValue = Number(values[i]);
+                      if (metricName === 'capacity_total' || metricName === 'capacity_used') {
+                        if (finalValue > 100000000) finalValue = finalValue / (1024 * 1024 * 1024); // Byte to GB
+                      }
+
+                      metrics.push({
+                        objectId: resourceId,
+                        objectName: resourceName,
+                        objectType,
+                        metricName,
+                        metricValue: finalValue,
+                        timestamp: new Date(timestamps[i])
+                      });
+                    }
                   }
-                  else if (metricName.includes('used_space')) {
-                    metricName = 'capacity_used';
-                    if (finalValue > 100000000) finalValue = finalValue / (1024 * 1024 * 1024); // Byte to GB
-                  }
-
-                  metrics.push({
-                    objectId: resourceId,
-                    objectName: resourceName,
-                    objectType,
-                    metricName,
-                    metricValue: finalValue,
-                    timestamp
-                  });
                 }
               }
             } catch (statErr: any) {
