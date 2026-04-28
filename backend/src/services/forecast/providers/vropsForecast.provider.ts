@@ -153,23 +153,21 @@ export class VRopsForecastProvider implements ForecastProvider {
                 }
               }
 
-              const statList = statsRes.data?.values || statsRes.data?.stat || [];
+              const resourceStats = statsRes.data?.values || [statsRes.data];
 
-              for (const stat of statList) {
-                const key = stat.statKey?.key || stat.key;
-                const dataPoints = stat['stat-list']?.stat || stat.data || stat['stat-list'] || stat.statList || [];
+              for (const resStat of resourceStats) {
+                if (!resStat) continue;
+                // vROps can return it in different nested structures
+                const statList = resStat['stat-list']?.stat || resStat.statList?.stat || resStat.stat || [];
 
-                // Stat list might contain multiple data points across time
-                let pointArray = Array.isArray(dataPoints) ? dataPoints : [];
-                // Some vROps versions return `{ "stat-list": { "stat": [ { "timestamps": [], "data": [] } ] } }`
-                // Wait, typically stats/query returns values[0]['stat-list']['stat'][0]
-                
-                // Ensure pointArray is flat if nested
-                for (const pt of pointArray) {
-                  const timestamps = pt.timestamps || [];
-                  const values = pt.data || pt.values || [];
+                for (const stat of statList) {
+                  const key = stat.statKey?.key || stat.key;
+                  if (!key) continue;
 
-                  if (timestamps.length && values.length && timestamps.length === values.length) {
+                  const timestamps = stat.timestamps || [];
+                  const values = stat.data || stat.values || [];
+
+                  if (timestamps.length > 0 && values.length > 0 && timestamps.length === values.length) {
                     let metricName = key.replace(/\|/g, '_');
 
                     if (metricName.includes('cpu_usage')) metricName = 'cpu_usage_percent';
