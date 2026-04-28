@@ -120,12 +120,12 @@ export default function ForecastDashboard() {
   ];
 
   // Helper: convert % to TB text using capacity_total lookup
+  // Note: Xormon stores capacity_total in TB (converted from Bytes during sync)
   const pctToTB = (pct, objectId) => {
-    const totalGb = capacityTotalMap[objectId];
-    if (!totalGb || pct == null) return null;
-    const usedGb = totalGb * (pct / 100);
-    const fmt = (gb) => gb >= 1024 ? (gb/1024).toFixed(2)+' TB' : gb.toFixed(0)+' GB';
-    return `${fmt(usedGb)} / ${fmt(totalGb)}`;
+    const totalTB = capacityTotalMap[objectId];
+    if (!totalTB || pct == null) return null;
+    const usedTB = totalTB * (pct / 100);
+    return `${usedTB.toFixed(2)} TB / ${totalTB.toFixed(2)} TB`;
   };
 
   const renderRow = (item, icon) => {
