@@ -65,8 +65,8 @@ export class VRopsForecastProvider implements ForecastProvider {
         'Accept': 'application/json'
       };
 
-      // Fetch resources (VMs, Hosts, Clusters, Datastores)
-      const resourceKinds = ['VirtualMachine', 'HostSystem', 'ClusterComputeResource', 'Datastore'];
+      // Fetch resources (Datacenters, Hosts, Clusters, Datastores)
+      const resourceKinds = ['Datacenter', 'HostSystem', 'ClusterComputeResource', 'Datastore'];
 
       for (const kind of resourceKinds) {
         try {
@@ -104,7 +104,7 @@ export class VRopsForecastProvider implements ForecastProvider {
 
             if (kind === 'ClusterComputeResource') objectType = 'virtualization';
             else if (kind === 'Datastore') objectType = 'storage';
-            else if (kind === 'VirtualMachine') objectType = 'virtualization';
+            else if (kind === 'Datacenter') objectType = 'virtualization';
 
             // Determine start and end time for historical stats
             const existing = await prisma.forecastMetricSnapshot.findFirst({
