@@ -115,6 +115,7 @@ export const getItems = async (req: Request, res: Response) => {
       room_name: item.rack?.room?.name,
       datacenter_name: item.rack?.room?.datacenter?.name,
       team_name: item.team?.name,
+      discovery_type: (!item.discovered_via || item.discovered_via === 'manual' || item.discovered_via === 'excel_import') ? 'Manuel' : 'Auto',
       created_at: item.created_at.toISOString().split('T')[0],
       updated_at: item.updated_at.toISOString().split('T')[0],
       purchase_date: item.purchase_date?.toISOString().split('T')[0],
@@ -238,6 +239,7 @@ export const getItemDetail = async (req: Request, res: Response) => {
        room_name: item.rack?.room?.name,
        datacenter_name: item.rack?.room?.datacenter?.name,
        team_name: item.team?.name,
+       discovery_type: (!item.discovered_via || item.discovered_via === 'manual' || item.discovered_via === 'excel_import') ? 'Manuel' : 'Auto',
        created_at: item.created_at?.toISOString().split('T')[0],
        updated_at: item.updated_at?.toISOString().split('T')[0],
        purchase_date: item.purchase_date?.toISOString().split('T')[0],
@@ -669,22 +671,19 @@ export const importInventory = async (req: Request, res: Response) => {
         });
         updated++;
       } else {
-        // UPDATE-ONLY CHECK: If the user only provides Serial Number and Warranty,
-        // Vendor and Model will be empty. We should not create dummy devices.
-        if (!row['Vendor'] && !row['Model']) {
-          skipped++;
-          continue;
-        }
-
         // CREATE NEW DEVICE
+        // Even if vendor/model is missing, we create with fallbacks
+        const safeVendor = vendorName || 'Unknown Vendor';
+        const safeModel = modelName || 'Generic Device';
+
         // Ensure Vendor exists
-        let vendor = await prisma.vendor.findUnique({ where: { name: vendorName } });
+        let vendor = await prisma.vendor.findUnique({ where: { name: safeVendor } });
         if (!vendor) {
-          vendor = await prisma.vendor.create({ data: { name: vendorName } });
+          vendor = await prisma.vendor.create({ data: { name: safeVendor } });
         }
 
         // Ensure Model exists
-        let modelObj = await prisma.model.findUnique({ where: { vendor_id_name: { vendor_id: vendor.id, name: modelName } } });
+        let modelObj = await prisma.model.findUnique({ where: { vendor_id_name: { vendor_id: vendor.id, name: safeModel } } });
         if (!modelObj) {
           let dt: any = 'server';
           const typeStr = String(row['Type'] || '').toLowerCase();
@@ -692,7 +691,7 @@ export const importInventory = async (req: Request, res: Response) => {
 
           modelObj = await prisma.model.create({
             data: {
-              name: modelName,
+              name: safeModel,
               vendor_id: vendor.id,
               device_type: dt
             }

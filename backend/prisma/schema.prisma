@@ -41,6 +41,7 @@ enum IntegrationType {
   hpe_oneview
   xormon
   vrops
+  ai_assistant
 }
 
 enum SyncStatus {

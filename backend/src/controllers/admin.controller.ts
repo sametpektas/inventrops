@@ -248,6 +248,17 @@ export const testIntegrationConnection = async (req: Request, res: Response) => 
         } catch {}
       }
       return res.status(422).json({ error: 'vROps connection failed. Check URL, username/password or API key.' });
+    } else if (integration_type === 'ai_assistant') {
+      const axios = (await import('axios')).default;
+      try {
+        const response = await axios.get(`${base_url}/models`, {
+          headers: api_key ? { 'Authorization': `Bearer ${api_key}` } : {},
+          timeout: 5000
+        });
+        return res.json({ message: 'AI Connection successful', models: response.data?.data?.length || 0 });
+      } catch (e: any) {
+        return res.status(422).json({ error: `AI connection failed: ${e.response?.data?.error?.message || e.message}` });
+      }
     }
     else return res.status(400).json({ error: 'Invalid integration type' });
 

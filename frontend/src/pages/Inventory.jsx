@@ -336,6 +336,7 @@ export default function Inventory() {
                   <th>Firmware</th>
                   <th>IP Address</th>
                   <th>Location</th>
+                  <th>Discovery</th>
                   <th>Status</th>
                   <th onClick={() => handleOrder('warranty_expiry')} style={{ cursor: 'pointer' }}>
                     Warranty {ordering.includes('warranty_expiry') ? (ordering.startsWith('-') ? '↓' : '↑') : ''}
@@ -368,6 +369,19 @@ export default function Inventory() {
                         : item.location_display || '—'}
                     </td>
                     <td>
+                      <span style={{ 
+                        fontSize: '0.7rem', 
+                        fontWeight: 600, 
+                        padding: '2px 6px', 
+                        borderRadius: 4, 
+                        background: item.discovery_type === 'Auto' ? 'rgba(99, 102, 241, 0.1)' : 'rgba(100, 116, 139, 0.1)',
+                        color: item.discovery_type === 'Auto' ? 'var(--teal)' : 'var(--text-secondary)',
+                        border: `1px solid ${item.discovery_type === 'Auto' ? 'rgba(99, 102, 241, 0.2)' : 'rgba(100, 116, 139, 0.2)'}`
+                      }}>
+                        {item.discovery_type}
+                      </span>
+                    </td>
+                    <td>
                       <span className={`badge badge--${item.status}`}>
                         {item.status}
                       </span>
@@ -387,7 +401,7 @@ export default function Inventory() {
             </table>
           </div>
 
-          {totalPages > 1 && (
+          {totalCount > 0 && (
             <div className="pagination">
               <button
                 className="pagination__btn"

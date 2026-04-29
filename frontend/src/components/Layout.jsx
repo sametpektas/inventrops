@@ -2,6 +2,7 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import ThemeToggle from './ThemeToggle';
 import PasswordChangeModal from './PasswordChangeModal';
+import AIChat from './AIChat';
 
 const NAV_ITEMS = [
   {
@@ -125,6 +126,7 @@ export default function Layout() {
         <main className="page-content">
           <Outlet />
         </main>
+        <AIChat />
       </div>
       <PasswordChangeModal />
     </div>

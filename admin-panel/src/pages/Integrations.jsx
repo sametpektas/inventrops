@@ -13,7 +13,7 @@ export default function Integrations() {
   // Form State
   const initialForm = {
     id: null, name: '', integration_type: 'dell_openmanage', base_url: '', 
-    username: '', password: '', team: '', is_active: true
+    username: '', password: '', api_key: '', team: '', is_active: true
   };
   const [form, setForm] = useState(initialForm);
 
@@ -59,6 +59,7 @@ export default function Integrations() {
       base_url: integ.url,
       username: integ.username || '',
       password: integ.password || '', // This will be '********'
+      api_key: integ.api_key || '',   // This will be '********'
       team: integ.team_id || '',
       is_active: integ.is_active
     });
@@ -202,13 +203,15 @@ export default function Integrations() {
                   </td>
                 <td>
                   <div style={{ display: 'flex', gap: '8px' }} onClick={e => e.stopPropagation()}>
-                    <button 
-                       className="btn btn--sm btn--primary"
-                       onClick={() => handleTriggerSync(inv.id)}
-                       disabled={!inv.is_active || isSyncing}
-                    >
-                      {isSyncing ? 'Syncing...' : 'Sync Now'}
-                    </button>
+                    {inv.integration_type !== 'ai_assistant' && (
+                      <button 
+                         className="btn btn--sm btn--primary"
+                         onClick={() => handleTriggerSync(inv.id)}
+                         disabled={!inv.is_active || isSyncing}
+                      >
+                        {isSyncing ? 'Syncing...' : 'Sync Now'}
+                      </button>
+                    )}
                     <button className="btn btn--sm btn--danger" onClick={(e) => handleDelete(e, inv.id)}>
                       Del
                     </button>
@@ -237,6 +240,7 @@ export default function Integrations() {
                     <option value="hpe_oneview">HPE OneView</option>
                     <option value="xormon">Xormon</option>
                     <option value="vrops">vROps (Aria Operations)</option>
+                    <option value="ai_assistant">AI Assistant (OpenAI Format)</option>
                   </select>
                 </div>
                 
@@ -252,17 +256,30 @@ export default function Integrations() {
 
                 <div className="grid-2" style={{ gap: 12 }}>
                   <div className="form-group">
-                    <label className="form-label">Username</label>
-                    <input className="form-input" value={form.username} onChange={e => setForm({...form, username: e.target.value})} />
+                    <label className="form-label">
+                      {form.integration_type === 'ai_assistant' ? 'Model Name' : 'Username'}
+                    </label>
+                    <input 
+                      className="form-input" 
+                      value={form.username} 
+                      onChange={e => setForm({...form, username: e.target.value})} 
+                      placeholder={form.integration_type === 'ai_assistant' ? 'e.g. llama3, mistral' : ''}
+                    />
                   </div>
                   <div className="form-group">
-                    <label className="form-label">Password / Secret</label>
+                    <label className="form-label">
+                      {form.integration_type === 'ai_assistant' ? 'API Key / Secret' : 'Password / Secret'}
+                    </label>
                     <input 
                       className="form-input" 
                       type="password" 
-                      value={form.password} 
-                      onChange={e => setForm({...form, password: e.target.value})} 
-                      placeholder={modalMode === 'edit' ? 'Leave as ******** to keep current' : 'Secret Token / Password'}
+                      value={form.integration_type === 'ai_assistant' ? form.api_key : form.password} 
+                      onChange={e => {
+                        const val = e.target.value;
+                        if (form.integration_type === 'ai_assistant') setForm({...form, api_key: val});
+                        else setForm({...form, password: val});
+                      }} 
+                      placeholder={modalMode === 'edit' ? 'Leave as ******** to keep current' : 'Secret Token / Key'}
                     />
                   </div>
                 </div>

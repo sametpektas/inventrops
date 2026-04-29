@@ -425,6 +425,18 @@ export default function InventoryDetail() {
                 </div>
               </div>
               <div className="detail-field">
+                <div className="detail-field__label">Discovery Type</div>
+                <div className="detail-field__value">
+                   <span style={{ 
+                     fontSize: '0.8rem', 
+                     fontWeight: 700, 
+                     color: item.discovery_type === 'Auto' ? 'var(--teal)' : 'var(--text-secondary)'
+                   }}>
+                     {item.discovery_type || 'Manuel'}
+                   </span>
+                </div>
+              </div>
+              <div className="detail-field">
                 <div className="detail-field__label">Created At</div>
                 <div className="detail-field__value">{item.created_at}</div>
               </div>
