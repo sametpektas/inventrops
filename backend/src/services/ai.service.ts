@@ -150,15 +150,32 @@ export const processChatMessage = async (messages: OpenAI.Chat.ChatCompletionMes
   try {
     const { client, model } = await getAIClient();
 
-    const response = await client.chat.completions.create({
-      model,
-      messages: [
-        { role: 'system', content: 'Sen InvenTrOps altyapı yönetim sisteminin akıllı asistanısın. Envanter verilerine erişebilir ve güncelleyebilirsin. Kısa ve net cevaplar ver.' },
-        ...messages
-      ],
-      tools,
-      tool_choice: 'auto',
-    });
+    console.log(`[AI-Service] Sending request to: ${client.baseURL} | Model: ${model}`);
+
+    const conversation: any = [
+      { role: 'system', content: 'Sen InvenTrOps altyapı yönetim sisteminin akıllı asistanısın. Envanter verilerine erişebilir ve güncelleyebilirsin. Kısa ve net cevaplar ver.' },
+      ...messages
+    ];
+
+    let response;
+    try {
+      response = await client.chat.completions.create({
+        model,
+        messages: conversation,
+        tools: tools as any,
+        tool_choice: 'auto',
+      });
+    } catch (err: any) {
+      if (err.status === 405 || err.status === 400) {
+        console.warn(`[AI-Service] Tool calling not supported (${err.status}). Falling back to simple chat...`);
+        response = await client.chat.completions.create({
+          model,
+          messages: conversation,
+        });
+      } else {
+        throw err;
+      }
+    }
 
     const responseMessage = response.choices[0].message;
 
