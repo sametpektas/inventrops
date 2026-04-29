@@ -88,8 +88,10 @@ const tools: OpenAI.Chat.ChatCompletionTool[] = [
  * Tool Execution: LLM bir tool çağırdığında çalışacak gerçek kodlar.
  */
 async function executeTool(toolCall: OpenAI.Chat.ChatCompletionMessageToolCall) {
-  const name = toolCall.function.name;
-  const args = JSON.parse(toolCall.function.arguments);
+  const name = toolCall.function?.name;
+  const args = toolCall.function?.arguments ? JSON.parse(toolCall.function.arguments) : {};
+
+  if (!name) return { error: 'Invalid tool call' };
 
   console.log(`[AI-Agent] Executing tool: ${name}`, args);
 
