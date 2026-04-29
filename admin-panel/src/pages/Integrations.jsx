@@ -284,13 +284,24 @@ export default function Integrations() {
                   </div>
                 </div>
 
-                <div className="form-group">
-                  <label className="form-label">Default Fallback Team</label>
-                  <select className="form-input form-select" value={form.team} onChange={e => setForm({...form, team: e.target.value})}>
-                    <option value="">No default team</option>
-                    {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                  </select>
-                </div>
+                {['dell_openmanage', 'hpe_oneview', 'xormon', 'vrops', 'ai_assistant'].includes(form.integration_type) ? (
+                  <div className="form-group">
+                    <label className="form-label">Team Assignment</label>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', padding: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px' }}>
+                      {form.integration_type === 'xormon' ? 'Automatically assigned to Storage Team' : 
+                       ['dell_openmanage', 'hpe_oneview'].includes(form.integration_type) ? 'Automatically assigned to Virtualization Team' :
+                       'No team assignment for this integration type'}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="form-group">
+                    <label className="form-label">Default Fallback Team</label>
+                    <select className="form-input form-select" value={form.team} onChange={e => setForm({...form, team: e.target.value})}>
+                      <option value="">No default team</option>
+                      {teams.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                    </select>
+                  </div>
+                )}
 
                 <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <input type="checkbox" id="is_active" checked={form.is_active} onChange={e => setForm({...form, is_active: e.target.checked})} />

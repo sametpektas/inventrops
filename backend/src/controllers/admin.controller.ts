@@ -112,6 +112,29 @@ export const getIntegrations = async (req: Request, res: Response) => {
 export const createIntegration = async (req: Request, res: Response) => {
   const { name, integration_type, base_url, username, password, api_key, team } = req.body;
   try {
+    let targetTeamId: number | null = null;
+
+    // Automatic Team Assignment Logic
+    if (integration_type === 'dell_openmanage' || integration_type === 'hpe_oneview') {
+      const virtualizationTeam = await prisma.team.upsert({
+        where: { name: 'Virtualization' },
+        update: {},
+        create: { name: 'Virtualization', description: 'Auto-created for Virtualization Infrastructure' }
+      });
+      targetTeamId = virtualizationTeam.id;
+    } else if (integration_type === 'xormon') {
+      const storageTeam = await prisma.team.upsert({
+        where: { name: 'Storage' },
+        update: {},
+        create: { name: 'Storage', description: 'Auto-created for Storage Infrastructure' }
+      });
+      targetTeamId = storageTeam.id;
+    } else if (integration_type === 'vrops' || integration_type === 'ai_assistant') {
+      targetTeamId = null;
+    } else if (team) {
+      targetTeamId = parseInt(team);
+    }
+
     const config = await prisma.integrationConfig.create({
       data: {
         name,
@@ -120,7 +143,7 @@ export const createIntegration = async (req: Request, res: Response) => {
         username,
         password: password ? encrypt(password) : null,
         api_key: api_key ? encrypt(api_key) : null,
-        team_id: parseInt(team),
+        team_id: targetTeamId,
         is_active: true
       }
     });

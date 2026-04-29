@@ -5,6 +5,9 @@ import https from 'https';
 
 dotenv.config();
 
+// SSL Sertifika doğrulamasını tamamen devre dışı bırak (Şirket içi self-signed sertifikalar için)
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
 const httpsAgent = new https.Agent({
   rejectUnauthorized: false,
 });

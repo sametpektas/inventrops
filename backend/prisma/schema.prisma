@@ -247,8 +247,8 @@ model IntegrationConfig {
   created_at        DateTime        @default(now())
   updated_at        DateTime        @updatedAt
   
-  team_id           Int
-  team              Team            @relation(fields: [team_id], references: [id])
+  team_id           Int?
+  team              Team?            @relation(fields: [team_id], references: [id])
   logs              SyncLog[]
   forecast_snapshots ForecastMetricSnapshot[]
   forecast_results   ForecastResult[]
