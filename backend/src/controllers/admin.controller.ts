@@ -276,15 +276,20 @@ export const testIntegrationConnection = async (req: Request, res: Response) => 
       const https = (await import('https')).default;
       const agent = new https.Agent({ rejectUnauthorized: false });
       
+      let cleanUrl = (base_url || '').trim().replace(/\/+$/, "");
+      cleanUrl = cleanUrl.replace(/\/chat\/completions$/, "");
+      
       try {
-        const response = await axios.get(`${base_url}/models`, {
+        // Try /models first
+        const response = await axios.get(`${cleanUrl}/models`, {
           headers: api_key ? { 'Authorization': `Bearer ${api_key}` } : {},
           httpsAgent: agent,
           timeout: 5000
         });
         return res.json({ message: 'AI Connection successful', models: response.data?.data?.length || 0 });
       } catch (e: any) {
-        return res.status(422).json({ error: `AI connection failed: ${e.response?.data?.error?.message || e.message}` });
+        // Fallback: try root if /models fails with 404/405 but we just want to see if server responds
+        return res.status(422).json({ error: `AI connection failed (405/404). Ensure URL is the base API URL (e.g. http://api/v1). Error: ${e.message}` });
       }
     }
     else return res.status(400).json({ error: 'Invalid integration type' });

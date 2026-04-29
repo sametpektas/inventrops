@@ -8,6 +8,13 @@ dotenv.config();
 // SSL Sertifika doğrulamasını tamamen devre dışı bırak (Şirket içi self-signed sertifikalar için)
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
+function sanitizeBaseUrl(url: string): string {
+  if (!url) return url;
+  let cleanUrl = url.trim().replace(/\/+$/, ""); // Sondaki slashları temizle
+  cleanUrl = cleanUrl.replace(/\/chat\/completions$/, ""); // Sondaki yolu temizle
+  return cleanUrl;
+}
+
 const httpsAgent = new https.Agent({
   rejectUnauthorized: false,
 });
@@ -24,7 +31,7 @@ async function getAIClient() {
     return {
       client: new OpenAI({
         apiKey: config.api_key || '',
-        baseURL: config.url,
+        baseURL: sanitizeBaseUrl(config.url),
         httpAgent: httpsAgent
       } as any),
       model: config.username || 'llama3' // Model adını username alanında saklayabiliriz
@@ -35,7 +42,7 @@ async function getAIClient() {
   return {
     client: new OpenAI({
       apiKey: process.env.AI_API_KEY || 'sk-placeholder',
-      baseURL: process.env.AI_API_BASE_URL || 'http://your-company-ai-api.local/v1',
+      baseURL: sanitizeBaseUrl(process.env.AI_API_BASE_URL || 'http://your-company-ai-api.local/v1'),
       httpAgent: httpsAgent
     } as any),
     model: process.env.AI_MODEL || 'llama3'
