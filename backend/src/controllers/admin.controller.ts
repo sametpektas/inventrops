@@ -250,9 +250,13 @@ export const testIntegrationConnection = async (req: Request, res: Response) => 
       return res.status(422).json({ error: 'vROps connection failed. Check URL, username/password or API key.' });
     } else if (integration_type === 'ai_assistant') {
       const axios = (await import('axios')).default;
+      const https = (await import('https')).default;
+      const agent = new https.Agent({ rejectUnauthorized: false });
+      
       try {
         const response = await axios.get(`${base_url}/models`, {
           headers: api_key ? { 'Authorization': `Bearer ${api_key}` } : {},
+          httpsAgent: agent,
           timeout: 5000
         });
         return res.json({ message: 'AI Connection successful', models: response.data?.data?.length || 0 });

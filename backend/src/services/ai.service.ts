@@ -1,8 +1,13 @@
 import OpenAI from 'openai';
 import { prisma } from '../lib/prisma';
 import dotenv from 'dotenv';
+import https from 'https';
 
 dotenv.config();
+
+const httpsAgent = new https.Agent({
+  rejectUnauthorized: false,
+});
 
 /**
  * AI Konfigürasyonunu veritabanından veya .env'den alır.
@@ -16,7 +21,8 @@ async function getAIClient() {
     return {
       client: new OpenAI({
         apiKey: config.api_key || '',
-        baseURL: config.url
+        baseURL: config.url,
+        httpAgent: httpsAgent
       }),
       model: config.username || 'llama3' // Model adını username alanında saklayabiliriz
     };
@@ -27,6 +33,7 @@ async function getAIClient() {
     client: new OpenAI({
       apiKey: process.env.AI_API_KEY || 'sk-placeholder',
       baseURL: process.env.AI_API_BASE_URL || 'http://your-company-ai-api.local/v1',
+      httpAgent: httpsAgent
     }),
     model: process.env.AI_MODEL || 'llama3'
   };
