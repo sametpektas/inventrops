@@ -1,10 +1,8 @@
 import OpenAI from 'openai';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../lib/prisma';
 import dotenv from 'dotenv';
 
 dotenv.config();
-
-const prisma = new PrismaClient();
 
 /**
  * AI Konfigürasyonunu veritabanından veya .env'den alır.
