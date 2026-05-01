@@ -114,6 +114,8 @@ const tools: OpenAI.Chat.ChatCompletionTool[] = [
         },
         required: ['serial_number', 'new_date'],
       },
+    },
+  },
   {
     type: 'function',
     function: {
@@ -136,6 +138,8 @@ const tools: OpenAI.Chat.ChatCompletionTool[] = [
       name: 'get_location_overview',
       description: 'Veri merkezleri, odalar ve kabinetlerin (rack) listesini ve doluluk durumlarını getirir.',
       parameters: { type: 'object', properties: {} },
+    },
+  },
   {
     type: 'function',
     function: {
@@ -158,6 +162,8 @@ const tools: OpenAI.Chat.ChatCompletionTool[] = [
       name: 'get_inventory_health',
       description: 'Envanterin genel sağlık durumunu, offline veya kritik durumdaki cihazları raporlar.',
       parameters: { type: 'object', properties: {} },
+    },
+  },
   {
     type: 'function',
     function: {
@@ -186,12 +192,16 @@ const tools: OpenAI.Chat.ChatCompletionTool[] = [
       name: 'check_ip_conflicts',
       description: 'Sistemde aynı IP adresini kullanan mükerrer (çakışan) kayıtları denetler.',
       parameters: { type: 'object', properties: {} },
+    },
+  },
   {
     type: 'function',
     function: {
       name: 'get_storage_details',
       description: 'Depolama havuzları, LUNlar ve disk doluluk oranları hakkında detaylı veri getirir.',
       parameters: { type: 'object', properties: {} },
+    },
+  },
   {
     type: 'function',
     function: {
