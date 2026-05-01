@@ -66,6 +66,7 @@ const tools: OpenAI.Chat.ChatCompletionTool[] = [
           status: { type: 'string', enum: ['active', 'inactive', 'maintenance'], description: 'Cihaz durumu.' },
           vendor: { type: 'string', description: 'Marka/Üretici adı.' },
           model_name: { type: 'string', description: 'Model adı (Örn: PowerEdge R740)' },
+          type: { type: 'string', enum: ['server', 'storage', 'san', 'switch', 'virtualization'], description: 'Cihaz tipi.' },
           warranty_before: { type: 'string', description: 'Garantisi bu tarihten önce bitenler (YYYY-MM-DD)' },
           warranty_after: { type: 'string', description: 'Garantisi bu tarihten sonra bitenler (YYYY-MM-DD)' },
         },
@@ -246,6 +247,7 @@ async function executeTool(toolCall: any) {
             AND: [
               args.vendor ? { vendor: { name: { contains: args.vendor, mode: 'insensitive' } } } : {},
               args.model_name ? { name: { contains: args.model_name, mode: 'insensitive' } } : {},
+              args.type ? { device_type: args.type } : {},
             ]
           },
           warranty_expiry: {
@@ -290,8 +292,18 @@ async function executeTool(toolCall: any) {
     case 'get_inventory_stats':
       const totalCount = await prisma.inventoryItem.count();
       const statusGroups = await prisma.inventoryItem.groupBy({ by: ['status'] as any, _count: true });
-      const typeGroups = await prisma.inventoryItem.groupBy({ by: ['status'] as any, _count: true }); // device_type check
-      return { total: totalCount, statusDistribution: statusGroups, typeDistribution: typeGroups };
+      
+      // Cihaz tiplerine göre sayım (Model tablosu üzerinden)
+      const typeStats = await prisma.inventoryItem.findMany({
+        select: { model: { select: { device_type: true } } }
+      });
+      const typeCounts: any = {};
+      typeStats.forEach(item => {
+        const t = item.model.device_type;
+        typeCounts[t] = (typeCounts[t] || 0) + 1;
+      });
+
+      return { total: totalCount, statusDistribution: statusGroups, typeDistribution: typeCounts };
 
     case 'get_capacity_summary':
       const snapshots = await prisma.forecastMetricSnapshot.findMany({
