@@ -218,6 +218,8 @@ const tools: OpenAI.Chat.ChatCompletionTool[] = [
         },
         required: ['serial_number'],
       },
+    },
+  },
   {
     type: 'function',
     function: {
