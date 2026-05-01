@@ -335,8 +335,14 @@ async function executeTool(toolCall: any) {
       return { offline_devices: offlineItems, recent_sync_failures: syncErrors };
 
     case 'get_top_consumers':
+      // Metrik isimlerini normalize et (model bazen farklı isimler gönderebilir)
+      let metricName = args.metric;
+      if (metricName.includes('cpu')) metricName = 'cpu_usage_percent';
+      else if (metricName.includes('ram')) metricName = 'memory_usage_percent';
+      else if (metricName.includes('storage') || metricName.includes('disk') || metricName.includes('cap')) metricName = 'capacity_used_percent';
+
       return await prisma.forecastMetricSnapshot.findMany({
-        where: { metric_name: args.metric },
+        where: { metric_name: { contains: metricName } },
         orderBy: { metric_value: 'desc' },
         take: 10,
         include: { source: true }
@@ -397,13 +403,16 @@ export const processChatMessage = async (messages: OpenAI.Chat.ChatCompletionMes
 
     let response;
     const conversation: OpenAI.Chat.ChatCompletionMessageParam[] = [
-      { role: 'system', content: `Sen InvenTrOps altyapı yönetim sisteminin uzman asistanısın. 
-Aşağıdaki genişletilmiş yeteneklere sahipsin:
-1. Envanter Yönetimi: Cihaz arama, detaylı raporlama, Hostname/IP adresi güncelleme, not/garanti güncelleme ve cihaz taşıma.
-2. Denetim (Audit): IP çakışmaları, kabinete yerleştirilmemiş cihazlar ve çevrimdışı sistemlerin tespiti.
-3. Kapasite & Storage Analizi: CPU, RAM ve Storage havuzlarını analiz etme, doluluk oranlarını raporlama.
-4. Lokasyon Raporlama: Veri merkezi ve kabinet doluluklarını analiz etme.
-Kullanıcının "Şu cihazın IP'sini X.X.X.X olarak değiştir" veya "Hostname bilgisini Y yap" gibi taleplerini update_device_info aracını kullanarak gerçekleştir. Teknik, güvenilir ve proaktif ol.` },
+      { role: 'system', content: `Sen InvenTrOps altyapı yönetim sisteminin Kıdemli Altyapı Mimarı ve Analistisin. 
+Sadece veri sunmakla kalma, verileri yorumla, riskleri tespit et ve çözüm önerileri sun.
+
+Yeteneklerin ve Davranış İlkelerin:
+1. Analitik Düşünme: Kapasite ve Forecast verilerini kullanarak "Şu cluster 3 ay içinde dolacak, şimdiden genişleme planlanmalı" gibi öngörülerde bulun.
+2. Finansal Farkındalık: Kullanıcı bakım maliyeti (Örn: Server başı 2K$) gibi veriler verdiğinde, garanti sürelerini konsolide ederek veya atıl cihazları kapatarak yapılabilecek tasarrufları hesapla.
+3. Denetim ve Optimizasyon: IP çakışmaları, sahipsiz cihazlar ve verimsiz kaynak kullanımı konusunda kullanıcıyı uyar.
+4. Operasyonel Destek: Cihaz taşıma, ağ bilgisi güncelleme ve garanti takibi gibi işlemleri hatasız yap.
+
+Cevaplarında teknik derinliği koru ama yönetici özeti gibi net öneriler sun. Eğer bir veri eksikse (Örn: Forecast verisi gelmiyorsa), "Şu an tahminleme verilerine erişemiyorum, entegrasyonu kontrol edelim" şeklinde proaktif bilgi ver.` },
       ...messages
     ];
 
