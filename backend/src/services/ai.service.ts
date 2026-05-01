@@ -218,6 +218,17 @@ const tools: OpenAI.Chat.ChatCompletionTool[] = [
         },
         required: ['serial_number'],
       },
+  {
+    type: 'function',
+    function: {
+      name: 'get_warranty_report',
+      description: 'Garanti bitiş tarihlerini marka (vendor) ve cihaz tipi bazlı özetler.',
+      parameters: {
+        type: 'object',
+        properties: {
+          year: { type: 'number', description: 'Hangi yıl için rapor isteniyor? (Örn: 2026)' }
+        }
+      },
     },
   },
 ];
@@ -404,6 +415,30 @@ async function executeTool(toolCall: any) {
         }
       });
 
+    case 'get_warranty_report':
+      const year = args.year || new Date().getFullYear();
+      const startDate = new Date(`${year}-01-01`);
+      const endDate = new Date(`${year}-12-31`);
+
+      const itemsForYear = await prisma.inventoryItem.findMany({
+        where: {
+          warranty_expiry: { gte: startDate, lte: endDate }
+        },
+        include: { model: { include: { vendor: true } } }
+      });
+
+      const report: any = {};
+      itemsForYear.forEach(item => {
+        const vendor = item.model.vendor.name;
+        const type = item.model.device_type;
+        const key = `${vendor} - ${type}`;
+        if (!report[key]) report[key] = { count: 0, serials: [] };
+        report[key].count++;
+        report[key].serials.push(item.serial_number);
+      });
+
+      return { year, summary: report };
+
     default:
       return { error: 'Unknown tool' };
   }
@@ -415,16 +450,15 @@ export const processChatMessage = async (messages: OpenAI.Chat.ChatCompletionMes
 
     let response;
     const conversation: OpenAI.Chat.ChatCompletionMessageParam[] = [
-      { role: 'system', content: `Sen InvenTrOps altyapı yönetim sisteminin Kıdemli Altyapı Mimarı ve Analistisin. 
-Sadece veri sunmakla kalma, verileri yorumla, riskleri tespit et ve çözüm önerileri sun.
+      { role: 'system', content: `Sen InvenTrOps altyapı yönetim sisteminin Kıdemli Altyapı Mimarı ve Finansal Analistisin. 
 
-Yeteneklerin ve Davranış İlkelerin:
-1. Analitik Düşünme: Kapasite ve Forecast verilerini kullanarak "Şu cluster 3 ay içinde dolacak, şimdiden genişleme planlanmalı" gibi öngörülerde bulun.
-2. Finansal Farkındalık: Kullanıcı bakım maliyeti (Örn: Server başı 2K$) gibi veriler verdiğinde, garanti sürelerini konsolide ederek veya atıl cihazları kapatarak yapılabilecek tasarrufları hesapla.
-3. Denetim ve Optimizasyon: IP çakışmaları, sahipsiz cihazlar ve verimsiz kaynak kullanımı konusunda kullanıcıyı uyar.
-4. Operasyonel Destek: Cihaz taşıma, ağ bilgisi güncelleme ve garanti takibi gibi işlemleri hatasız yap.
+Analiz Prensiplerin:
+1. Marka Bazlı Ayrı Hesaplama (MANDATORY): Bakım ve garanti analizlerini yaparken asla tüm markaları birleştirme. Dell, HPE, Huawei, Cisco gibi her üreticiyi ayrı bir başlık altında incele.
+2. Bireysel Maliyet Analizi: Her marka için cihaz sayılarını ve maliyetlerini (Örn: Cihaz başı 2K$) ayrı ayrı hesapla. "Dell Toplam: X Cihaz - Y Dolar", "HPE Toplam: A Cihaz - B Dolar" şeklinde net kırılımlar sun.
+3. Operasyonel Öneriler: Her markanın kendi içindeki garanti yoğunluğuna göre (Örn: Dell'lerin %80'i Temmuz'da bitiyor) o markaya özel konsolidasyon öner.
+4. Cihaz Tipi Ayrımı: Her markanın altında Server, Storage ve SAN ayrımını koru.
 
-Cevaplarında teknik derinliği koru ama yönetici özeti gibi net öneriler sun. Eğer bir veri eksikse (Örn: Forecast verisi gelmiyorsa), "Şu an tahminleme verilerine erişemiyorum, entegrasyonu kontrol edelim" şeklinde proaktif bilgi ver.` },
+Cevaplarında teknik derinliği koru, marka bazlı raporlar için get_warranty_report aracını kullanarak her üretici için ayrı ayrı sonuçlar üret.` },
       ...messages
     ];
 
