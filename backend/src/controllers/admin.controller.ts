@@ -278,11 +278,18 @@ export const testIntegrationConnection = async (req: Request, res: Response) => 
       
       let cleanUrl = (base_url || '').trim().replace(/\/+$/, "");
       cleanUrl = cleanUrl.replace(/\/chat\/completions$/, "");
+
+      let finalApiKey = api_key;
+      // If editing and key is masked, fetch the real one
+      if (finalApiKey === '********' && req.body.id) {
+        const existing = await prisma.integrationConfig.findUnique({ where: { id: parseInt(req.body.id) } });
+        if (existing?.api_key) finalApiKey = decrypt(existing.api_key);
+      }
       
       try {
         // Try /models first
         const response = await axios.get(`${cleanUrl}/models`, {
-          headers: api_key ? { 'Authorization': `Bearer ${api_key}` } : {},
+          headers: finalApiKey ? { 'Authorization': `Bearer ${finalApiKey}` } : {},
           httpsAgent: agent,
           timeout: 5000
         });

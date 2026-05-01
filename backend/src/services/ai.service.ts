@@ -2,6 +2,7 @@ import OpenAI from 'openai';
 import { prisma } from '../lib/prisma';
 import dotenv from 'dotenv';
 import https from 'https';
+import { decrypt } from '../utils/crypto';
 
 dotenv.config();
 
@@ -30,7 +31,7 @@ async function getAIClient() {
   if (config) {
     return {
       client: new OpenAI({
-        apiKey: config.api_key || '',
+        apiKey: config.api_key ? decrypt(config.api_key) : '',
         baseURL: sanitizeBaseUrl(config.url),
         httpAgent: httpsAgent
       } as any),
