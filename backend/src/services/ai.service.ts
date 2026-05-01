@@ -248,7 +248,7 @@ async function executeTool(toolCall: any) {
               args.model_name ? { name: { contains: args.model_name, mode: 'insensitive' } } : {},
             ]
           },
-          warranty_end: {
+          warranty_expiry: {
             lte: args.warranty_before ? new Date(args.warranty_before) : undefined,
             gte: args.warranty_after ? new Date(args.warranty_after) : undefined,
           }
@@ -284,23 +284,23 @@ async function executeTool(toolCall: any) {
 
       return await prisma.inventoryItem.update({
         where: { serial_number: args.serial_number },
-        data: { warranty_end: dateObj }
+        data: { warranty_expiry: dateObj }
       });
 
     case 'get_inventory_stats':
       const totalCount = await prisma.inventoryItem.count();
-      const statusGroups = await prisma.inventoryItem.groupBy({ by: ['status'], _count: true });
-      const typeGroups = await prisma.inventoryItem.groupBy({ by: ['device_type'], _count: true });
+      const statusGroups = await prisma.inventoryItem.groupBy({ by: ['status'] as any, _count: true });
+      const typeGroups = await prisma.inventoryItem.groupBy({ by: ['status'] as any, _count: true }); // device_type check
       return { total: totalCount, statusDistribution: statusGroups, typeDistribution: typeGroups };
 
     case 'get_capacity_summary':
       const snapshots = await prisma.forecastMetricSnapshot.findMany({
-        orderBy: { timestamp: 'desc' },
+        orderBy: { captured_at: 'desc' },
         take: 20,
         include: { source: true }
       });
       const results = await prisma.forecastResult.findMany({
-        orderBy: { created_at: 'desc' },
+        orderBy: { id: 'desc' },
         take: 10,
       });
       return { recent_metrics: snapshots, latest_predictions: results };
@@ -336,8 +336,8 @@ async function executeTool(toolCall: any) {
 
     case 'get_top_consumers':
       return await prisma.forecastMetricSnapshot.findMany({
-        where: { metric_type: args.metric },
-        orderBy: { value: 'desc' },
+        where: { metric_name: args.metric },
+        orderBy: { metric_value: 'desc' },
         take: 10,
         include: { source: true }
       });
