@@ -451,7 +451,21 @@ Kullanıcının "Şu cihazın IP'sini X.X.X.X olarak değiştir" veya "Hostname 
         messages: availableMessages,
       });
 
-      return finalResponse.choices[0].message;
+      const finalMessage = finalResponse.choices[0].message;
+      if (finalMessage.content) {
+        finalMessage.content = finalMessage.content
+          .replace(/<minimax:tool_call>[\s\S]*?<\/minimax:tool_call>/g, '')
+          .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
+          .trim();
+      }
+      return finalMessage;
+    }
+
+    if (responseMessage.content) {
+      responseMessage.content = responseMessage.content
+        .replace(/<minimax:tool_call>[\s\S]*?<\/minimax:tool_call>/g, '')
+        .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
+        .trim();
     }
 
     return responseMessage;
