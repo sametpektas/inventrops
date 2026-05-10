@@ -233,6 +233,73 @@ const tools: OpenAI.Chat.ChatCompletionTool[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'create_datacenter',
+      description: 'Yeni bir veri merkezi (Datacenter) oluşturur.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Veri merkezi adı (Örn: AVM Ankara, Varyap İstanbul)' },
+          location: { type: 'string', description: 'Şehir veya konum bilgisi (Örn: Ankara, İstanbul)' },
+          address: { type: 'string', description: 'Açık adres bilgisi (opsiyonel)' },
+        },
+        required: ['name'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_room',
+      description: 'Bir veri merkezine yeni bir oda (Room) ekler.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Oda adı (Örn: A Salonu, Sunucu Odası 1)' },
+          datacenter_name: { type: 'string', description: 'Hangi veri merkezine ait olduğu (adıyla)' },
+          floor: { type: 'string', description: 'Kat bilgisi (opsiyonel, Örn: 1, Zemin)' },
+        },
+        required: ['name', 'datacenter_name'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_rack',
+      description: 'Bir odaya yeni bir kabinet (Rack) ekler.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Kabinet adı (Örn: Rack-A01, Kabin-1)' },
+          room_name: { type: 'string', description: 'Hangi odaya ait olduğu (adıyla)' },
+          datacenter_name: { type: 'string', description: 'Veri merkezi adı (odayı doğru bulmak için)' },
+          total_units: { type: 'number', description: 'Toplam U yüksekliği (varsayılan: 42)' },
+        },
+        required: ['name', 'room_name', 'datacenter_name'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_device_location',
+      description: 'Bir cihazın lokasyon bilgisini günceller. Cihazı belirtilen veri merkezi, oda ve kabinete yerleştirir.',
+      parameters: {
+        type: 'object',
+        properties: {
+          serial_number: { type: 'string', description: 'Cihazın seri numarası' },
+          datacenter_name: { type: 'string', description: 'Hedef veri merkezi adı' },
+          room_name: { type: 'string', description: 'Hedef oda adı' },
+          rack_name: { type: 'string', description: 'Hedef kabinet adı' },
+          rack_unit_start: { type: 'number', description: 'Kabinet içindeki başlangıç U pozisyonu (opsiyonel)' },
+        },
+        required: ['serial_number', 'datacenter_name', 'room_name', 'rack_name'],
+      },
+    },
+  },
 ];
 
 /**
@@ -440,6 +507,106 @@ async function executeTool(toolCall: any) {
       });
 
       return { year, summary: report };
+
+    case 'create_datacenter': {
+      let firstTeam = await prisma.team.findFirst();
+      if (!firstTeam) {
+        firstTeam = await prisma.team.create({
+          data: { name: 'Default Team', description: 'System generated default team' }
+        });
+      }
+      const dc = await prisma.datacenter.create({
+        data: {
+          name: args.name,
+          location: args.location || null,
+          address: args.address || null,
+          team_id: firstTeam.id
+        }
+      });
+      return { success: true, message: `Veri merkezi '${dc.name}' başarıyla oluşturuldu.`, datacenter: dc };
+    }
+
+    case 'create_room': {
+      const dc = await prisma.datacenter.findFirst({
+        where: { name: { contains: args.datacenter_name, mode: 'insensitive' } }
+      });
+      if (!dc) return { error: `'${args.datacenter_name}' adlı veri merkezi bulunamadı. Önce oluşturmanız gerekiyor.` };
+
+      const room = await prisma.room.create({
+        data: {
+          name: args.name,
+          datacenter_id: dc.id,
+          floor: args.floor || '0'
+        }
+      });
+      return { success: true, message: `'${room.name}' odası '${dc.name}' veri merkezine başarıyla eklendi.`, room };
+    }
+
+    case 'create_rack': {
+      const dc = await prisma.datacenter.findFirst({
+        where: { name: { contains: args.datacenter_name, mode: 'insensitive' } }
+      });
+      if (!dc) return { error: `'${args.datacenter_name}' adlı veri merkezi bulunamadı.` };
+
+      const room = await prisma.room.findFirst({
+        where: {
+          name: { contains: args.room_name, mode: 'insensitive' },
+          datacenter_id: dc.id
+        }
+      });
+      if (!room) return { error: `'${dc.name}' veri merkezinde '${args.room_name}' adlı oda bulunamadı. Önce oluşturmanız gerekiyor.` };
+
+      const rack = await prisma.rack.create({
+        data: {
+          name: args.name,
+          room_id: room.id,
+          total_units: args.total_units || 42
+        }
+      });
+      return { success: true, message: `'${rack.name}' kabineti '${room.name}' odasına başarıyla eklendi. (${rack.total_units}U)`, rack };
+    }
+
+    case 'update_device_location': {
+      const device = await prisma.inventoryItem.findUnique({
+        where: { serial_number: args.serial_number }
+      });
+      if (!device) return { error: `'${args.serial_number}' seri numaralı cihaz bulunamadı.` };
+
+      const dc = await prisma.datacenter.findFirst({
+        where: { name: { contains: args.datacenter_name, mode: 'insensitive' } }
+      });
+      if (!dc) return { error: `'${args.datacenter_name}' adlı veri merkezi bulunamadı.` };
+
+      const room = await prisma.room.findFirst({
+        where: {
+          name: { contains: args.room_name, mode: 'insensitive' },
+          datacenter_id: dc.id
+        }
+      });
+      if (!room) return { error: `'${dc.name}' veri merkezinde '${args.room_name}' adlı oda bulunamadı.` };
+
+      const rack = await prisma.rack.findFirst({
+        where: {
+          name: { contains: args.rack_name, mode: 'insensitive' },
+          room_id: room.id
+        }
+      });
+      if (!rack) return { error: `'${room.name}' odasında '${args.rack_name}' adlı kabinet bulunamadı.` };
+
+      const updated = await prisma.inventoryItem.update({
+        where: { serial_number: args.serial_number },
+        data: {
+          rack_id: rack.id,
+          rack_unit_start: args.rack_unit_start || null
+        }
+      });
+
+      return {
+        success: true,
+        message: `Cihaz '${args.serial_number}' başarıyla '${dc.name} > ${room.name} > ${rack.name}' konumuna yerleştirildi.`,
+        device: { serial_number: updated.serial_number, hostname: updated.hostname, rack_id: updated.rack_id }
+      };
+    }
 
     default:
       return { error: 'Unknown tool' };
