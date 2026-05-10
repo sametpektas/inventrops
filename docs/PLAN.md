@@ -1,62 +1,39 @@
-# Phase 2: Capacity Forecasting & Performance Planning
+# InvenTrOps - AI Pagination Bug Fix Plan
 
-## Task Overview
-Add a new Capacity Forecasting module to the existing InvenTrOps application without altering the current stack (Node.js, Prisma, PostgreSQL, BullMQ, React). The goal is to collect historical metrics from Xormon and vROps, calculate future capacity needs using linear regression and moving averages, and alert users of impending capacity or performance bottlenecks.
+## 1. Problem Statement
+The user reported that when querying the AI assistant for the count of HPE (and Dell) servers, the assistant consistently reports exactly 50 servers, despite there being 113 servers in the actual inventory database.
 
-## 1. Database Layer (Prisma)
-Add the following models to `schema.prisma`:
-- `ForecastSource`: Tracks connection details/integration link to Xormon/vROps.
-- `ForecastMetricSnapshot`: Stores point-in-time metrics for each device/object.
-- `ForecastResult`: Stores the calculated predictions (30d, 90d, 180d, 365d), days to thresholds, and confidence score.
-- `ForecastJob`: Logs the BullMQ background tasks.
-- `ForecastAlert`: Stores generated alerts based on threshold violations (Warning, Critical).
+## 2. Root Cause Analysis
+During the initial discovery phase (using `explorer-agent`), the AI service logic (`backend/src/services/ai.service.ts`) was examined. 
+In the `search_inventory` tool execution block, there is a hardcoded Prisma limit (`take: 50`):
 
-## 2. Provider Architecture
-Create two new data collectors in `backend/src/services/forecast/providers/`:
-- `xormonForecast.provider.ts`: Authenticates securely, fetches Storage (capacity, iops, latency, throughput) and SAN (port utilization, errors) metrics.
-- `vropsForecast.provider.ts`: Fetches Server & Virtualization (CPU, memory, disk, cluster demand, VM count) metrics.
-Both providers will normalize the data into a common `NormalizedMetric` format and safely handle API errors/timeouts without logging secrets.
+```typescript
+    case 'search_inventory':
+      return await prisma.inventoryItem.findMany({
+          // ... filters ...
+        include: { model: { include: { vendor: true } } },
+        take: 50 // Daha fazla sonuç alabilmesi için sınırı artırdık
+      });
+```
+Because of this `take: 50` limit, any search returning more than 50 elements is truncated, which causes the AI to incorrectly count the total items as 50.
 
-## 3. Forecast Engine
-Create `backend/src/services/forecast/engine.ts`:
-- **Algorithms**: Implement Linear Regression and Moving Average.
-- **Outlier Filtering**: Use standard deviation/Z-score to exclude anomalies.
-- **Calculations**: Predict values at 30, 90, 180, and 365 days. Calculate `days_to_warning`, `days_to_critical`, `confidence_score`, and `risk_level` (green, yellow, orange, red).
+## 3. Implementation Steps
 
-## 4. Background Jobs (BullMQ)
-Add queues and workers in `backend/src/workers/`:
-- **Metric Collection Job**: Periodically syncs metrics from providers.
-- **Forecast Calculation Job**: Runs the engine over the latest snapshot window.
-- **Alert Generation Job**: Triggers thresholds and creates `ForecastAlert` records.
+We will orchestrate 3 agents to fix and verify the issue:
 
-## 5. API Endpoints
-Create `backend/src/routes/forecast.routes.ts` and `forecast.controller.ts`:
-- `GET /api/forecast/summary`
-- `GET /api/forecast/storage`
-- `GET /api/forecast/san`
-- `GET /api/forecast/server`
-- `GET /api/forecast/virtualization`
-- `GET /api/forecast/:objectId/history`
-- `POST /api/forecast/sync`
-- `POST /api/forecast/recalculate`
-*Note: All endpoints will enforce existing RBAC and team-level scoping.*
+1. **`backend-specialist` (Core Implementation)**:
+   - Modify the `search_inventory` case in `backend/src/services/ai.service.ts`.
+   - Remove or significantly increase the `take` limit (e.g., to 1000) or implement dynamic pagination based on the LLM's arguments. 
+   - Note: Since LLM context limits exist, returning all fields for 1000 items might cause token overflow. The optimal solution is to return only essential fields for counting/listing or implement a specialized tool for aggregations like `count_inventory`.
 
-## 6. Frontend Integration
-Create a new `Forecast` section in `frontend/src/pages/forecast/`:
-- `ForecastDashboard.jsx`: Overview of critical risks and summary charts.
-- Detail Pages: `StorageForecast.jsx`, `SanForecast.jsx`, `ServerForecast.jsx`, `VirtForecast.jsx`.
-- Tables will display: Object Name, Type, Current Value, 30/90/180/365d Predictions, Days to Warning/Critical, Confidence, Risk Level, and Last Updated.
+2. **`test-engineer` (Verification)**:
+   - Ensure the updated search logic doesn't cause out-of-memory errors.
+   - Run verification scripts (`lint_runner.py`).
 
-## 7. Security & DevOps
-- Use existing RBAC middlewares.
-- Validate external metrics using Zod or similar.
-- Do not expose or log provider credentials.
-- Preserve existing Docker/docker-compose startup sequences. (No new heavy services added).
+3. **`security-auditor` (Security Check)**:
+   - Run `security_scan.py` to ensure expanding query results doesn't introduce vulnerabilities or massive payload risks.
 
-## 8. Testing
-- Unit tests for engine calculations (Linear Regression, Moving Average).
-- Unit tests for Provider normalization and API failure handling.
-- Tests for RBAC filtering on new endpoints.
-
-## ⏸️ CHECKPOINT
-Do you approve of this plan? Please reply with "Y" to start implementation, or "N" to modify the plan.
+## 4. Acceptance Criteria
+- AI Assistant accurately reports the total number of HPE/Dell servers.
+- The `search_inventory` tool can process queries for more than 50 items.
+- CI/CD checks pass (Linting & Security).

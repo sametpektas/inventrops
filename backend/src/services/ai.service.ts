@@ -269,7 +269,7 @@ async function executeTool(toolCall: any) {
           }
         },
         include: { model: { include: { vendor: true } } },
-        take: 50 // Daha fazla sonuç alabilmesi için sınırı artırdık
+        take: 1000 // Daha fazla sonuç alabilmesi için sınırı artırdık (Önceki: 50)
       });
 
     case 'get_device_detail':
