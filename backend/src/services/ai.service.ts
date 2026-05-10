@@ -144,22 +144,6 @@ const tools: OpenAI.Chat.ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
-      name: 'move_device',
-      description: 'Bir cihazı farklı bir kabinete (rack) veya pozisyona taşır.',
-      parameters: {
-        type: 'object',
-        properties: {
-          serial_number: { type: 'string', description: 'Cihazın seri numarası' },
-          rack_id: { type: 'number', description: 'Yeni kabinet (rack) ID numarası' },
-          position: { type: 'number', description: 'Kabinet içindeki başlangıç U pozisyonu' },
-        },
-        required: ['serial_number', 'rack_id', 'position'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
       name: 'get_inventory_health',
       description: 'Envanterin genel sağlık durumunu, offline veya kritik durumdaki cihazları raporlar.',
       parameters: { type: 'object', properties: {} },
@@ -406,12 +390,6 @@ async function executeTool(toolCall: any) {
         include: { _count: { select: { items: true } } }
       });
       return { datacenters: dcs, sample_racks: racksSample };
-
-    case 'move_device':
-      return await prisma.inventoryItem.update({
-        where: { serial_number: args.serial_number },
-        data: { rack_id: args.rack_id, rack_position: args.position }
-      });
 
     case 'get_inventory_health':
       const offlineItems = await prisma.inventoryItem.findMany({
