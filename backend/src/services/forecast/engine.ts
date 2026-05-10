@@ -98,28 +98,31 @@ export function calculateForecast(
   const pred_2y = Number.isFinite(p2y) ? p2y : history[history.length - 1].value;
   const pred_3y = Number.isFinite(p3y) ? p3y : history[history.length - 1].value;
 
-  let days_to_warning = null;
-  let days_to_critical = null;
+  let days_to_warning: number | null = null;
+  let days_to_critical: number | null = null;
+
+  // Cap at ~100 years to prevent integer overflow in DB
+  const MAX_DAYS = 36500;
 
   if (slope > 0 && direction === 'up') {
     if (warningThreshold > intercept + slope * currentX) {
-      days_to_warning = Math.max(0, Math.floor(((warningThreshold - intercept) / slope) - currentX));
+      days_to_warning = Math.min(MAX_DAYS, Math.max(0, Math.floor(((warningThreshold - intercept) / slope) - currentX)));
     } else {
       days_to_warning = 0;
     }
     if (criticalThreshold > intercept + slope * currentX) {
-      days_to_critical = Math.max(0, Math.floor(((criticalThreshold - intercept) / slope) - currentX));
+      days_to_critical = Math.min(MAX_DAYS, Math.max(0, Math.floor(((criticalThreshold - intercept) / slope) - currentX)));
     } else {
       days_to_critical = 0;
     }
   } else if (slope < 0 && direction === 'down') {
     if (warningThreshold < intercept + slope * currentX) {
-      days_to_warning = Math.max(0, Math.floor(((warningThreshold - intercept) / slope) - currentX));
+      days_to_warning = Math.min(MAX_DAYS, Math.max(0, Math.floor(((warningThreshold - intercept) / slope) - currentX)));
     } else {
       days_to_warning = 0;
     }
     if (criticalThreshold < intercept + slope * currentX) {
-      days_to_critical = Math.max(0, Math.floor(((criticalThreshold - intercept) / slope) - currentX));
+      days_to_critical = Math.min(MAX_DAYS, Math.max(0, Math.floor(((criticalThreshold - intercept) / slope) - currentX)));
     } else {
       days_to_critical = 0;
     }
