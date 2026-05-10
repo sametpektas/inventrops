@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import api from '../api/client';
 
 export default function Bulletin() {
   const [devices, setDevices] = useState([]);
@@ -15,12 +16,7 @@ export default function Bulletin() {
     try {
       setLoading(true);
       
-      const token = localStorage.getItem('token');
-      const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
-      
-      const res = await fetch('/api/inventory?limit=500', { headers });
-      if (!res.ok) throw new Error('API Error');
-      const data = await res.json();
+      const data = await api.get('/inventory?limit=500');
       
       const storageDevices = data.results.filter(
         d => d.model?.device_type === 'storage'
@@ -52,17 +48,8 @@ export default function Bulletin() {
       setGenerating(true);
       setError(null);
 
-      const token = localStorage.getItem('token');
-      const headers = {
-        'Content-Type': 'application/json',
-      };
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      const res = await fetch('/api/bulletin/generate-pptx', {
+      const res = await api.request('/bulletin/generate-pptx', {
         method: 'POST',
-        headers,
         body: JSON.stringify({ serialNumbers: selectedSerials })
       });
 
