@@ -154,9 +154,70 @@ export const createRack = async (req: Request, res: Response) => {
 export const deleteDatacenter = async (req: Request, res: Response) => {
   const { id } = req.params;
   try {
-    await prisma.datacenter.delete({ where: { id: parseInt(id as string) } });
+    const dcId = parseInt(id as string);
+
+    // Check if any devices exist in this datacenter
+    const devicesInDc = await prisma.inventoryItem.count({
+      where: { rack: { room: { datacenter_id: dcId } } }
+    });
+
+    if (devicesInDc > 0) {
+      return res.status(400).json({ error: 'Bu veri merkezinde cihazlar bulunuyor. Silmeden önce cihazları taşıyın.' });
+    }
+
+    // Since there are no devices, we can safely delete racks, then rooms, then the DC
+    await prisma.$transaction([
+      prisma.rack.deleteMany({ where: { room: { datacenter_id: dcId } } }),
+      prisma.room.deleteMany({ where: { datacenter_id: dcId } }),
+      prisma.datacenter.delete({ where: { id: dcId } })
+    ]);
+
     res.status(204).send();
   } catch (err) {
-    res.status(400).json({ error: 'Cannot delete datacenter with associated rooms' });
+    res.status(500).json({ error: 'Veri merkezi silinirken bir hata oluştu.' });
+  }
+};
+
+export const deleteRoom = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  try {
+    const roomId = parseInt(id as string);
+
+    const devicesInRoom = await prisma.inventoryItem.count({
+      where: { rack: { room_id: roomId } }
+    });
+
+    if (devicesInRoom > 0) {
+      return res.status(400).json({ error: 'Bu odada cihazlar bulunuyor. Silmeden önce cihazları taşıyın.' });
+    }
+
+    await prisma.$transaction([
+      prisma.rack.deleteMany({ where: { room_id: roomId } }),
+      prisma.room.delete({ where: { id: roomId } })
+    ]);
+
+    res.status(204).send();
+  } catch (err) {
+    res.status(500).json({ error: 'Oda silinirken bir hata oluştu.' });
+  }
+};
+
+export const deleteRack = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  try {
+    const rackId = parseInt(id as string);
+
+    const devicesInRack = await prisma.inventoryItem.count({
+      where: { rack_id: rackId }
+    });
+
+    if (devicesInRack > 0) {
+      return res.status(400).json({ error: 'Bu kabinette cihazlar bulunuyor. Silmeden önce cihazları taşıyın.' });
+    }
+
+    await prisma.rack.delete({ where: { id: rackId } });
+    res.status(204).send();
+  } catch (err) {
+    res.status(500).json({ error: 'Kabinet silinirken bir hata oluştu.' });
   }
 };

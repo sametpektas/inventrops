@@ -290,13 +290,13 @@ const tools: OpenAI.Chat.ChatCompletionTool[] = [
       parameters: {
         type: 'object',
         properties: {
-          serial_number: { type: 'string', description: 'Cihazın seri numarası' },
+          device_identifier: { type: 'string', description: 'Cihazın seri numarası veya hostname bilgisi' },
           datacenter_name: { type: 'string', description: 'Hedef veri merkezi adı' },
           room_name: { type: 'string', description: 'Hedef oda adı (opsiyonel, belirtilmezse varsayılan oda kullanılır)' },
           rack_name: { type: 'string', description: 'Hedef kabinet adı (opsiyonel, belirtilmezse varsayılan kabinet kullanılır)' },
           rack_unit_start: { type: 'number', description: 'Kabinet içindeki başlangıç U pozisyonu (opsiyonel)' },
         },
-        required: ['serial_number', 'datacenter_name'],
+        required: ['device_identifier', 'datacenter_name'],
       },
     },
   },
@@ -567,10 +567,18 @@ async function executeTool(toolCall: any) {
     }
 
     case 'update_device_location': {
-      const device = await prisma.inventoryItem.findUnique({
-        where: { serial_number: args.serial_number }
+      const identifier = args.device_identifier || args.serial_number;
+      if (!identifier) return { error: 'Cihazı bulmak için seri numarası veya hostname belirtmelisiniz.' };
+
+      const device = await prisma.inventoryItem.findFirst({
+        where: {
+          OR: [
+            { serial_number: identifier },
+            { hostname: { contains: identifier, mode: 'insensitive' } }
+          ]
+        }
       });
-      if (!device) return { error: `'${args.serial_number}' seri numaralı cihaz bulunamadı.` };
+      if (!device) return { error: `'${identifier}' bilgisine sahip cihaz bulunamadı.` };
 
       // 1. Find or create Datacenter
       let dc = await prisma.datacenter.findFirst({
@@ -610,7 +618,7 @@ async function executeTool(toolCall: any) {
 
       // Update Device
       const updated = await prisma.inventoryItem.update({
-        where: { serial_number: args.serial_number },
+        where: { id: device.id },
         data: {
           rack_id: rack.id,
           rack_unit_start: args.rack_unit_start || null
@@ -619,7 +627,7 @@ async function executeTool(toolCall: any) {
 
       return {
         success: true,
-        message: `Cihaz '${args.serial_number}' başarıyla '${dc.name} > ${room.name} > ${rack.name}' konumuna yerleştirildi.`,
+        message: `Cihaz '${updated.serial_number}' (${updated.hostname || 'İsimsiz'}) başarıyla '${dc.name} > ${room.name} > ${rack.name}' konumuna yerleştirildi.`,
         device: { serial_number: updated.serial_number, hostname: updated.hostname, rack_id: updated.rack_id }
       };
     }
