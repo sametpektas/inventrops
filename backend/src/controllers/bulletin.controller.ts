@@ -13,24 +13,9 @@ export const generateBulletin = async (req: Request, res: Response) => {
     const sixMonthsAgo = new Date();
     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
 
-    // Fetch ALL storage devices to build location map
     const allStorageDevices = await prisma.inventoryItem.findMany({
-      where: {
-        model: {
-          device_type: { in: ['storage'] }
-        }
-      },
-      include: {
-        rack: {
-          include: {
-            room: {
-              include: {
-                datacenter: true
-              }
-            }
-          }
-        }
-      }
+      where: { model: { device_type: { in: ['storage'] } } },
+      include: { rack: { include: { room: { include: { datacenter: true } } } } }
     });
 
     const xormonLocationMap: Record<string, string> = {};
@@ -42,52 +27,44 @@ export const generateBulletin = async (req: Request, res: Response) => {
       const xormonId = metadata?.xormon_id || '';
 
       let location = 'Bilinmeyen';
-      if (dcName.includes('avm') || dcName.includes('ankara')) {
-        location = 'Ankara';
-      } else if (dcName.includes('varyap') || dcName.includes('istanbul')) {
-        location = 'Istanbul';
-      }
+      if (dcName.includes('avm') || dcName.includes('ankara')) location = 'Ankara';
+      else if (dcName.includes('varyap') || dcName.includes('istanbul')) location = 'Istanbul';
 
       if (xormonId) xormonLocationMap[xormonId] = location;
       xormonLocationMap[d.serial_number] = location;
-      
       if (xormonId) serialToXormonMap[d.serial_number] = xormonId;
     });
 
     const selectedObjectIds = serialNumbers.map(sn => serialToXormonMap[sn] || sn);
 
-    // 1. Fetch all capacity metrics for the general Bar chart
+    // Fetch metrics
     const allStorageMetrics = await prisma.forecastMetricSnapshot.findMany({
-      where: {
-        metric_name: { contains: 'capacity' },
-        captured_at: { gte: sixMonthsAgo }
-      },
+      where: { metric_name: 'capacity_used_percent', captured_at: { gte: sixMonthsAgo } },
       orderBy: { captured_at: 'asc' }
     });
 
-    // 2. Fetch selected devices metrics
     const selectedMetrics = await prisma.forecastMetricSnapshot.findMany({
-      where: {
-        object_id: { in: selectedObjectIds },
-        captured_at: { gte: sixMonthsAgo }
-      },
+      where: { object_id: { in: selectedObjectIds }, captured_at: { gte: sixMonthsAgo } },
       orderBy: { captured_at: 'asc' }
     });
 
     // Process data
     const generalCapacity = getLatestCapacityPerDevice(allStorageMetrics, xormonLocationMap);
     
-    const selectedCapacity = processMetricsPerDevice(
-      selectedMetrics.filter(m => m.metric_name.includes('capacity')), xormonLocationMap
+    // Process selected devices into individual device data structures
+    const deviceCapacities = processIndividualDeviceMetrics(
+      selectedMetrics.filter(m => m.metric_name === 'capacity_used_percent')
     );
-    const selectedIops = processMetricsPerDevice(
-      selectedMetrics.filter(m => m.metric_name.includes('iops') || m.metric_name.includes('io_total')), xormonLocationMap
+    const deviceIops = processIndividualDeviceMetrics(
+      selectedMetrics.filter(m => m.metric_name.includes('iops') || m.metric_name.includes('io_total'))
     );
-    const selectedResponseTime = processMetricsPerDevice(
-      selectedMetrics.filter(m => m.metric_name.includes('response_time') || m.metric_name.includes('latency')), xormonLocationMap
+    const deviceResponseTime = processIndividualDeviceMetrics(
+      selectedMetrics.filter(m => m.metric_name.includes('response_time') || m.metric_name.includes('latency'))
     );
 
-    // Generate PPTX
+    // Group selected devices by location
+    const { ankaraDevices, istanbulDevices } = groupDevicesByLocation(selectedObjectIds, xormonLocationMap);
+
     const pres = new pptxgen();
     pres.layout = 'LAYOUT_WIDE'; // 13.33 x 7.5 inches
 
@@ -95,17 +72,15 @@ export const generateBulletin = async (req: Request, res: Response) => {
     addBarChartSlide(pres, 'Genel Depolama Kapasite Kullanımı - Ankara (Prod)', generalCapacity.ankara);
     addBarChartSlide(pres, 'Genel Depolama Kapasite Kullanımı - İstanbul (DR)', generalCapacity.istanbul);
 
-    // === SLIDE 3 & 4: Seçili Cihazlar Kapasite (Line Chart) ===
-    addLineChartSlide(pres, 'Kapasite Kullanımı Trendi - Ankara (Prod)', selectedCapacity.ankara);
-    addLineChartSlide(pres, 'Kapasite Kullanımı Trendi - İstanbul (DR)', selectedCapacity.istanbul);
+    // Generate Side-by-Side Slides for Ankara
+    generateSideBySideSlides(pres, ankaraDevices, deviceCapacities, 'capacity');
+    generateSideBySideSlides(pres, ankaraDevices, deviceIops, 'iops');
+    generateSideBySideSlides(pres, ankaraDevices, deviceResponseTime, 'responsetime');
 
-    // === SLIDE 5 & 6: IOPS (Line Chart) ===
-    addLineChartSlide(pres, 'IOPS Trendi - Ankara (Prod)', selectedIops.ankara);
-    addLineChartSlide(pres, 'IOPS Trendi - İstanbul (DR)', selectedIops.istanbul);
-
-    // === SLIDE 7 & 8: Response Time (Line Chart) ===
-    addLineChartSlide(pres, 'Response Time / Gecikme - Ankara (Prod)', selectedResponseTime.ankara);
-    addLineChartSlide(pres, 'Response Time / Gecikme - İstanbul (DR)', selectedResponseTime.istanbul);
+    // Generate Side-by-Side Slides for Istanbul
+    generateSideBySideSlides(pres, istanbulDevices, deviceCapacities, 'capacity');
+    generateSideBySideSlides(pres, istanbulDevices, deviceIops, 'iops');
+    generateSideBySideSlides(pres, istanbulDevices, deviceResponseTime, 'responsetime');
 
     const buffer = await pres.stream() as Buffer;
 
@@ -119,10 +94,6 @@ export const generateBulletin = async (req: Request, res: Response) => {
   }
 };
 
-/**
- * For General Capacity: Gets the latest capacity metric for each individual device
- * Returns data suitable for a Bar Chart
- */
 function getLatestCapacityPerDevice(metrics: any[], locationMap: Record<string, string>) {
   const ankaraLatest: Record<string, { label: string, val: number, time: number }> = {};
   const istanbulLatest: Record<string, { label: string, val: number, time: number }> = {};
@@ -151,7 +122,7 @@ function getLatestCapacityPerDevice(metrics: any[], locationMap: Record<string, 
       labels.push(item.label);
       values.push(item.val);
     });
-    return [{ name: 'Kapasite', labels, values }];
+    return [{ name: '% Kullanım (Used %)', labels, values }];
   };
 
   return {
@@ -160,65 +131,137 @@ function getLatestCapacityPerDevice(metrics: any[], locationMap: Record<string, 
   };
 }
 
-/**
- * For Selected Devices: Groups metrics by day but keeps each device as a separate series
- * Returns an array of objects { name, labels, values } for Line Chart
- */
-function processMetricsPerDevice(metrics: any[], locationMap: Record<string, string>) {
-  const ankaraSeries: Record<string, Record<string, number>> = {};
-  const istanbulSeries: Record<string, Record<string, number>> = {};
-  
-  const ankaraLabels = new Set<string>();
-  const istanbulLabels = new Set<string>();
-  const deviceNames: Record<string, string> = {};
+function processIndividualDeviceMetrics(metrics: any[]) {
+  const deviceData: Record<string, { name: string, dataMap: Record<string, number> }> = {};
 
   metrics.forEach(m => {
-    const loc = (locationMap[m.object_id] || '').toLowerCase();
     const d = new Date(m.captured_at);
     const dayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     const value = parseFloat(m.metric_value) || 0;
-    
-    deviceNames[m.object_id] = m.object_name || m.object_id;
 
-    if (loc.includes('ankara')) {
-      ankaraLabels.add(dayKey);
-      if (!ankaraSeries[m.object_id]) ankaraSeries[m.object_id] = {};
-      ankaraSeries[m.object_id][dayKey] = value;
-    } else if (loc.includes('istanbul')) {
-      istanbulLabels.add(dayKey);
-      if (!istanbulSeries[m.object_id]) istanbulSeries[m.object_id] = {};
-      istanbulSeries[m.object_id][dayKey] = value;
+    if (!deviceData[m.object_id]) {
+      deviceData[m.object_id] = { name: m.object_name || m.object_id, dataMap: {} };
     }
+    deviceData[m.object_id].dataMap[dayKey] = value;
   });
 
-  const buildChartData = (seriesMap: Record<string, Record<string, number>>, labelsSet: Set<string>) => {
-    const labels = Array.from(labelsSet).sort();
-    const chartData: any[] = [];
-    
-    Object.keys(seriesMap).forEach(deviceId => {
-      // If a day is missing for a device, use the last known value or 0
-      let lastVal = 0;
-      const values = labels.map(l => {
-        if (seriesMap[deviceId][l] !== undefined) {
-          lastVal = seriesMap[deviceId][l];
-        }
-        return lastVal;
-      });
-      
-      chartData.push({
-        name: deviceNames[deviceId],
-        labels,
-        values
-      });
-    });
-    
-    return chartData;
-  };
+  const result: Record<string, { labels: string[], values: number[], name: string }> = {};
 
-  return {
-    ankara: buildChartData(ankaraSeries, ankaraLabels),
-    istanbul: buildChartData(istanbulSeries, istanbulLabels)
-  };
+  Object.keys(deviceData).forEach(deviceId => {
+    const labels = Object.keys(deviceData[deviceId].dataMap).sort();
+    const values = labels.map(l => deviceData[deviceId].dataMap[l]);
+    result[deviceId] = {
+      name: deviceData[deviceId].name,
+      labels,
+      values
+    };
+  });
+
+  return result;
+}
+
+function groupDevicesByLocation(objectIds: string[], locationMap: Record<string, string>) {
+  const ankaraDevices: string[] = [];
+  const istanbulDevices: string[] = [];
+
+  objectIds.forEach(id => {
+    const loc = (locationMap[id] || '').toLowerCase();
+    if (loc.includes('ankara')) ankaraDevices.push(id);
+    else if (loc.includes('istanbul')) istanbulDevices.push(id);
+  });
+
+  return { ankaraDevices, istanbulDevices };
+}
+
+function generateSideBySideSlides(
+  pres: pptxgen, 
+  devices: string[], 
+  deviceDataMap: Record<string, { labels: string[], values: number[], name: string }>, 
+  metricType: 'capacity' | 'iops' | 'responsetime'
+) {
+  // Process 2 devices per slide
+  for (let i = 0; i < devices.length; i += 2) {
+    const dev1Id = devices[i];
+    const dev2Id = devices[i+1];
+
+    const data1 = deviceDataMap[dev1Id];
+    const data2 = dev2Id ? deviceDataMap[dev2Id] : null;
+
+    if (!data1 && !data2) continue;
+
+    const slide = pres.addSlide();
+
+    if (data1) {
+      addDeviceChart(pres, slide, data1, metricType, 0.5);
+    }
+    if (data2) {
+      addDeviceChart(pres, slide, data2, metricType, 6.8);
+    }
+  }
+}
+
+function addDeviceChart(
+  pres: pptxgen, 
+  slide: pptxgen.Slide, 
+  data: { labels: string[], values: number[], name: string }, 
+  metricType: 'capacity' | 'iops' | 'responsetime', 
+  xPos: number
+) {
+  if (!data.labels || data.labels.length === 0) {
+    slide.addText(`Veri bulunamadı: ${data.name}`, { x: xPos, y: 3, w: 6, fontSize: 14, color: '999999' });
+    return;
+  }
+
+  let title = '';
+  let chartData: any[] = [];
+  let yAxisFormat = 'General';
+  let yAxisMax: number | undefined = undefined;
+
+  if (metricType === 'capacity') {
+    title = data.name; // User image shows just device name as title
+    yAxisFormat = '0"%"';
+    yAxisMax = 100;
+    
+    // Add 3 lines: Used %, Capacity % (100), Critical Capacity % (80)
+    const capacityLine = data.labels.map(() => 100);
+    const criticalLine = data.labels.map(() => 80);
+
+    chartData = [
+      { name: 'Used Capacity (%)', labels: data.labels, values: data.values },
+      { name: 'Capacity (%)', labels: data.labels, values: capacityLine },
+      { name: 'Critical Capacity (%)', labels: data.labels, values: criticalLine }
+    ];
+  } else if (metricType === 'iops') {
+    title = `${data.name}\nTotal I/O Rate - overall (ops/s)`;
+    chartData = [
+      { name: 'IOPS', labels: data.labels, values: data.values }
+    ];
+  } else if (metricType === 'responsetime') {
+    title = `${data.name}\nOverall Response Time (ms/op)`;
+    chartData = [
+      { name: 'Response Time (ms)', labels: data.labels, values: data.values }
+    ];
+  }
+
+  // Draw chart title manually (looks closer to user's screenshots)
+  slide.addText(title, {
+    x: xPos, y: 0.5, w: 6, h: 0.6, fontSize: 14, align: 'center', color: '333333'
+  });
+
+  // Add the chart
+  slide.addChart(pres.ChartType.line, chartData, {
+    x: xPos, y: 1.2, w: 6, h: 4.5,
+    showLegend: true,
+    legendPos: 'b',
+    lineSmooth: false, // User screenshots show jagged lines
+    showValue: false,
+    catAxisLabelFontSize: 8,
+    valAxisLabelFontSize: 9,
+    valAxisMaxVal: yAxisMax,
+    valAxisLabelFormatCode: yAxisFormat,
+    lineDataSymbol: 'none', // Remove circles to match screenshot
+    chartColors: ['5b9bd5', 'ed7d31', 'a5a5a5'] // Blue, Orange, Grey matching screenshot
+  });
 }
 
 function addBarChartSlide(pres: pptxgen, title: string, chartData: any[]) {
@@ -239,35 +282,12 @@ function addBarChartSlide(pres: pptxgen, title: string, chartData: any[]) {
     showLegend: false,
     barDir: 'col',
     showValue: true,
+    dataLabelFormatCode: '0"%"', 
+    valAxisLabelFormatCode: '0"%"',
+    valAxisMaxVal: 100,
     valAxisLabelFontSize: 9,
     catAxisLabelFontSize: 9,
-    dataLabelFontSize: 8,
-    chartColors: ['457b9d']
-  });
-}
-
-function addLineChartSlide(pres: pptxgen, title: string, chartData: any[]) {
-  const slide = pres.addSlide();
-  slide.addText(title, {
-    x: 0.5, y: 0.3, w: '90%', fontSize: 22, bold: true, color: '1a1a2e', fontFace: 'Segoe UI'
-  });
-
-  if (!chartData || chartData.length === 0 || chartData[0].labels.length === 0) {
-    slide.addText('Bu lokasyon için yeterli veri bulunamadı.', {
-      x: 0.5, y: 3, w: '90%', fontSize: 16, color: '999999', fontFace: 'Segoe UI'
-    });
-    return;
-  }
-
-  slide.addChart(pres.ChartType.line, chartData, {
-    x: 0.5, y: 1.2, w: 12, h: 5.5,
-    showLegend: true,
-    legendPos: 'b',
-    lineSmooth: true,
-    showValue: false,
-    catAxisLabelFontSize: 8,
-    valAxisLabelFontSize: 9,
-    lineDataSymbol: 'circle',
-    lineDataSymbolSize: 4
+    dataLabelFontSize: 9,
+    chartColors: ['5b9bd5'] // Light blue matching screenshot
   });
 }
