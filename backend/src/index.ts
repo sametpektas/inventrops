@@ -10,6 +10,7 @@ import inventoryRoutes from './routes/inventory.routes';
 import adminRoutes from './routes/admin.routes';
 import forecastRoutes from './routes/forecast.routes';
 import aiRoutes from './routes/ai.routes';
+import bulletinRoutes from './routes/bulletin.routes';
 import { hashPassword } from './utils/auth';
 import { startIntegrationWorker, startIntegrationScheduler } from './workers/integration.worker';
 import { startForecastWorker, startForecastScheduler } from './workers/forecast.worker';
@@ -97,6 +98,7 @@ app.use('/api/inventory', inventoryRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/forecast', forecastRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/bulletin', bulletinRoutes);
 
 // Root redirect or info
 app.get('/', (req, res) => {

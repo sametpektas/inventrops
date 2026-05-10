@@ -20,6 +20,12 @@ const NAV_ITEMS = [
       { to: '/inventory/deactivated', label: 'Deactivated / Depot', icon: '⚇' },
     ],
   },
+  {
+    section: 'Reports',
+    items: [
+      { to: '/bulletin', label: 'Bülten (PowerPoint)', icon: '📊' },
+    ],
+  },
 ];
 
 const PAGE_TITLES = {
@@ -27,6 +33,7 @@ const PAGE_TITLES = {
   '/analytics': 'Analytics',
   '/forecast': 'Capacity Forecast',
   '/inventory': 'Active Inventory',
+  '/bulletin': 'Bülten',
   '/profile': 'Profile',
 };
 

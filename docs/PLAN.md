@@ -1,39 +1,37 @@
-# InvenTrOps - AI Pagination Bug Fix Plan
+# InvenTrOps - PowerPoint Report Generation Plan
 
 ## 1. Problem Statement
-The user reported that when querying the AI assistant for the count of HPE (and Dell) servers, the assistant consistently reports exactly 50 servers, despite there being 113 servers in the actual inventory database.
+The user wants to generate a comprehensive PowerPoint (PPTX) presentation containing 6-month performance and capacity charts for selected storage devices (data originating from Xormon). The presentation must separate data by location (Ankara as Prod, Istanbul as DR).
 
-## 2. Root Cause Analysis
-During the initial discovery phase (using `explorer-agent`), the AI service logic (`backend/src/services/ai.service.ts`) was examined. 
-In the `search_inventory` tool execution block, there is a hardcoded Prisma limit (`take: 50`):
-
-```typescript
-    case 'search_inventory':
-      return await prisma.inventoryItem.findMany({
-          // ... filters ...
-        include: { model: { include: { vendor: true } } },
-        take: 50 // Daha fazla sonuç alabilmesi için sınırı artırdık
-      });
-```
-Because of this `take: 50` limit, any search returning more than 50 elements is truncated, which causes the AI to incorrectly count the total items as 50.
+## 2. Requirements
+1. **Slide 1 (General Overview):** Overall capacity usage chart for ALL Xormon storages, separated by location (Ankara vs. Istanbul).
+2. **Slide 2 (Selected Devices - Capacity):** 6-month capacity trend chart for the user-selected devices, grouped by location.
+3. **Slide 3 (Selected Devices - IOPS):** 6-month IOPS trend chart for the selected devices, grouped by location.
+4. **Slide 4 (Selected Devices - Response Time):** 6-month Response Time trend chart for the selected devices, grouped by location.
 
 ## 3. Implementation Steps
 
-We will orchestrate 3 agents to fix and verify the issue:
+We will orchestrate 3 agents to design, implement, and verify this feature:
 
-1. **`backend-specialist` (Core Implementation)**:
-   - Modify the `search_inventory` case in `backend/src/services/ai.service.ts`.
-   - Remove or significantly increase the `take` limit (e.g., to 1000) or implement dynamic pagination based on the LLM's arguments. 
-   - Note: Since LLM context limits exist, returning all fields for 1000 items might cause token overflow. The optimal solution is to return only essential fields for counting/listing or implement a specialized tool for aggregations like `count_inventory`.
+1. **`backend-specialist` (API & Logic)**:
+   - Install `pptxgenjs` library in the backend to construct PowerPoint files with charts.
+   - Create a new API endpoint (e.g., `POST /api/reports/generate-pptx`) that accepts an array of device serial numbers.
+   - The endpoint will query `ForecastMetricSnapshot` for the available metrics ('capacity', 'iops', and 'response_time') up to the last 6 months. If less than 6 months of data is available, it will use all available data.
+   - It will join `InventoryItem` data to determine the location (Ankara/Istanbul) and aggregate the data.
+   - Generate the PPTX Buffer and return it as a downloadable file stream.
 
-2. **`test-engineer` (Verification)**:
-   - Ensure the updated search logic doesn't cause out-of-memory errors.
-   - Run verification scripts (`lint_runner.py`).
+2. **`frontend-specialist` (UI Integration)**:
+   - Create a new sub-menu item called "Bülten" (Bulletin) in the frontend navigation.
+   - Design a dedicated report generation page under the "Bülten" menu where users can select specific storage devices.
+   - Add a "Bülten Oluştur" (Generate Bulletin) button that posts the selected serial numbers to the backend endpoint and downloads the `.pptx` file.
 
-3. **`security-auditor` (Security Check)**:
-   - Run `security_scan.py` to ensure expanding query results doesn't introduce vulnerabilities or massive payload risks.
+3. **`test-engineer` / `security-auditor` (Verification)**:
+   - Verify that the API properly validates the incoming device array and handles missing data gracefully.
+   - Ensure the PPTX generation does not block the Node.js event loop excessively.
+   - Run `security_scan.py` and `lint_runner.py` to ensure code quality and safety.
 
 ## 4. Acceptance Criteria
-- AI Assistant accurately reports the total number of HPE/Dell servers.
-- The `search_inventory` tool can process queries for more than 50 items.
-- CI/CD checks pass (Linting & Security).
+- User can navigate to a dedicated "Bülten" submenu to select devices and download a PowerPoint presentation.
+- The presentation contains the 4 requested slide types.
+- Charts accurately reflect historical data up to 6 months (or less if 6 months are not available), separated by Ankara (Prod) and Istanbul (DR).
+- CI/CD scripts run without introducing new errors.

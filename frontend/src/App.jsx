@@ -10,6 +10,7 @@ import InventoryDetail from './pages/InventoryDetail';
 import Analytics from './pages/Analytics';
 import DeactivatedItems from './pages/DeactivatedItems';
 import ForecastDashboard from './pages/forecast/ForecastDashboard';
+import Bulletin from './pages/Bulletin';
 
 export default function App() {
   return (
@@ -32,6 +33,7 @@ export default function App() {
               <Route path="/inventory/:id" element={<InventoryDetail />} />
               <Route path="/analytics" element={<Analytics />} />
               <Route path="/forecast" element={<ForecastDashboard />} />
+              <Route path="/bulletin" element={<Bulletin />} />
             </Route>
 
             <Route path="*" element={<Navigate to="/login" replace />} />
