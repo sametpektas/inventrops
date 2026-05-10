@@ -94,7 +94,7 @@ export const generateKpiExcel = async (req: Request, res: Response) => {
               capacity_percent: val
             }
           });
-        } catch (dbErr) {
+        } catch (dbErr: any) {
           console.warn(`[KPI Controller] Prisma DB hatası (Şema güncellenmemiş olabilir): ${dbErr.message}`);
           // Hata olsa da Excel oluşturmaya devam et (Geçici)
         }
