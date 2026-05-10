@@ -68,19 +68,42 @@ export const generateBulletin = async (req: Request, res: Response) => {
     const pres = new pptxgen();
     pres.layout = 'LAYOUT_WIDE'; // 13.33 x 7.5 inches
 
+    // === SLIDE 0: Kapak Slaytı (Cover Slide) ===
+    const monthsTr = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
+    const currentMonth = monthsTr[new Date().getMonth()];
+    const currentYear = new Date().getFullYear();
+    
+    const coverSlide = pres.addSlide();
+    coverSlide.background = { color: '1a1a2e' }; // Koyu lacivert/siyah arka plan
+    coverSlide.addText(`Storage ${currentMonth} Ayı Bülteni`, {
+      x: '10%', y: '40%', w: '80%', h: 2,
+      fontSize: 48,
+      bold: true,
+      color: 'ffffff',
+      align: 'center',
+      fontFace: 'Segoe UI'
+    });
+    coverSlide.addText(`${currentYear} Yılı Altyapı Kapasite ve Performans Raporu`, {
+      x: '10%', y: '60%', w: '80%', h: 1,
+      fontSize: 24,
+      color: 'cccccc',
+      align: 'center',
+      fontFace: 'Segoe UI'
+    });
+
     // === SLIDE 1 & 2: Genel Kapasite (Bar Chart) ===
     addBarChartSlide(pres, 'Genel Depolama Kapasite Kullanımı - Ankara (Prod)', generalCapacity.ankara);
     addBarChartSlide(pres, 'Genel Depolama Kapasite Kullanımı - İstanbul (DR)', generalCapacity.istanbul);
 
     // Generate Side-by-Side Slides for Ankara
-    generateSideBySideSlides(pres, ankaraDevices, deviceCapacities, 'capacity');
-    generateSideBySideSlides(pres, ankaraDevices, deviceIops, 'iops');
-    generateSideBySideSlides(pres, ankaraDevices, deviceResponseTime, 'responsetime');
+    generateSideBySideSlides(pres, ankaraDevices, deviceCapacities, 'capacity', 'Kapasite Kullanımı Trendi - Ankara (Prod)');
+    generateSideBySideSlides(pres, ankaraDevices, deviceIops, 'iops', 'IOPS Trendi - Ankara (Prod)');
+    generateSideBySideSlides(pres, ankaraDevices, deviceResponseTime, 'responsetime', 'Response Time / Gecikme - Ankara (Prod)');
 
     // Generate Side-by-Side Slides for Istanbul
-    generateSideBySideSlides(pres, istanbulDevices, deviceCapacities, 'capacity');
-    generateSideBySideSlides(pres, istanbulDevices, deviceIops, 'iops');
-    generateSideBySideSlides(pres, istanbulDevices, deviceResponseTime, 'responsetime');
+    generateSideBySideSlides(pres, istanbulDevices, deviceCapacities, 'capacity', 'Kapasite Kullanımı Trendi - İstanbul (DR)');
+    generateSideBySideSlides(pres, istanbulDevices, deviceIops, 'iops', 'IOPS Trendi - İstanbul (DR)');
+    generateSideBySideSlides(pres, istanbulDevices, deviceResponseTime, 'responsetime', 'Response Time / Gecikme - İstanbul (DR)');
 
     const buffer = await pres.stream() as Buffer;
 
@@ -177,8 +200,16 @@ function generateSideBySideSlides(
   pres: pptxgen, 
   devices: string[], 
   deviceDataMap: Record<string, { labels: string[], values: number[], name: string }>, 
-  metricType: 'capacity' | 'iops' | 'responsetime'
+  metricType: 'capacity' | 'iops' | 'responsetime',
+  slideTitle: string
 ) {
+  if (devices.length === 0) {
+    const slide = pres.addSlide();
+    slide.addText(slideTitle, { x: 0.5, y: 0.3, w: '90%', fontSize: 22, bold: true, color: '1a1a2e', fontFace: 'Segoe UI' });
+    slide.addText('Bu lokasyon için yeterli cihaz bulunamadı.', { x: 0.5, y: 3, w: '90%', fontSize: 16, color: '999999', fontFace: 'Segoe UI' });
+    return;
+  }
+
   // Process 2 devices per slide
   for (let i = 0; i < devices.length; i += 2) {
     const dev1Id = devices[i];
@@ -187,9 +218,13 @@ function generateSideBySideSlides(
     const data1 = deviceDataMap[dev1Id];
     const data2 = dev2Id ? deviceDataMap[dev2Id] : null;
 
-    if (!data1 && !data2) continue;
-
     const slide = pres.addSlide();
+    slide.addText(slideTitle, { x: 0.5, y: 0.3, w: '90%', fontSize: 22, bold: true, color: '1a1a2e', fontFace: 'Segoe UI' });
+
+    if (!data1 && !data2) {
+      slide.addText('Bu lokasyon ve metrik için yeterli veri bulunamadı.', { x: 0.5, y: 3, w: '90%', fontSize: 16, color: '999999', fontFace: 'Segoe UI' });
+      continue;
+    }
 
     if (data1) {
       addDeviceChart(pres, slide, data1, metricType, 0.5);
