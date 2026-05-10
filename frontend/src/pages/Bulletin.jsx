@@ -57,12 +57,12 @@ export default function Bulletin() {
       
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('link');
-      link.href = url;
-      link.setAttribute('download', 'inventrops-bulten.pptx');
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
+      const a = document.createElement('a');
+      a.href = url;
+      a.setAttribute('download', 'inventrops-bulten.pptx');
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
       window.URL.revokeObjectURL(url);
     } catch (err) {
       console.error(err);
