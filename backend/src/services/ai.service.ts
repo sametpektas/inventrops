@@ -685,9 +685,8 @@ export const processChatMessage = async (messages: OpenAI.Chat.ChatCompletionMes
   try {
     const { client, model } = await getAIClient();
 
-    let response;
-    const conversation: OpenAI.Chat.ChatCompletionMessageParam[] = [
-      { role: 'system', content: `Sen InvenTrOps altyapı yönetim sisteminin Kıdemli Altyapı Mimarı ve Finansal Analistisin. 
+    const systemPrompt: OpenAI.Chat.ChatCompletionMessageParam = {
+      role: 'system', content: `Sen InvenTrOps altyapı yönetim sisteminin Kıdemli Altyapı Mimarı ve Finansal Analistisin. 
 
 Analiz Prensiplerin:
 1. Marka Bazlı Ayrı Hesaplama (MANDATORY): Bakım ve garanti analizlerini yaparken asla tüm markaları birleştirme. Dell, HPE, Huawei, Cisco gibi her üreticiyi ayrı bir başlık altında incele.
@@ -697,28 +696,36 @@ Analiz Prensiplerin:
 
 Araç (Tool) Kullanımı Kuralları:
 - Bir işlem yapman veya veri çekmen gerektiğinde KESİNLİKLE "şimdi arıyorum", "bekleyin", "yapıyorum" gibi ara sohbet cevapları (filler text) VERME.
-- Kullanıcı bir şey istediğinde, hiçbir açıklama yapmadan anında ilgili fonksiyonu (tool_call) çağır. 
+- Kullanıcı bir şey istediğinde, hiçbir açıklama yapmadan anında ilgili fonksiyonu (tool_call) çağır.
 - Fonksiyon sonucu sana geldikten sonra işi tamamlayıp final cevabını kullanıcıya tek seferde ver.
+- Lokasyon güncellemesi istendiğinde doğrudan update_device_location aracını çağır. Önce search_devices ile arama yapma, update_device_location aracı cihazı zaten kendisi buluyor.
 
-Cevaplarında teknik derinliği koru, marka bazlı raporlar için get_warranty_report aracını kullanarak her üretici için ayrı ayrı sonuçlar üret.` },
-      ...messages
-    ];
+Cevaplarında teknik derinliği koru, marka bazlı raporlar için get_warranty_report aracını kullanarak her üretici için ayrı ayrı sonuçlar üret.`
+    };
 
+    // Build initial conversation with system prompt
+    const runningMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [systemPrompt, ...messages];
+
+    let supportsTools = true;
+    const MAX_TOOL_ROUNDS = 5;
+
+    // Initial API call
+    let response;
     try {
       console.log(`[AI-Service] Sending request to: ${client.baseURL} | Model: ${model}`);
       response = await client.chat.completions.create({
         model,
-        messages: conversation,
+        messages: runningMessages,
         tools,
         tool_choice: 'auto',
       });
     } catch (error: any) {
-      // Eğer model tools (fonksiyon çağırma) desteklemiyorsa (405 veya 400), normal chat olarak dene
       if (error.status === 405 || error.status === 400) {
         console.warn(`[AI-Service] Tool calling not supported (${error.status}). Falling back to simple chat...`);
+        supportsTools = false;
         response = await client.chat.completions.create({
           model,
-          messages: conversation,
+          messages: runningMessages,
         });
       } else {
         console.error(`[AI-Service] OpenAI Error:`, error);
@@ -726,46 +733,57 @@ Cevaplarında teknik derinliği koru, marka bazlı raporlar için get_warranty_r
       }
     }
 
-    const responseMessage = response.choices[0].message;
+    // Iterative tool-calling loop: keep going until model stops requesting tools
+    let round = 0;
+    while (supportsTools && response.choices[0].message.tool_calls && round < MAX_TOOL_ROUNDS) {
+      round++;
+      const assistantMessage = response.choices[0].message;
+      runningMessages.push(assistantMessage);
 
-    // Eğer model bir fonksiyon çağırmak istiyorsa
-    if (responseMessage.tool_calls) {
-      const toolCalls = responseMessage.tool_calls;
-      const availableMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [...messages, responseMessage];
+      console.log(`[AI-Service] Tool round ${round}: ${assistantMessage.tool_calls!.length} tool call(s)`);
 
-      for (const toolCall of toolCalls) {
-        const result = await executeTool(toolCall);
-        availableMessages.push({
-          role: 'tool',
-          tool_call_id: toolCall.id,
-          content: JSON.stringify(result),
-        });
+      for (const toolCall of assistantMessage.tool_calls!) {
+        try {
+          const result = await executeTool(toolCall);
+          runningMessages.push({
+            role: 'tool',
+            tool_call_id: toolCall.id,
+            content: JSON.stringify(result),
+          });
+        } catch (toolErr: any) {
+          console.error(`[AI-Service] Tool execution error (${(toolCall as any).function?.name}):`, toolErr.message);
+          runningMessages.push({
+            role: 'tool',
+            tool_call_id: toolCall.id,
+            content: JSON.stringify({ error: `Tool execution failed: ${toolErr.message}` }),
+          });
+        }
       }
 
-      // Sonucu modele geri gönderip final cevabı alıyoruz
-      const finalResponse = await client.chat.completions.create({
+      // Send results back to model — WITH tools so it can chain more calls if needed
+      response = await client.chat.completions.create({
         model,
-        messages: availableMessages,
+        messages: runningMessages,
+        tools,
+        tool_choice: 'auto',
       });
-
-      const finalMessage = finalResponse.choices[0].message;
-      if (finalMessage.content) {
-        finalMessage.content = finalMessage.content
-          .replace(/<minimax:tool_call>[\s\S]*?<\/minimax:tool_call>/g, '')
-          .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
-          .trim();
-      }
-      return finalMessage;
     }
 
-    if (responseMessage.content) {
-      responseMessage.content = responseMessage.content
+    if (round >= MAX_TOOL_ROUNDS) {
+      console.warn(`[AI-Service] Max tool rounds (${MAX_TOOL_ROUNDS}) reached, forcing text response.`);
+    }
+
+    const finalMessage = response.choices[0].message;
+
+    // Clean up minimax-specific XML artifacts from the response
+    if (finalMessage.content) {
+      finalMessage.content = finalMessage.content
         .replace(/<minimax:tool_call>[\s\S]*?<\/minimax:tool_call>/g, '')
         .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
         .trim();
     }
 
-    return responseMessage;
+    return finalMessage;
   } catch (error: any) {
     console.error('[AI Service Error]:', error);
     throw error;
