@@ -10,12 +10,10 @@ export const generateBulletin = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'serialNumbers must be an array of strings' });
     }
 
-    // Determine target months to look back (up to 6 months)
     const sixMonthsAgo = new Date();
     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
 
     // Fetch ALL storage devices to build location map
-    // Key: xormon_id (object_id in forecast table) -> Value: location label
     const allStorageDevices = await prisma.inventoryItem.findMany({
       where: {
         model: {
@@ -35,9 +33,6 @@ export const generateBulletin = async (req: Request, res: Response) => {
       }
     });
 
-    // Build TWO maps:
-    // 1. xormonId -> location (for forecastMetricSnapshot matching)
-    // 2. serialNumber -> xormonId (for selected device matching)
     const xormonLocationMap: Record<string, string> = {};
     const serialToXormonMap: Record<string, string> = {};
 
@@ -53,28 +48,15 @@ export const generateBulletin = async (req: Request, res: Response) => {
         location = 'Istanbul';
       }
 
-      // Map by xormon_id (this is what forecastMetricSnapshot.object_id stores)
-      if (xormonId) {
-        xormonLocationMap[xormonId] = location;
-      }
-      // Also map by serial_number for fallback
+      if (xormonId) xormonLocationMap[xormonId] = location;
       xormonLocationMap[d.serial_number] = location;
       
-      // Map serial -> xormon_id so we can query forecast table
-      if (xormonId) {
-        serialToXormonMap[d.serial_number] = xormonId;
-      }
+      if (xormonId) serialToXormonMap[d.serial_number] = xormonId;
     });
 
-    console.log('[Bulletin] Location map entries:', Object.keys(xormonLocationMap).length);
-    console.log('[Bulletin] Serial->Xormon map:', JSON.stringify(serialToXormonMap));
-
-    // Convert selected serial numbers to xormon object_ids for querying
     const selectedObjectIds = serialNumbers.map(sn => serialToXormonMap[sn] || sn);
-    console.log('[Bulletin] Selected serials:', serialNumbers);
-    console.log('[Bulletin] Mapped object_ids:', selectedObjectIds);
 
-    // Fetch all storage metrics for the general capacity slide
+    // 1. Fetch all capacity metrics for the general Bar chart
     const allStorageMetrics = await prisma.forecastMetricSnapshot.findMany({
       where: {
         metric_name: { contains: 'capacity' },
@@ -83,9 +65,7 @@ export const generateBulletin = async (req: Request, res: Response) => {
       orderBy: { captured_at: 'asc' }
     });
 
-    console.log('[Bulletin] Total storage metrics found:', allStorageMetrics.length);
-
-    // Fetch selected devices metrics (using xormon object_ids)
+    // 2. Fetch selected devices metrics
     const selectedMetrics = await prisma.forecastMetricSnapshot.findMany({
       where: {
         object_id: { in: selectedObjectIds },
@@ -94,17 +74,16 @@ export const generateBulletin = async (req: Request, res: Response) => {
       orderBy: { captured_at: 'asc' }
     });
 
-    console.log('[Bulletin] Selected device metrics found:', selectedMetrics.length);
-
-    // Group metrics by location
-    const generalCapacity = processMetricsByLocation(allStorageMetrics, xormonLocationMap);
-    const selectedCapacity = processMetricsByLocation(
+    // Process data
+    const generalCapacity = getLatestCapacityPerDevice(allStorageMetrics, xormonLocationMap);
+    
+    const selectedCapacity = processMetricsPerDevice(
       selectedMetrics.filter(m => m.metric_name.includes('capacity')), xormonLocationMap
     );
-    const selectedIops = processMetricsByLocation(
-      selectedMetrics.filter(m => m.metric_name.includes('iops')), xormonLocationMap
+    const selectedIops = processMetricsPerDevice(
+      selectedMetrics.filter(m => m.metric_name.includes('iops') || m.metric_name.includes('io_total')), xormonLocationMap
     );
-    const selectedResponseTime = processMetricsByLocation(
+    const selectedResponseTime = processMetricsPerDevice(
       selectedMetrics.filter(m => m.metric_name.includes('response_time') || m.metric_name.includes('latency')), xormonLocationMap
     );
 
@@ -112,32 +91,22 @@ export const generateBulletin = async (req: Request, res: Response) => {
     const pres = new pptxgen();
     pres.layout = 'LAYOUT_WIDE'; // 13.33 x 7.5 inches
 
-    // === SLIDE 1: Genel Kapasite - Ankara (Prod) ===
-    addChartSlide(pres, 'Genel Depolama Kapasite - Ankara (Prod)', generalCapacity.ankara);
+    // === SLIDE 1 & 2: Genel Kapasite (Bar Chart) ===
+    addBarChartSlide(pres, 'Genel Depolama Kapasite Kullanımı - Ankara (Prod)', generalCapacity.ankara);
+    addBarChartSlide(pres, 'Genel Depolama Kapasite Kullanımı - İstanbul (DR)', generalCapacity.istanbul);
 
-    // === SLIDE 2: Genel Kapasite - Istanbul (DR) ===
-    addChartSlide(pres, 'Genel Depolama Kapasite - İstanbul (DR)', generalCapacity.istanbul);
+    // === SLIDE 3 & 4: Seçili Cihazlar Kapasite (Line Chart) ===
+    addLineChartSlide(pres, 'Kapasite Kullanımı Trendi - Ankara (Prod)', selectedCapacity.ankara);
+    addLineChartSlide(pres, 'Kapasite Kullanımı Trendi - İstanbul (DR)', selectedCapacity.istanbul);
 
-    // === SLIDE 3: Seçili Cihazlar Kapasite - Ankara ===
-    addChartSlide(pres, 'Kapasite Kullanımı - Ankara (Prod)', selectedCapacity.ankara);
+    // === SLIDE 5 & 6: IOPS (Line Chart) ===
+    addLineChartSlide(pres, 'IOPS Trendi - Ankara (Prod)', selectedIops.ankara);
+    addLineChartSlide(pres, 'IOPS Trendi - İstanbul (DR)', selectedIops.istanbul);
 
-    // === SLIDE 4: Seçili Cihazlar Kapasite - Istanbul ===
-    addChartSlide(pres, 'Kapasite Kullanımı - İstanbul (DR)', selectedCapacity.istanbul);
+    // === SLIDE 7 & 8: Response Time (Line Chart) ===
+    addLineChartSlide(pres, 'Response Time / Gecikme - Ankara (Prod)', selectedResponseTime.ankara);
+    addLineChartSlide(pres, 'Response Time / Gecikme - İstanbul (DR)', selectedResponseTime.istanbul);
 
-    // === SLIDE 5: IOPS - Ankara ===
-    addChartSlide(pres, 'IOPS - Ankara (Prod)', selectedIops.ankara);
-
-    // === SLIDE 6: IOPS - Istanbul ===
-    addChartSlide(pres, 'IOPS - İstanbul (DR)', selectedIops.istanbul);
-
-    // === SLIDE 7: Response Time - Ankara ===
-    addChartSlide(pres, 'Response Time - Ankara (Prod)', selectedResponseTime.ankara);
-
-    // === SLIDE 8: Response Time - Istanbul ===
-    addChartSlide(pres, 'Response Time - İstanbul (DR)', selectedResponseTime.istanbul);
-
-    // Export Presentation
-    // @ts-ignore
     const buffer = await pres.stream() as Buffer;
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
@@ -151,79 +120,154 @@ export const generateBulletin = async (req: Request, res: Response) => {
 };
 
 /**
- * Process metrics and return separate Ankara/Istanbul daily data
+ * For General Capacity: Gets the latest capacity metric for each individual device
+ * Returns data suitable for a Bar Chart
  */
-function processMetricsByLocation(metrics: any[], locationMap: Record<string, string>) {
-  const ankaraMap: Record<string, number[]> = {};
-  const istanbulMap: Record<string, number[]> = {};
+function getLatestCapacityPerDevice(metrics: any[], locationMap: Record<string, string>) {
+  const ankaraLatest: Record<string, { label: string, val: number, time: number }> = {};
+  const istanbulLatest: Record<string, { label: string, val: number, time: number }> = {};
 
   metrics.forEach(m => {
-    const d = new Date(m.captured_at);
-    const dayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    const value = parseFloat(m.metric_value) || 0;
-
     const loc = (locationMap[m.object_id] || '').toLowerCase();
+    const time = new Date(m.captured_at).getTime();
+    const val = parseFloat(m.metric_value) || 0;
+    const labelName = m.object_name || m.object_id;
 
     if (loc.includes('ankara')) {
-      if (!ankaraMap[dayKey]) ankaraMap[dayKey] = [];
-      ankaraMap[dayKey].push(value);
+      if (!ankaraLatest[m.object_id] || ankaraLatest[m.object_id].time < time) {
+        ankaraLatest[m.object_id] = { label: labelName, val, time };
+      }
     } else if (loc.includes('istanbul')) {
-      if (!istanbulMap[dayKey]) istanbulMap[dayKey] = [];
-      istanbulMap[dayKey].push(value);
+      if (!istanbulLatest[m.object_id] || istanbulLatest[m.object_id].time < time) {
+        istanbulLatest[m.object_id] = { label: labelName, val, time };
+      }
     }
   });
 
+  const mapToChartData = (latestMap: Record<string, any>) => {
+    const labels: string[] = [];
+    const values: number[] = [];
+    Object.values(latestMap).forEach(item => {
+      labels.push(item.label);
+      values.push(item.val);
+    });
+    return [{ name: 'Kapasite', labels, values }];
+  };
+
   return {
-    ankara: buildDailyAverage(ankaraMap),
-    istanbul: buildDailyAverage(istanbulMap)
+    ankara: mapToChartData(ankaraLatest),
+    istanbul: mapToChartData(istanbulLatest)
   };
 }
 
-function buildDailyAverage(dayMap: Record<string, number[]>) {
-  const labels = Object.keys(dayMap).sort();
-  const values = labels.map(l => {
-    const arr = dayMap[l];
-    return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+/**
+ * For Selected Devices: Groups metrics by day but keeps each device as a separate series
+ * Returns an array of objects { name, labels, values } for Line Chart
+ */
+function processMetricsPerDevice(metrics: any[], locationMap: Record<string, string>) {
+  const ankaraSeries: Record<string, Record<string, number>> = {};
+  const istanbulSeries: Record<string, Record<string, number>> = {};
+  
+  const ankaraLabels = new Set<string>();
+  const istanbulLabels = new Set<string>();
+  const deviceNames: Record<string, string> = {};
+
+  metrics.forEach(m => {
+    const loc = (locationMap[m.object_id] || '').toLowerCase();
+    const d = new Date(m.captured_at);
+    const dayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const value = parseFloat(m.metric_value) || 0;
+    
+    deviceNames[m.object_id] = m.object_name || m.object_id;
+
+    if (loc.includes('ankara')) {
+      ankaraLabels.add(dayKey);
+      if (!ankaraSeries[m.object_id]) ankaraSeries[m.object_id] = {};
+      ankaraSeries[m.object_id][dayKey] = value;
+    } else if (loc.includes('istanbul')) {
+      istanbulLabels.add(dayKey);
+      if (!istanbulSeries[m.object_id]) istanbulSeries[m.object_id] = {};
+      istanbulSeries[m.object_id][dayKey] = value;
+    }
   });
-  return { labels, values };
+
+  const buildChartData = (seriesMap: Record<string, Record<string, number>>, labelsSet: Set<string>) => {
+    const labels = Array.from(labelsSet).sort();
+    const chartData: any[] = [];
+    
+    Object.keys(seriesMap).forEach(deviceId => {
+      // If a day is missing for a device, use the last known value or 0
+      let lastVal = 0;
+      const values = labels.map(l => {
+        if (seriesMap[deviceId][l] !== undefined) {
+          lastVal = seriesMap[deviceId][l];
+        }
+        return lastVal;
+      });
+      
+      chartData.push({
+        name: deviceNames[deviceId],
+        labels,
+        values
+      });
+    });
+    
+    return chartData;
+  };
+
+  return {
+    ankara: buildChartData(ankaraSeries, ankaraLabels),
+    istanbul: buildChartData(istanbulSeries, istanbulLabels)
+  };
 }
 
-function addChartSlide(pres: pptxgen, title: string, data: { labels: string[], values: number[] }) {
+function addBarChartSlide(pres: pptxgen, title: string, chartData: any[]) {
   const slide = pres.addSlide();
   slide.addText(title, {
-    x: 0.5, y: 0.3, w: '90%', fontSize: 22, bold: true, color: '1a1a2e',
-    fontFace: 'Segoe UI'
+    x: 0.5, y: 0.3, w: '90%', fontSize: 22, bold: true, color: '1a1a2e', fontFace: 'Segoe UI'
   });
 
-  if (!data.labels || data.labels.length === 0) {
+  if (!chartData || chartData.length === 0 || chartData[0].labels.length === 0) {
     slide.addText('Bu lokasyon için yeterli veri bulunamadı.', {
       x: 0.5, y: 3, w: '90%', fontSize: 16, color: '999999', fontFace: 'Segoe UI'
     });
     return;
   }
 
-  const chartData = [
-    {
-      name: title.includes('Ankara') ? 'Ankara (Prod)' : 'İstanbul (DR)',
-      labels: data.labels,
-      values: data.values
-    }
-  ];
+  slide.addChart(pres.ChartType.bar, chartData, {
+    x: 0.5, y: 1.2, w: 12, h: 5.5,
+    showLegend: false,
+    barDir: 'col',
+    showValue: true,
+    valAxisLabelFontSize: 9,
+    catAxisLabelFontSize: 9,
+    dataLabelFontSize: 8,
+    chartColors: ['457b9d']
+  });
+}
+
+function addLineChartSlide(pres: pptxgen, title: string, chartData: any[]) {
+  const slide = pres.addSlide();
+  slide.addText(title, {
+    x: 0.5, y: 0.3, w: '90%', fontSize: 22, bold: true, color: '1a1a2e', fontFace: 'Segoe UI'
+  });
+
+  if (!chartData || chartData.length === 0 || chartData[0].labels.length === 0) {
+    slide.addText('Bu lokasyon için yeterli veri bulunamadı.', {
+      x: 0.5, y: 3, w: '90%', fontSize: 16, color: '999999', fontFace: 'Segoe UI'
+    });
+    return;
+  }
 
   slide.addChart(pres.ChartType.line, chartData, {
-    x: 0.5,
-    y: 1.2,
-    w: 12,
-    h: 5.5,
+    x: 0.5, y: 1.2, w: 12, h: 5.5,
     showLegend: true,
     legendPos: 'b',
     lineSmooth: true,
     showValue: false,
     catAxisLabelFontSize: 8,
     valAxisLabelFontSize: 9,
-    catAxisOrientation: 'minMax',
     lineDataSymbol: 'circle',
-    lineDataSymbolSize: 4,
-    chartColors: [title.includes('Ankara') ? 'e63946' : '457b9d']
+    lineDataSymbolSize: 4
   });
 }
