@@ -14,10 +14,13 @@ export const generateBulletin = async (req: Request, res: Response) => {
     const sixMonthsAgo = new Date();
     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
 
-    // Fetch device details to get locations
-    const devices = await prisma.inventoryItem.findMany({
+    // Fetch ALL storage devices to build a global location map
+    // We need this because ForecastMetricSnapshot doesn't have a direct relation to Rack
+    const allStorageDevices = await prisma.inventoryItem.findMany({
       where: {
-        serial_number: { in: serialNumbers }
+        model: {
+          device_type: { in: ['storage'] }
+        }
       },
       include: {
         rack: {
@@ -32,16 +35,15 @@ export const generateBulletin = async (req: Request, res: Response) => {
       }
     });
 
-    // Create a map to quickly look up device location (Ankara/Prod vs Istanbul/DR)
-    const locationMap: Record<string, string> = {};
-    devices.forEach(d => {
+    const globalLocationMap: Record<string, string> = {};
+    allStorageDevices.forEach((d: any) => {
       const dcName = d.rack?.room?.datacenter?.name?.toLowerCase() || '';
       if (dcName.includes('ankara')) {
-        locationMap[d.serial_number] = 'Ankara (Prod)';
+        globalLocationMap[d.serial_number] = 'Ankara (Prod)';
       } else if (dcName.includes('istanbul')) {
-        locationMap[d.serial_number] = 'Istanbul (DR)';
+        globalLocationMap[d.serial_number] = 'Istanbul (DR)';
       } else {
-        locationMap[d.serial_number] = 'Bilinmeyen Lokasyon';
+        globalLocationMap[d.serial_number] = 'Bilinmeyen Lokasyon';
       }
     });
 
@@ -51,18 +53,11 @@ export const generateBulletin = async (req: Request, res: Response) => {
         metric_name: { contains: 'capacity' },
         captured_at: { gte: sixMonthsAgo }
       },
-      orderBy: { captured_at: 'asc' },
-      include: {
-        source: {
-          include: {
-            rack: { include: { room: { include: { datacenter: true } } } }
-          }
-        }
-      }
+      orderBy: { captured_at: 'asc' }
     });
 
-    // Process allStorageMetrics for General Capacity (grouped by Month and Location)
-    const generalCapacityData = processMetrics(allStorageMetrics, 'Ankara', 'Istanbul');
+    // Process allStorageMetrics for General Capacity (grouped by DAY and Location)
+    const generalCapacityData = processMetrics(allStorageMetrics, 'Ankara', 'Istanbul', globalLocationMap);
 
     // Fetch selected devices metrics
     const selectedMetrics = await prisma.forecastMetricSnapshot.findMany({
@@ -76,22 +71,22 @@ export const generateBulletin = async (req: Request, res: Response) => {
     // Process selected devices for Capacity, IOPS, Response Time
     const selectedCapacityData = processMetrics(
       selectedMetrics.filter(m => m.metric_name.includes('capacity')), 
-      'Ankara', 'Istanbul', locationMap
+      'Ankara', 'Istanbul', globalLocationMap
     );
     const selectedIopsData = processMetrics(
       selectedMetrics.filter(m => m.metric_name.includes('iops')), 
-      'Ankara', 'Istanbul', locationMap
+      'Ankara', 'Istanbul', globalLocationMap
     );
     const selectedResponseTimeData = processMetrics(
       selectedMetrics.filter(m => m.metric_name.includes('response_time') || m.metric_name.includes('latency')), 
-      'Ankara', 'Istanbul', locationMap
+      'Ankara', 'Istanbul', globalLocationMap
     );
 
     // Generate PPTX
     const pres = new pptxgen();
 
     // 1. Genel Kapasite (Bütün Storageler)
-    addChartSlide(pres, 'Genel Depolama Kapasite Kullanımı (Tüm Cihazlar)', generalCapacityData);
+    addChartSlide(pres, 'Genel Depolama Kapasite Kullanımı', generalCapacityData);
 
     // 2. Seçilen Cihazlar - Kapasite
     addChartSlide(pres, 'Kapasite Kullanımı (Seçili Cihazlar)', selectedCapacityData);
@@ -103,7 +98,8 @@ export const generateBulletin = async (req: Request, res: Response) => {
     addChartSlide(pres, 'Response Time / Gecikme (Seçili Cihazlar)', selectedResponseTimeData);
 
     // Export Presentation
-    const buffer = await pres.write({ type: 'nodebuffer' }) as Buffer;
+    // @ts-ignore
+    const buffer = await pres.stream() as Buffer;
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
     res.setHeader('Content-Disposition', 'attachment; filename="inventrops-bulten.pptx"');
@@ -116,49 +112,46 @@ export const generateBulletin = async (req: Request, res: Response) => {
 };
 
 /**
- * Process metrics and group by month (MM-YYYY) and location (Ankara vs Istanbul)
+ * Process metrics and group by DAY (YYYY-MM-DD) and location (Ankara vs Istanbul)
  */
-function processMetrics(metrics: any[], prodKeyword: string, drKeyword: string, specificLocationMap?: Record<string, string>) {
-  const chartDataMap: Record<string, { prod: number[], dr: number[], prodCount: number[], drCount: number[] }> = {};
+function processMetrics(metrics: any[], prodKeyword: string, drKeyword: string, locationMap: Record<string, string>) {
+  const chartDataMap: Record<string, { prod: number[], dr: number[] }> = {};
   
   metrics.forEach(m => {
     const d = new Date(m.captured_at);
-    const monthKey = `${String(d.getMonth() + 1).padStart(2, '0')}-${d.getFullYear()}`;
+    // Group by Day instead of Month
+    const dayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     
-    if (!chartDataMap[monthKey]) {
-      chartDataMap[monthKey] = { prod: [], dr: [], prodCount: [], drCount: [] };
+    if (!chartDataMap[dayKey]) {
+      chartDataMap[dayKey] = { prod: [], dr: [] };
     }
 
     let isProd = false;
     let isDr = false;
 
-    if (specificLocationMap && m.device_serial) {
-      const loc = specificLocationMap[m.device_serial];
-      if (loc && loc.includes(prodKeyword)) isProd = true;
-      else if (loc && loc.includes(drKeyword)) isDr = true;
-    } else if (m.source && m.source.rack) {
-      const dcName = m.source.rack.room?.datacenter?.name?.toLowerCase() || '';
-      if (dcName.includes(prodKeyword.toLowerCase())) isProd = true;
-      else if (dcName.includes(drKeyword.toLowerCase())) isDr = true;
+    if (m.device_serial && locationMap[m.device_serial]) {
+      const loc = locationMap[m.device_serial];
+      if (loc.includes(prodKeyword)) isProd = true;
+      else if (loc.includes(drKeyword)) isDr = true;
     }
 
     const value = parseFloat(m.metric_value) || 0;
 
     if (isProd) {
-      chartDataMap[monthKey].prod.push(value);
+      chartDataMap[dayKey].prod.push(value);
     } else if (isDr) {
-      chartDataMap[monthKey].dr.push(value);
+      chartDataMap[dayKey].dr.push(value);
     }
   });
 
-  const labels = Object.keys(chartDataMap).sort(); // Sort by MM-YYYY isn't perfect string sort, but simplified here
+  const labels = Object.keys(chartDataMap).sort();
   const prodValues = labels.map(l => {
     const arr = chartDataMap[l].prod;
-    return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0; // Average
+    return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0; // Average per day
   });
   const drValues = labels.map(l => {
     const arr = chartDataMap[l].dr;
-    return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0; // Average
+    return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0; // Average per day
   });
 
   return { labels, prodValues, drValues };

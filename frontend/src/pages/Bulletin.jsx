@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
 
 export default function Bulletin() {
   const [devices, setDevices] = useState([]);
@@ -15,10 +14,16 @@ export default function Bulletin() {
   const fetchStorageDevices = async () => {
     try {
       setLoading(true);
-      // Sadece storage ve SAN cihazlarını getir
-      const res = await axios.get('/api/inventory?limit=500');
-      const storageDevices = res.data.data.filter(
-        d => d.model?.device_type === 'storage' || d.model?.device_type === 'san'
+      
+      const token = localStorage.getItem('token');
+      const headers = token ? { 'Authorization': `Bearer ${token}` } : {};
+      
+      const res = await fetch('/api/inventory?limit=500', { headers });
+      if (!res.ok) throw new Error('API Error');
+      const data = await res.json();
+      
+      const storageDevices = data.data.filter(
+        d => d.model?.device_type === 'storage'
       );
       setDevices(storageDevices);
     } catch (err) {
@@ -47,14 +52,24 @@ export default function Bulletin() {
       setGenerating(true);
       setError(null);
 
-      const res = await axios.post('/api/bulletin/generate-pptx', {
-        serialNumbers: selectedSerials
-      }, {
-        responseType: 'blob' // Önemli: Dosya indirmek için blob formatında alıyoruz
+      const token = localStorage.getItem('token');
+      const headers = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const res = await fetch('/api/bulletin/generate-pptx', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ serialNumbers: selectedSerials })
       });
 
-      // İndirme işlemini tetikle
-      const url = window.URL.createObjectURL(new Blob([res.data]));
+      if (!res.ok) throw new Error('API Error');
+      
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
       const link = document.createElement('link');
       link.href = url;
       link.setAttribute('download', 'inventrops-bulten.pptx');

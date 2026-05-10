@@ -143,7 +143,7 @@ export const createIntegration = async (req: Request, res: Response) => {
         username,
         password: password ? encrypt(password) : null,
         api_key: api_key ? encrypt(api_key) : null,
-        team_id: targetTeamId,
+        team_id: targetTeamId || undefined,
         is_active: true
       }
     });
