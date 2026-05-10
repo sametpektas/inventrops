@@ -1,37 +1,51 @@
-# InvenTrOps - PowerPoint Report Generation Plan
+# Aylık KPI Raporu (Excel) Entegrasyon Planı
 
-## 1. Problem Statement
-The user wants to generate a comprehensive PowerPoint (PPTX) presentation containing 6-month performance and capacity charts for selected storage devices (data originating from Xormon). The presentation must separate data by location (Ankara as Prod, Istanbul as DR).
+## 1. Genel Bakış
+Kullanıcının talebi üzerine, Xormon üzerinden çekilen Storage ve SAN cihazlarına ait Aylık KPI verilerini hesaplayan, geçmiş aylar ile karşılaştırmalı olarak Excel formatında raporlayan bir sistem oluşturulacaktır. Her aya ait performans ve kapasite değerleri (Örn: Önceki Ay IOPS vs Bu Ay IOPS) veritabanında saklanarak tarihsel bütünlük korunacaktır.
 
-## 2. Requirements
-1. **Slide 1 (General Overview):** Overall capacity usage chart for ALL Xormon storages, separated by location (Ankara vs. Istanbul).
-2. **Slide 2 (Selected Devices - Capacity):** 6-month capacity trend chart for the user-selected devices, grouped by location.
-3. **Slide 3 (Selected Devices - IOPS):** 6-month IOPS trend chart for the selected devices, grouped by location.
-4. **Slide 4 (Selected Devices - Response Time):** 6-month Response Time trend chart for the selected devices, grouped by location.
+## 2. Mimari ve Veritabanı (Database Architect)
+### 2.1. Yeni Prisma Modeli (KPI History)
+Aylık Kapasite KPI verilerinin dondurulup saklanması için Prisma şemasına yeni bir model eklenecektir.
+* **Model:** `MonthlyCapacityKPI`
+* **Alanlar:**
+  * `id`: UUID
+  * `deviceId`: String (InventoryItem bağlantısı)
+  * `reportMonth`: DateTime (Hangi aya ait olduğu)
+  * `capacityUsedPercent`: Float
+  * `capacityUsedGiB`: Float (opsiyonel/gerekirse)
+  * `createdAt`: DateTime
 
-## 3. Implementation Steps
+### 2.2. Veri Akışı
+* Rapor oluşturulduğunda sistem önce `MonthlyCapacityKPI` tablosunda ilgili aya ait veri var mı diye bakar.
+* Yoksa, o aya ait kapasite verilerini çekip dondurur (snapshot alır).
+* Excel oluşturulurken cihaz bazında "Önceki Aylar" ve "Bu Ay" yan yana (ay bazlı kolonlar halinde) listelenir.
 
-We will orchestrate 3 agents to design, implement, and verify this feature:
+## 3. Backend (Backend Specialist)
+### 3.1. API Uç Noktaları
+* `GET /api/reports/kpi/excel`: Excel raporunu üretecek uç nokta.
+* Parametre: Hangi ay/yıl aralığının isteneceği (varsayılan: son 6 ay vb.)
 
-1. **`backend-specialist` (API & Logic)**:
-   - Install `pptxgenjs` library in the backend to construct PowerPoint files with charts.
-   - Create a new API endpoint (e.g., `POST /api/reports/generate-pptx`) that accepts an array of device serial numbers.
-   - The endpoint will query `ForecastMetricSnapshot` for the available metrics ('capacity', 'iops', and 'response_time') up to the last 6 months. If less than 6 months of data is available, it will use all available data.
-   - It will join `InventoryItem` data to determine the location (Ankara/Istanbul) and aggregate the data.
-   - Generate the PPTX Buffer and return it as a downloadable file stream.
+### 3.2. Excel Üretimi (ExcelJS)
+* `exceljs` kullanılarak sadece **Kapasite Kullanım** verilerini içeren bir Excel üretilecek.
+* Kolonlar (Örnek):
+  - Cihaz Adı
+  - Toplam Kapasite
+  - Ocak Ayı Kullanım (%)
+  - Şubat Ayı Kullanım (%)
+  - Mart Ayı Kullanım (%)
+  - Nisan Ayı Kullanım (%)
+  - Mayıs Ayı Kullanım (%)
 
-2. **`frontend-specialist` (UI Integration)**:
-   - Create a new sub-menu item called "Bülten" (Bulletin) in the frontend navigation.
-   - Design a dedicated report generation page under the "Bülten" menu where users can select specific storage devices.
-   - Add a "Bülten Oluştur" (Generate Bulletin) button that posts the selected serial numbers to the backend endpoint and downloads the `.pptx` file.
+## 4. Frontend (Frontend Specialist)
+### 4.1. UI Entegrasyonu
+* Raporlama/Bülten veya Analytics sayfasına yeni bir **"Aylık KPI Raporu İndir (Excel)"** butonu eklenecek.
+* Butona tıklandığında hangi ay için rapor alınacağı (Ay/Yıl seçici) sorulacak.
 
-3. **`test-engineer` / `security-auditor` (Verification)**:
-   - Verify that the API properly validates the incoming device array and handles missing data gracefully.
-   - Ensure the PPTX generation does not block the Node.js event loop excessively.
-   - Run `security_scan.py` and `lint_runner.py` to ensure code quality and safety.
+## 5. Doğrulama (Test Engineer)
+* `schema_validator.py` çalıştırılarak yeni tablonun veritabanına sorunsuz eklendiği doğrulanacak.
+* Excel dosyasının formatı test edilecek.
 
-## 4. Acceptance Criteria
-- User can navigate to a dedicated "Bülten" submenu to select devices and download a PowerPoint presentation.
-- The presentation contains the 4 requested slide types.
-- Charts accurately reflect historical data up to 6 months (or less if 6 months are not available), separated by Ankara (Prod) and Istanbul (DR).
-- CI/CD scripts run without introducing new errors.
+---
+**Bekleyen Sorular / Kararlar (Socratic Gate):**
+1. Excel görselini henüz iletmediniz, kolonlar yukarıdaki tahminim gibi (Önceki ay vs Bu ay yan yana) mi olacak yoksa eklemek istediğiniz başka kolonlar var mı?
+2. KPI raporu tüm lokasyonlardaki cihazları tek sekmede mi göstersin, yoksa lokasyon bazlı Excel sekmeleri (Ankara, İstanbul) mi oluşturalım?

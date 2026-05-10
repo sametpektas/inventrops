@@ -72,6 +72,40 @@ export default function Bulletin() {
     }
   };
 
+  const generateExcelReport = async () => {
+    if (selectedSerials.length === 0) {
+      alert("Lütfen en az bir cihaz seçin.");
+      return;
+    }
+
+    try {
+      setGenerating(true);
+      setError(null);
+
+      const res = await api.request('/bulletin/generate-excel', {
+        method: 'POST',
+        body: JSON.stringify({ serialNumbers: selectedSerials })
+      });
+
+      if (!res.ok) throw new Error('API Error');
+      
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.setAttribute('download', 'inventrops-aylik-kpi.xlsx');
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error(err);
+      setError('Excel oluşturulurken hata oluştu. Lütfen konsolu kontrol edin.');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   return (
     <div className="bulletin-page" style={{ padding: '20px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -81,25 +115,47 @@ export default function Bulletin() {
             Raporlamak istediğiniz depolama (Storage/SAN) cihazlarını seçin ve 6 aylık performans bültenini indirin.
           </p>
         </div>
-        <button 
-          onClick={generateReport}
-          disabled={generating || selectedSerials.length === 0}
-          style={{
-            background: 'var(--teal)',
-            color: '#fff',
-            border: 'none',
-            padding: '10px 20px',
-            borderRadius: '6px',
-            cursor: generating || selectedSerials.length === 0 ? 'not-allowed' : 'pointer',
-            opacity: generating || selectedSerials.length === 0 ? 0.7 : 1,
-            fontWeight: 'bold',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px'
-          }}
-        >
-          {generating ? 'Oluşturuluyor...' : 'Bülten Oluştur (PPTX)'}
-        </button>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button 
+            onClick={generateExcelReport}
+            disabled={generating || selectedSerials.length === 0}
+            style={{
+              background: 'var(--green)', // Using a green color for Excel
+              color: '#fff',
+              border: 'none',
+              padding: '10px 20px',
+              borderRadius: '6px',
+              cursor: generating || selectedSerials.length === 0 ? 'not-allowed' : 'pointer',
+              opacity: generating || selectedSerials.length === 0 ? 0.7 : 1,
+              fontWeight: 'bold',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}
+          >
+            {generating ? 'Oluşturuluyor...' : 'Aylık KPI (Excel)'}
+          </button>
+          
+          <button 
+            onClick={generateReport}
+            disabled={generating || selectedSerials.length === 0}
+            style={{
+              background: 'var(--teal)',
+              color: '#fff',
+              border: 'none',
+              padding: '10px 20px',
+              borderRadius: '6px',
+              cursor: generating || selectedSerials.length === 0 ? 'not-allowed' : 'pointer',
+              opacity: generating || selectedSerials.length === 0 ? 0.7 : 1,
+              fontWeight: 'bold',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}
+          >
+            {generating ? 'Oluşturuluyor...' : 'Bülten Oluştur (PPTX)'}
+          </button>
+        </div>
       </div>
 
       {error && <div style={{ color: 'red', marginBottom: '20px' }}>{error}</div>}

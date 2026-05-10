@@ -369,3 +369,18 @@ model ForecastAlert {
 
   @@map("forecast_alert")
 }
+
+model MonthlyCapacityKPI {
+  id                  Int      @id @default(autoincrement())
+  object_id           String   // Maps to xormon external ID or inventory item serial_number
+  object_name         String
+  report_month        DateTime // Typically the 1st of the month
+  capacity_percent    Float
+  capacity_gib        Float?
+  created_at          DateTime @default(now())
+
+  @@unique([object_id, report_month])
+  @@index([object_id])
+  @@index([report_month])
+  @@map("forecast_monthly_capacity_kpi")
+}

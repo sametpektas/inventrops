@@ -96,13 +96,15 @@ export const generateBulletin = async (req: Request, res: Response) => {
     addBarChartSlide(pres, 'Genel Depolama Kapasite Kullanımı - İstanbul (DR)', generalCapacity.istanbul);
 
     // Generate Side-by-Side Slides for Ankara
-    generateSideBySideSlides(pres, ankaraDevices, deviceCapacities, 'capacity', 'Kapasite Kullanımı Trendi - Ankara (Prod)');
-    generateSideBySideSlides(pres, ankaraDevices, deviceIops, 'iops', 'IOPS Trendi - Ankara (Prod)');
+    generateSideBySideSlides(pres, ankaraDevices, deviceCapacities, 'capacity', 'Kapasite Kullanımı - Ankara (Prod)');
+    generateSideBySideSlides(pres, ankaraDevices, deviceCapacities, 'capacity_trend', 'Kapasite Trendi - Ankara (Prod)');
+    generateSideBySideSlides(pres, ankaraDevices, deviceIops, 'iops', 'IOPS - Ankara (Prod)');
     generateSideBySideSlides(pres, ankaraDevices, deviceResponseTime, 'responsetime', 'Response Time / Gecikme - Ankara (Prod)');
 
     // Generate Side-by-Side Slides for Istanbul
-    generateSideBySideSlides(pres, istanbulDevices, deviceCapacities, 'capacity', 'Kapasite Kullanımı Trendi - İstanbul (DR)');
-    generateSideBySideSlides(pres, istanbulDevices, deviceIops, 'iops', 'IOPS Trendi - İstanbul (DR)');
+    generateSideBySideSlides(pres, istanbulDevices, deviceCapacities, 'capacity', 'Kapasite Kullanımı - İstanbul (DR)');
+    generateSideBySideSlides(pres, istanbulDevices, deviceCapacities, 'capacity_trend', 'Kapasite Trendi - İstanbul (DR)');
+    generateSideBySideSlides(pres, istanbulDevices, deviceIops, 'iops', 'IOPS - İstanbul (DR)');
     generateSideBySideSlides(pres, istanbulDevices, deviceResponseTime, 'responsetime', 'Response Time / Gecikme - İstanbul (DR)');
 
     const buffer = await pres.stream() as Buffer;
@@ -200,7 +202,7 @@ function generateSideBySideSlides(
   pres: pptxgen, 
   devices: string[], 
   deviceDataMap: Record<string, { labels: string[], values: number[], name: string }>, 
-  metricType: 'capacity' | 'iops' | 'responsetime',
+  metricType: 'capacity' | 'capacity_trend' | 'iops' | 'responsetime',
   slideTitle: string
 ) {
   if (devices.length === 0) {
@@ -239,7 +241,7 @@ function addDeviceChart(
   pres: pptxgen, 
   slide: pptxgen.Slide, 
   data: { labels: string[], values: number[], name: string }, 
-  metricType: 'capacity' | 'iops' | 'responsetime', 
+  metricType: 'capacity' | 'capacity_trend' | 'iops' | 'responsetime', 
   xPos: number
 ) {
   if (!data.labels || data.labels.length === 0) {
@@ -252,7 +254,9 @@ function addDeviceChart(
   let yAxisFormat = 'General';
   let yAxisMax: number | undefined = undefined;
 
-  if (metricType === 'capacity') {
+  let chartColors = ['5b9bd5', 'ed7d31', 'a5a5a5']; // Default colors
+
+  if (metricType === 'capacity' || metricType === 'capacity_trend') {
     title = data.name; // User image shows just device name as title
     yAxisFormat = '0"%"';
     yAxisMax = 100;
@@ -266,6 +270,25 @@ function addDeviceChart(
       { name: 'Capacity (%)', labels: data.labels, values: capacityLine },
       { name: 'Critical Capacity (%)', labels: data.labels, values: criticalLine }
     ];
+
+    if (metricType === 'capacity_trend') {
+      // Calculate linear trendline for the Used Capacity data
+      const n = data.values.length;
+      let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+      for (let i = 0; i < n; i++) {
+        sumX += i;
+        sumY += data.values[i];
+        sumXY += i * data.values[i];
+        sumXX += i * i;
+      }
+      const m = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+      const b = (sumY - m * sumX) / n;
+      const trendlineValues = data.values.map((_, i) => m * i + b);
+
+      chartData.push({ name: 'Linear (Used Capacity (%))', labels: data.labels, values: trendlineValues });
+      chartColors = ['5b9bd5', 'ed7d31', 'a5a5a5', '5b9bd5']; // Add same blue for trendline
+    }
+
   } else if (metricType === 'iops') {
     title = `${data.name}\nTotal I/O Rate - overall (ops/s)`;
     chartData = [
@@ -295,7 +318,7 @@ function addDeviceChart(
     valAxisMaxVal: yAxisMax,
     valAxisLabelFormatCode: yAxisFormat,
     lineDataSymbol: 'none', // Remove circles to match screenshot
-    chartColors: ['5b9bd5', 'ed7d31', 'a5a5a5'] // Blue, Orange, Grey matching screenshot
+    chartColors: chartColors // Dynamic colors based on metric type
   });
 }
 
