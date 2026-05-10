@@ -252,6 +252,20 @@ const tools: OpenAI.Chat.ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
+      name: 'search_devices',
+      description: 'Verilen kelimeye veya harfe göre envanterdeki cihazları arar. Belirli bir isimle veya harfle başlayan cihazları bulmak için kullanılır.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Aranacak kelime, harf veya seri numarası (Örn: "A", "SRV", "10.240")' }
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'create_rack',
       description: 'Bir odaya yeni bir kabinet (Rack) ekler.',
       parameters: {
@@ -573,22 +587,44 @@ async function executeTool(toolCall: any) {
       }
 
       // 2. Find or create Room
-      const targetRoomName = args.room_name || 'Sistem Odası';
-      let room = await prisma.room.findFirst({
-        where: { name: { contains: targetRoomName, mode: 'insensitive' }, datacenter_id: dc.id }
-      });
+      let room = null;
+      if (args.room_name) {
+        room = await prisma.room.findFirst({
+          where: { name: { contains: args.room_name, mode: 'insensitive' }, datacenter_id: dc.id }
+        });
+      }
+      
       if (!room) {
+        // Eğer oda ismi verilmemişse veya bulunamamışsa, o veri merkezindeki İLK odada şansımızı deneyelim
+        room = await prisma.room.findFirst({
+          where: { datacenter_id: dc.id }
+        });
+      }
+
+      if (!room) {
+        const targetRoomName = args.room_name || 'Sistem Odası';
         room = await prisma.room.create({
           data: { name: targetRoomName, datacenter_id: dc.id, floor: '0' }
         });
       }
 
       // 3. Find or create Rack
-      const targetRackName = args.rack_name || 'Varsayılan Kabinet';
-      let rack = await prisma.rack.findFirst({
-        where: { name: { contains: targetRackName, mode: 'insensitive' }, room_id: room.id }
-      });
+      let rack = null;
+      if (args.rack_name) {
+        rack = await prisma.rack.findFirst({
+          where: { name: { contains: args.rack_name, mode: 'insensitive' }, room_id: room.id }
+        });
+      }
+
       if (!rack) {
+        // Eğer kabinet verilmemişse veya bulunamamışsa, bu odadaki İLK kabineti seçelim
+        rack = await prisma.rack.findFirst({
+          where: { room_id: room.id }
+        });
+      }
+
+      if (!rack) {
+        const targetRackName = args.rack_name || 'Varsayılan Kabinet';
         rack = await prisma.rack.create({
           data: { name: targetRackName, room_id: room.id, total_units: 42 }
         });
@@ -610,6 +646,36 @@ async function executeTool(toolCall: any) {
       };
     }
 
+    case 'search_devices': {
+      if (!args.query) return { error: 'Arama kelimesi belirtilmedi.' };
+      const q = String(args.query);
+
+      const items = await prisma.inventoryItem.findMany({
+        where: {
+          OR: [
+            { hostname: { startsWith: q, mode: 'insensitive' } },
+            { hostname: { contains: q, mode: 'insensitive' } },
+            { serial_number: { contains: q, mode: 'insensitive' } },
+            { ip_address: { contains: q, mode: 'insensitive' } }
+          ]
+        },
+        include: { model: true },
+        take: 50 // Limit to 50 results
+      });
+
+      return {
+        count: items.length,
+        devices: items.map(item => ({
+          id: item.id,
+          hostname: item.hostname || 'Bilinmiyor',
+          serial_number: item.serial_number,
+          type: item.model.device_type,
+          ip: item.ip_address || '-',
+          status: item.status
+        }))
+      };
+    }
+
     default:
       return { error: 'Unknown tool' };
   }
@@ -628,6 +694,11 @@ Analiz Prensiplerin:
 2. Bireysel Maliyet Analizi: Her marka için cihaz sayılarını ve maliyetlerini (Örn: Cihaz başı 2K$) ayrı ayrı hesapla. "Dell Toplam: X Cihaz - Y Dolar", "HPE Toplam: A Cihaz - B Dolar" şeklinde net kırılımlar sun.
 3. Operasyonel Öneriler: Her markanın kendi içindeki garanti yoğunluğuna göre (Örn: Dell'lerin %80'i Temmuz'da bitiyor) o markaya özel konsolidasyon öner.
 4. Cihaz Tipi Ayrımı: Her markanın altında Server, Storage ve SAN ayrımını koru.
+
+Araç (Tool) Kullanımı Kuralları:
+- Bir işlem yapman veya veri çekmen gerektiğinde KESİNLİKLE "şimdi arıyorum", "bekleyin", "yapıyorum" gibi ara sohbet cevapları (filler text) VERME.
+- Kullanıcı bir şey istediğinde, hiçbir açıklama yapmadan anında ilgili fonksiyonu (tool_call) çağır. 
+- Fonksiyon sonucu sana geldikten sonra işi tamamlayıp final cevabını kullanıcıya tek seferde ver.
 
 Cevaplarında teknik derinliği koru, marka bazlı raporlar için get_warranty_report aracını kullanarak her üretici için ayrı ayrı sonuçlar üret.` },
       ...messages
