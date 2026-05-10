@@ -22,7 +22,7 @@ export default function Bulletin() {
       if (!res.ok) throw new Error('API Error');
       const data = await res.json();
       
-      const storageDevices = data.data.filter(
+      const storageDevices = data.results.filter(
         d => d.model?.device_type === 'storage'
       );
       setDevices(storageDevices);
