@@ -94,7 +94,7 @@ export class XormonForecastProvider implements ForecastProvider {
 
             const tsRes = await client.post('/api/public/v1/exporter/timeseries', {
               uuids: [itemId],
-              metric: ["capacity_total", "capacity_used", "capacity_used_percent", "capacity_free"],
+              metric: ["capacity_total", "capacity_used", "capacity_used_percent", "capacity_free", "io_total", "response_time", "latency"],
               start: startTime / 1000, // User example showed seconds with decimals
               end: endTime / 1000,
               format: "json"
@@ -116,6 +116,8 @@ export class XormonForecastProvider implements ForecastProvider {
               if (mName.includes('capacity_total')) normalizedMetric = 'capacity_total';
               else if (mName.includes('capacity_used_percent')) normalizedMetric = 'capacity_used_percent';
               else if (mName.includes('capacity_used')) normalizedMetric = 'capacity_used';
+              else if (mName.includes('io_total') || mName.includes('iops')) normalizedMetric = 'iops';
+              else if (mName.includes('response_time') || mName.includes('latency')) normalizedMetric = 'response_time';
               
               if (!normalizedMetric) continue;
 

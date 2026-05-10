@@ -292,11 +292,11 @@ const tools: OpenAI.Chat.ChatCompletionTool[] = [
         properties: {
           serial_number: { type: 'string', description: 'Cihazın seri numarası' },
           datacenter_name: { type: 'string', description: 'Hedef veri merkezi adı' },
-          room_name: { type: 'string', description: 'Hedef oda adı' },
-          rack_name: { type: 'string', description: 'Hedef kabinet adı' },
+          room_name: { type: 'string', description: 'Hedef oda adı (opsiyonel, belirtilmezse varsayılan oda kullanılır)' },
+          rack_name: { type: 'string', description: 'Hedef kabinet adı (opsiyonel, belirtilmezse varsayılan kabinet kullanılır)' },
           rack_unit_start: { type: 'number', description: 'Kabinet içindeki başlangıç U pozisyonu (opsiyonel)' },
         },
-        required: ['serial_number', 'datacenter_name', 'room_name', 'rack_name'],
+        required: ['serial_number', 'datacenter_name'],
       },
     },
   },
@@ -572,27 +572,43 @@ async function executeTool(toolCall: any) {
       });
       if (!device) return { error: `'${args.serial_number}' seri numaralı cihaz bulunamadı.` };
 
-      const dc = await prisma.datacenter.findFirst({
+      // 1. Find or create Datacenter
+      let dc = await prisma.datacenter.findFirst({
         where: { name: { contains: args.datacenter_name, mode: 'insensitive' } }
       });
-      if (!dc) return { error: `'${args.datacenter_name}' adlı veri merkezi bulunamadı.` };
-
-      const room = await prisma.room.findFirst({
-        where: {
-          name: { contains: args.room_name, mode: 'insensitive' },
-          datacenter_id: dc.id
+      if (!dc) {
+        let firstTeam = await prisma.team.findFirst();
+        if (!firstTeam) {
+          firstTeam = await prisma.team.create({ data: { name: 'Default Team' } });
         }
-      });
-      if (!room) return { error: `'${dc.name}' veri merkezinde '${args.room_name}' adlı oda bulunamadı.` };
+        dc = await prisma.datacenter.create({
+          data: { name: args.datacenter_name, team_id: firstTeam.id }
+        });
+      }
 
-      const rack = await prisma.rack.findFirst({
-        where: {
-          name: { contains: args.rack_name, mode: 'insensitive' },
-          room_id: room.id
-        }
+      // 2. Find or create Room
+      const targetRoomName = args.room_name || 'Sistem Odası';
+      let room = await prisma.room.findFirst({
+        where: { name: { contains: targetRoomName, mode: 'insensitive' }, datacenter_id: dc.id }
       });
-      if (!rack) return { error: `'${room.name}' odasında '${args.rack_name}' adlı kabinet bulunamadı.` };
+      if (!room) {
+        room = await prisma.room.create({
+          data: { name: targetRoomName, datacenter_id: dc.id, floor: '0' }
+        });
+      }
 
+      // 3. Find or create Rack
+      const targetRackName = args.rack_name || 'Varsayılan Kabinet';
+      let rack = await prisma.rack.findFirst({
+        where: { name: { contains: targetRackName, mode: 'insensitive' }, room_id: room.id }
+      });
+      if (!rack) {
+        rack = await prisma.rack.create({
+          data: { name: targetRackName, room_id: room.id, total_units: 42 }
+        });
+      }
+
+      // Update Device
       const updated = await prisma.inventoryItem.update({
         where: { serial_number: args.serial_number },
         data: {
