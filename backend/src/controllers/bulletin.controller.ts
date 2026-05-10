@@ -62,7 +62,7 @@ export const generateBulletin = async (req: Request, res: Response) => {
     // Fetch selected devices metrics
     const selectedMetrics = await prisma.forecastMetricSnapshot.findMany({
       where: {
-        device_serial: { in: serialNumbers },
+        object_id: { in: serialNumbers },
         captured_at: { gte: sixMonthsAgo }
       },
       orderBy: { captured_at: 'asc' }
