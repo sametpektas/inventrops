@@ -4,15 +4,13 @@ import ExcelJS from 'exceljs';
 
 export const generateKpiExcel = async (req: Request, res: Response) => {
   try {
-    const { serialNumbers } = req.body;
-
-    if (!Array.isArray(serialNumbers)) {
-      return res.status(400).json({ error: 'serialNumbers must be an array of strings' });
-    }
-
-    // 1. Get Devices
+    // 1. Get Devices (All Storage and SAN Switches)
     const devices = await prisma.inventoryItem.findMany({
-      where: { serial_number: { in: serialNumbers } },
+      where: { 
+        model: {
+          device_type: { in: ['storage', 'san_switch'] }
+        }
+      },
       include: {
         model: true,
         rack: { include: { room: { include: { datacenter: true } } } }
@@ -26,7 +24,7 @@ export const generateKpiExcel = async (req: Request, res: Response) => {
       if (xormonId) serialToXormonMap[d.serial_number] = xormonId;
     });
 
-    const selectedObjectIds = serialNumbers.map(sn => serialToXormonMap[sn] || sn);
+    const selectedObjectIds = devices.map(d => serialToXormonMap[d.serial_number] || d.serial_number);
 
     // 2. We need to query capacity over the last N months.
     // For this, we check the ForecastMetricSnapshot for the selected devices.
@@ -80,21 +78,26 @@ export const generateKpiExcel = async (req: Request, res: Response) => {
         const val = monthlyData[objId][mKey];
 
         // Upsert the KPI record to ensure persistence
-        await prisma.monthlyCapacityKPI.upsert({
-          where: {
-            object_id_report_month: {
+        try {
+          await prisma.monthlyCapacityKPI.upsert({
+            where: {
+              object_id_report_month: {
+                object_id: objId,
+                report_month: reportDate
+              }
+            },
+            update: { capacity_percent: val },
+            create: {
               object_id: objId,
-              report_month: reportDate
+              object_name: objId,
+              report_month: reportDate,
+              capacity_percent: val
             }
-          },
-          update: { capacity_percent: val },
-          create: {
-            object_id: objId,
-            object_name: objId, // Ideally get real name
-            report_month: reportDate,
-            capacity_percent: val
-          }
-        });
+          });
+        } catch (dbErr) {
+          console.warn(`[KPI Controller] Prisma DB hatası (Şema güncellenmemiş olabilir): ${dbErr.message}`);
+          // Hata olsa da Excel oluşturmaya devam et (Geçici)
+        }
       }
     }
 

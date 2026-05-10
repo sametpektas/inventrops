@@ -73,18 +73,14 @@ export default function Bulletin() {
   };
 
   const generateExcelReport = async () => {
-    if (selectedSerials.length === 0) {
-      alert("Lütfen en az bir cihaz seçin.");
-      return;
-    }
-
     try {
       setGenerating(true);
       setError(null);
 
+      // Artık backend tüm storage ve san_switch'leri kendisi çekecek
       const res = await api.request('/bulletin/generate-excel', {
         method: 'POST',
-        body: JSON.stringify({ serialNumbers: selectedSerials })
+        body: JSON.stringify({}) 
       });
 
       if (!res.ok) throw new Error('API Error');
@@ -118,15 +114,16 @@ export default function Bulletin() {
         <div style={{ display: 'flex', gap: '10px' }}>
           <button 
             onClick={generateExcelReport}
-            disabled={generating || selectedSerials.length === 0}
+            disabled={generating}
+            title="Tüm Storage ve SAN Switch'ler için Aylık KPI oluşturur (Seçime gerek yok)"
             style={{
               background: 'var(--green)', // Using a green color for Excel
               color: '#fff',
               border: 'none',
               padding: '10px 20px',
               borderRadius: '6px',
-              cursor: generating || selectedSerials.length === 0 ? 'not-allowed' : 'pointer',
-              opacity: generating || selectedSerials.length === 0 ? 0.7 : 1,
+              cursor: generating ? 'not-allowed' : 'pointer',
+              opacity: generating ? 0.7 : 1,
               fontWeight: 'bold',
               display: 'flex',
               alignItems: 'center',
