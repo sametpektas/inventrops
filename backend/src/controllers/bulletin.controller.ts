@@ -57,7 +57,7 @@ export const generateBulletin = async (req: Request, res: Response) => {
     });
 
     // Process allStorageMetrics for General Capacity (grouped by DAY and Location)
-    const generalCapacityData = processMetrics(allStorageMetrics, 'Ankara', 'Istanbul', globalLocationMap);
+    const generalCapacityData = processMetrics(allStorageMetrics, 'avm', 'varyap', globalLocationMap);
 
     // Fetch selected devices metrics
     const selectedMetrics = await prisma.forecastMetricSnapshot.findMany({
@@ -70,16 +70,16 @@ export const generateBulletin = async (req: Request, res: Response) => {
 
     // Process selected devices for Capacity, IOPS, Response Time
     const selectedCapacityData = processMetrics(
-      selectedMetrics.filter(m => m.metric_name.includes('capacity')), 
-      'Ankara', 'Istanbul', globalLocationMap
+      selectedMetrics.filter(m => m.metric_name.includes('capacity')),
+      'avm', 'varyap', globalLocationMap
     );
     const selectedIopsData = processMetrics(
-      selectedMetrics.filter(m => m.metric_name.includes('iops')), 
-      'Ankara', 'Istanbul', globalLocationMap
+      selectedMetrics.filter(m => m.metric_name.includes('iops')),
+      'avm', 'varyap', globalLocationMap
     );
     const selectedResponseTimeData = processMetrics(
-      selectedMetrics.filter(m => m.metric_name.includes('response_time') || m.metric_name.includes('latency')), 
-      'Ankara', 'Istanbul', globalLocationMap
+      selectedMetrics.filter(m => m.metric_name.includes('response_time') || m.metric_name.includes('latency')),
+      'avm', 'varyap', globalLocationMap
     );
 
     // Generate PPTX
@@ -116,12 +116,12 @@ export const generateBulletin = async (req: Request, res: Response) => {
  */
 function processMetrics(metrics: any[], prodKeyword: string, drKeyword: string, locationMap: Record<string, string>) {
   const chartDataMap: Record<string, { prod: number[], dr: number[] }> = {};
-  
+
   metrics.forEach(m => {
     const d = new Date(m.captured_at);
     // Group by Day instead of Month
     const dayKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    
+
     if (!chartDataMap[dayKey]) {
       chartDataMap[dayKey] = { prod: [], dr: [] };
     }
@@ -129,10 +129,10 @@ function processMetrics(metrics: any[], prodKeyword: string, drKeyword: string, 
     let isProd = false;
     let isDr = false;
 
-    if (m.device_serial && locationMap[m.device_serial]) {
-      const loc = locationMap[m.device_serial];
-      if (loc.includes(prodKeyword)) isProd = true;
-      else if (loc.includes(drKeyword)) isDr = true;
+    if (m.object_id && locationMap[m.object_id]) {
+      const loc = locationMap[m.object_id].toLowerCase();
+      if (loc.includes(prodKeyword.toLowerCase())) isProd = true;
+      else if (loc.includes(drKeyword.toLowerCase())) isDr = true;
     }
 
     const value = parseFloat(m.metric_value) || 0;
