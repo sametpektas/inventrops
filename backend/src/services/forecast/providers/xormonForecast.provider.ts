@@ -189,11 +189,24 @@ export class XormonForecastProvider implements ForecastProvider {
               
               console.log(`[XormonForecast] SAN ${label}: ${usedPorts}/${availablePorts} used (${usagePercent.toFixed(2)}%)`);
               
+              const now = new Date();
               metrics.push({
                 objectId: itemId, objectName: label, objectType: 'san',
                 metricName: 'port_utilization_percent', 
                 metricValue: Math.round(usagePercent * 100) / 100,
-                timestamp: new Date()
+                timestamp: now
+              });
+              metrics.push({
+                objectId: itemId, objectName: label, objectType: 'san',
+                metricName: 'available_ports',
+                metricValue: availablePorts,
+                timestamp: now
+              });
+              metrics.push({
+                objectId: itemId, objectName: label, objectType: 'san',
+                metricName: 'free_ports',
+                metricValue: freePorts,
+                timestamp: now
               });
             }
           } catch (e: any) {

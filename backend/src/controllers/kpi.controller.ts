@@ -2,160 +2,406 @@ import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import ExcelJS from 'exceljs';
 
+const MONTHS_TR = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
+
+// Header fill styles
+const HEADER_GOLD: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFC8A200' } };
+const HEADER_BLUE: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
+const HEADER_FONT_WHITE: Partial<ExcelJS.Font> = { bold: true, color: { argb: 'FFFFFFFF' }, name: 'Calibri', size: 11 };
+const HEADER_FONT_BLACK: Partial<ExcelJS.Font> = { bold: true, color: { argb: 'FF000000' }, name: 'Calibri', size: 11 };
+const CENTER: Partial<ExcelJS.Alignment> = { vertical: 'middle', horizontal: 'center' };
+const LEFT: Partial<ExcelJS.Alignment> = { vertical: 'middle', horizontal: 'left' };
+const BORDER_THIN: Partial<ExcelJS.Borders> = {
+  top: { style: 'thin' }, bottom: { style: 'thin' },
+  left: { style: 'thin' }, right: { style: 'thin' }
+};
+
+interface MonthlyStorageData {
+  capacity_total_gib: number | null;
+  capacity_used_gib: number | null;
+  capacity_free_gib: number | null;
+  capacity_used_percent: number | null;
+}
+
+interface MonthlySanData {
+  available_ports: number | null;
+  free_ports: number | null;
+  used_ports: number | null;
+}
+
 export const generateKpiExcel = async (req: Request, res: Response) => {
   try {
-    // 1. Get Devices (All Storage and SAN Switches)
+    // 1. Get all Storage and SAN Switch devices
     const devices = await prisma.inventoryItem.findMany({
-      where: { 
-        model: {
-          device_type: { in: ['storage', 'san_switch'] }
-        }
+      where: {
+        model: { device_type: { in: ['storage', 'san_switch'] } }
       },
       include: {
-        model: true,
+        model: { include: { vendor: true } },
         rack: { include: { room: { include: { datacenter: true } } } }
       }
     });
 
+    // Build xormon_id mapping
+    const deviceMap: Record<string, { name: string; type: string; serial: string }> = {};
     const serialToXormonMap: Record<string, string> = {};
+
     devices.forEach((d: any) => {
       const metadata = d.metadata as any;
       const xormonId = metadata?.xormon_id || '';
-      if (xormonId) serialToXormonMap[d.serial_number] = xormonId;
+      const deviceType = d.model?.device_type || 'storage';
+      const displayName = d.hostname || d.serial_number;
+
+      if (xormonId) {
+        serialToXormonMap[d.serial_number] = xormonId;
+        deviceMap[xormonId] = { name: displayName, type: deviceType, serial: d.serial_number };
+      }
+      deviceMap[d.serial_number] = { name: displayName, type: deviceType, serial: d.serial_number };
     });
 
-    const selectedObjectIds = devices.map(d => serialToXormonMap[d.serial_number] || d.serial_number);
+    const allObjectIds = devices.map(d => serialToXormonMap[d.serial_number] || d.serial_number);
 
-    // 2. We need to query capacity over the last N months.
-    // For this, we check the ForecastMetricSnapshot for the selected devices.
-    // We group by month (e.g., "2026-01", "2026-02").
+    // 2. Get snapshot data for the last 6 months
     const sixMonthsAgo = new Date();
     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
 
     const snapshots = await prisma.forecastMetricSnapshot.findMany({
       where: {
-        object_id: { in: selectedObjectIds },
-        metric_name: 'capacity_used_percent',
+        object_id: { in: allObjectIds },
+        metric_name: { in: ['capacity_total', 'capacity_used', 'capacity_used_percent', 'capacity_free', 'available_ports', 'free_ports', 'port_utilization_percent'] },
         captured_at: { gte: sixMonthsAgo }
       },
       orderBy: { captured_at: 'asc' }
     });
 
-    // Generate Month keys: e.g. "Ocak", "Şubat", etc.
-    const monthsTr = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
-    
-    // Group snapshots by Device and Month
-    const monthlyData: Record<string, Record<string, number>> = {};
-    const monthsEncountered = new Set<string>();
+    // 3. Group snapshots by device -> month -> metric (keep latest value per month)
+    const storageMonthlyMap: Record<string, Record<string, MonthlyStorageData>> = {};
+    const sanMonthlyMap: Record<string, Record<string, MonthlySanData>> = {};
+    const monthsSet = new Set<string>();
 
-    snapshots.forEach(s => {
-      const d = new Date(s.captured_at);
-      const monthKey = `${monthsTr[d.getMonth()]} ${d.getFullYear()}`;
-      monthsEncountered.add(monthKey);
-      
-      const val = parseFloat(s.metric_value as any) || 0;
+    for (const snap of snapshots) {
+      const d = new Date(snap.captured_at);
+      const monthKey = `${MONTHS_TR[d.getMonth()]} ${d.getFullYear()}`;
+      monthsSet.add(monthKey);
 
-      if (!monthlyData[s.object_id]) {
-        monthlyData[s.object_id] = {};
+      const objId = snap.object_id;
+      const objType = snap.object_type;
+      const val = parseFloat(snap.metric_value as any) || 0;
+
+      if (objType === 'storage') {
+        if (!storageMonthlyMap[objId]) storageMonthlyMap[objId] = {};
+        if (!storageMonthlyMap[objId][monthKey]) {
+          storageMonthlyMap[objId][monthKey] = { capacity_total_gib: null, capacity_used_gib: null, capacity_free_gib: null, capacity_used_percent: null };
+        }
+        const entry = storageMonthlyMap[objId][monthKey];
+        if (snap.metric_name === 'capacity_total') entry.capacity_total_gib = val * 1024; // TB to GiB
+        if (snap.metric_name === 'capacity_used') entry.capacity_used_gib = val * 1024;
+        if (snap.metric_name === 'capacity_free') entry.capacity_free_gib = val * 1024;
+        if (snap.metric_name === 'capacity_used_percent') entry.capacity_used_percent = val;
+      } else if (objType === 'san') {
+        if (!sanMonthlyMap[objId]) sanMonthlyMap[objId] = {};
+        if (!sanMonthlyMap[objId][monthKey]) {
+          sanMonthlyMap[objId][monthKey] = { available_ports: null, free_ports: null, used_ports: null };
+        }
+        const entry = sanMonthlyMap[objId][monthKey];
+        if (snap.metric_name === 'available_ports') entry.available_ports = val;
+        if (snap.metric_name === 'free_ports') entry.free_ports = val;
       }
-      
-      // Keep the latest value for the month (overwrite as we iterate asc)
-      monthlyData[s.object_id][monthKey] = val;
-    });
+    }
 
-    const monthColumns = Array.from(monthsEncountered);
-
-    // If we want to persist them in MonthlyCapacityKPI for history
-    // (This is a simplified approach: we snapshot whatever we found to the new table)
-    // In a real scheduled job, this would run on the 1st of every month.
-    for (const objId of Object.keys(monthlyData)) {
-      for (const mKey of monthColumns) {
-        // Parse monthKey to a date representing the 1st of that month
-        const [mName, yStr] = mKey.split(' ');
-        const mIdx = monthsTr.indexOf(mName);
-        const reportDate = new Date(parseInt(yStr), mIdx, 1);
-
-        const val = monthlyData[objId][mKey];
-
-        // Upsert the KPI record to ensure persistence
-        try {
-          await prisma.monthlyCapacityKPI.upsert({
-            where: {
-              object_id_report_month: {
-                object_id: objId,
-                report_month: reportDate
-              }
-            },
-            update: { capacity_percent: val },
-            create: {
-              object_id: objId,
-              object_name: objId,
-              report_month: reportDate,
-              capacity_percent: val
-            }
-          });
-        } catch (dbErr: any) {
-          console.warn(`[KPI Controller] Prisma DB hatası (Şema güncellenmemiş olabilir): ${dbErr.message}`);
-          // Hata olsa da Excel oluşturmaya devam et (Geçici)
+    // Calculate derived values for storage
+    for (const objId of Object.keys(storageMonthlyMap)) {
+      for (const mKey of Object.keys(storageMonthlyMap[objId])) {
+        const entry = storageMonthlyMap[objId][mKey];
+        // Calculate free if we have total and used
+        if (entry.capacity_free_gib === null && entry.capacity_total_gib !== null && entry.capacity_used_gib !== null) {
+          entry.capacity_free_gib = entry.capacity_total_gib - entry.capacity_used_gib;
+        }
+        // Calculate free from percentage if direct value missing
+        if (entry.capacity_free_gib === null && entry.capacity_total_gib !== null && entry.capacity_used_percent !== null) {
+          entry.capacity_free_gib = entry.capacity_total_gib * (1 - entry.capacity_used_percent / 100);
         }
       }
     }
 
-    // 3. Create Excel
+    // Calculate derived values for SAN
+    for (const objId of Object.keys(sanMonthlyMap)) {
+      for (const mKey of Object.keys(sanMonthlyMap[objId])) {
+        const entry = sanMonthlyMap[objId][mKey];
+        if (entry.available_ports !== null && entry.free_ports !== null) {
+          entry.used_ports = entry.available_ports - entry.free_ports;
+        }
+      }
+    }
+
+    // Sort months chronologically
+    const sortedMonths = Array.from(monthsSet).sort((a, b) => {
+      const [mNameA, yA] = a.split(' ');
+      const [mNameB, yB] = b.split(' ');
+      const dateA = new Date(parseInt(yA), MONTHS_TR.indexOf(mNameA), 1);
+      const dateB = new Date(parseInt(yB), MONTHS_TR.indexOf(mNameB), 1);
+      return dateA.getTime() - dateB.getTime();
+    });
+
+    // Separate device IDs by type
+    const storageIds = allObjectIds.filter(id => {
+      const dev = deviceMap[id];
+      return dev?.type === 'storage';
+    });
+    const sanIds = allObjectIds.filter(id => {
+      const dev = deviceMap[id];
+      return dev?.type === 'san_switch';
+    });
+
+    // Also include any devices found in snapshot data but not in inventory
+    for (const objId of Object.keys(storageMonthlyMap)) {
+      if (!storageIds.includes(objId)) {
+        storageIds.push(objId);
+        if (!deviceMap[objId]) {
+          // Try to get the name from snapshot
+          const snap = snapshots.find(s => s.object_id === objId);
+          deviceMap[objId] = { name: snap?.object_name || objId, type: 'storage', serial: objId };
+        }
+      }
+    }
+    for (const objId of Object.keys(sanMonthlyMap)) {
+      if (!sanIds.includes(objId)) {
+        sanIds.push(objId);
+        if (!deviceMap[objId]) {
+          const snap = snapshots.find(s => s.object_id === objId);
+          deviceMap[objId] = { name: snap?.object_name || objId, type: 'san_switch', serial: objId };
+        }
+      }
+    }
+
+    // 4. Build Excel
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('Kapasite KPI Raporu');
+    const ws = workbook.addWorksheet('KPI Raporu');
 
-    // Define Columns
-    const columns = [
-      { header: 'Cihaz Adı', key: 'name', width: 25 },
-      { header: 'Seri Numarası', key: 'serial', width: 25 },
-      { header: 'Lokasyon', key: 'location', width: 25 },
-    ];
+    // ============================================================
+    // HEADER ROW 1: "KPI" + Month Names (merged across sub-columns)
+    // ============================================================
+    const row1: any[] = ['KPI'];
+    // For storage: each month has 2 sub-columns (Boş Kapasite GiB, Dolu Kapasite %)
+    // Middle column: Kapasite (GiB) - total capacity (latest known)
+    // For now, build for storage section first
 
-    // Add dynamic month columns
-    monthColumns.forEach(m => {
-      columns.push({ header: `${m} Kullanım (%)`, key: m, width: 20 });
-    });
+    // Storage sub-columns per month: Boş Kapasite (GiB), Dolu Kapasite (%)
+    // We also add a "Kapasite (GiB)" column (total) in the middle between months
+    // But looking at reference, it seems total capacity is just another column in the same row
+    // Let me build it month by month
 
-    worksheet.columns = columns;
+    // Column layout for storage:
+    // Col A: Device name (KPI header)
+    // For each month: 2 columns (Boş Kapasite GiB, Dolu Kapasite %)
+    const storageColsPerMonth = 2;
+    const sanColsPerMonth = 2; // Boş Port, Dolu Port
 
-    // Add Data
-    devices.forEach(d => {
-      const xormonId = serialToXormonMap[d.serial_number] || d.serial_number;
-      const dcName = d.rack?.room?.datacenter?.name || 'Bilinmiyor';
-      
-      const rowData: any = {
-        name: d.hostname || d.serial_number,
-        serial: d.serial_number,
-        location: dcName,
-      };
+    // --- ROW 1: Top-level headers ---
+    const headerRow1 = ws.getRow(1);
+    headerRow1.getCell(1).value = 'KPI';
+    headerRow1.getCell(1).font = HEADER_FONT_WHITE;
+    headerRow1.getCell(1).fill = HEADER_GOLD;
+    headerRow1.getCell(1).alignment = CENTER;
+    headerRow1.getCell(1).border = BORDER_THIN;
 
-      monthColumns.forEach(m => {
-        const val = monthlyData[xormonId]?.[m];
-        rowData[m] = val !== undefined ? `${val.toFixed(2)}%` : '-';
-      });
+    let col = 2;
+    const monthStartCols: number[] = [];
+    for (const month of sortedMonths) {
+      monthStartCols.push(col);
+      headerRow1.getCell(col).value = month;
+      headerRow1.getCell(col).font = HEADER_FONT_WHITE;
+      headerRow1.getCell(col).fill = HEADER_GOLD;
+      headerRow1.getCell(col).alignment = CENTER;
+      headerRow1.getCell(col).border = BORDER_THIN;
 
-      worksheet.addRow(rowData);
-    });
+      // Merge the month header across its sub-columns
+      if (storageColsPerMonth > 1) {
+        ws.mergeCells(1, col, 1, col + storageColsPerMonth - 1);
+      }
+      col += storageColsPerMonth;
+    }
 
-    // Formatting Header
-    worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
-    worksheet.getRow(1).fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'FF1F4E78' } // Dark blue
-    };
-    worksheet.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
+    // --- ROW 2: Sub-column headers for Storage ---
+    const headerRow2 = ws.getRow(2);
+    headerRow2.getCell(1).value = 'Disk Ünitesi';
+    headerRow2.getCell(1).font = HEADER_FONT_WHITE;
+    headerRow2.getCell(1).fill = HEADER_BLUE;
+    headerRow2.getCell(1).alignment = LEFT;
+    headerRow2.getCell(1).border = BORDER_THIN;
 
-    // Send File
+    col = 2;
+    for (const _month of sortedMonths) {
+      headerRow2.getCell(col).value = 'Boş Kapasite (GiB)';
+      headerRow2.getCell(col).font = HEADER_FONT_WHITE;
+      headerRow2.getCell(col).fill = HEADER_BLUE;
+      headerRow2.getCell(col).alignment = CENTER;
+      headerRow2.getCell(col).border = BORDER_THIN;
+
+      headerRow2.getCell(col + 1).value = 'Dolu Kapasite (%)';
+      headerRow2.getCell(col + 1).font = HEADER_FONT_WHITE;
+      headerRow2.getCell(col + 1).fill = HEADER_BLUE;
+      headerRow2.getCell(col + 1).alignment = CENTER;
+      headerRow2.getCell(col + 1).border = BORDER_THIN;
+
+      col += storageColsPerMonth;
+    }
+
+    // Set column widths
+    ws.getColumn(1).width = 30;
+    for (let i = 2; i <= 1 + sortedMonths.length * storageColsPerMonth; i++) {
+      ws.getColumn(i).width = 20;
+    }
+
+    // --- STORAGE DATA ROWS ---
+    let currentRow = 3;
+    for (const objId of storageIds) {
+      const dev = deviceMap[objId];
+      const row = ws.getRow(currentRow);
+      row.getCell(1).value = dev?.name || objId;
+      row.getCell(1).alignment = LEFT;
+      row.getCell(1).border = BORDER_THIN;
+
+      col = 2;
+      for (const month of sortedMonths) {
+        const data = storageMonthlyMap[objId]?.[month];
+        
+        // Boş Kapasite (GiB)
+        const freeGib = data?.capacity_free_gib;
+        row.getCell(col).value = freeGib !== null && freeGib !== undefined ? parseFloat(freeGib.toFixed(2)) : '-';
+        row.getCell(col).alignment = CENTER;
+        row.getCell(col).border = BORDER_THIN;
+        if (typeof row.getCell(col).value === 'number') {
+          row.getCell(col).numFmt = '#,##0.00';
+        }
+
+        // Dolu Kapasite (%)
+        const usedPct = data?.capacity_used_percent;
+        row.getCell(col + 1).value = usedPct !== null && usedPct !== undefined ? parseFloat(usedPct.toFixed(2)) : '-';
+        row.getCell(col + 1).alignment = CENTER;
+        row.getCell(col + 1).border = BORDER_THIN;
+        if (typeof row.getCell(col + 1).value === 'number') {
+          row.getCell(col + 1).numFmt = '0.00';
+        }
+
+        col += storageColsPerMonth;
+      }
+      currentRow++;
+    }
+
+    // --- SAN SECTION SEPARATOR ---
+    currentRow++; // Empty row
+    const sanHeaderRow1 = ws.getRow(currentRow);
+    sanHeaderRow1.getCell(1).value = 'SAN Switch /Direktör';
+    sanHeaderRow1.getCell(1).font = HEADER_FONT_WHITE;
+    sanHeaderRow1.getCell(1).fill = HEADER_GOLD;
+    sanHeaderRow1.getCell(1).alignment = LEFT;
+    sanHeaderRow1.getCell(1).border = BORDER_THIN;
+
+    col = 2;
+    for (const month of sortedMonths) {
+      sanHeaderRow1.getCell(col).value = month;
+      sanHeaderRow1.getCell(col).font = HEADER_FONT_WHITE;
+      sanHeaderRow1.getCell(col).fill = HEADER_GOLD;
+      sanHeaderRow1.getCell(col).alignment = CENTER;
+      sanHeaderRow1.getCell(col).border = BORDER_THIN;
+
+      if (sanColsPerMonth > 1) {
+        ws.mergeCells(currentRow, col, currentRow, col + sanColsPerMonth - 1);
+      }
+      col += sanColsPerMonth;
+    }
+    currentRow++;
+
+    // SAN sub-headers
+    const sanHeaderRow2 = ws.getRow(currentRow);
+    sanHeaderRow2.getCell(1).value = 'SAN Switch /Direktör';
+    sanHeaderRow2.getCell(1).font = HEADER_FONT_WHITE;
+    sanHeaderRow2.getCell(1).fill = HEADER_BLUE;
+    sanHeaderRow2.getCell(1).alignment = LEFT;
+    sanHeaderRow2.getCell(1).border = BORDER_THIN;
+
+    col = 2;
+    for (const _month of sortedMonths) {
+      sanHeaderRow2.getCell(col).value = 'Boş Port';
+      sanHeaderRow2.getCell(col).font = HEADER_FONT_WHITE;
+      sanHeaderRow2.getCell(col).fill = HEADER_BLUE;
+      sanHeaderRow2.getCell(col).alignment = CENTER;
+      sanHeaderRow2.getCell(col).border = BORDER_THIN;
+
+      sanHeaderRow2.getCell(col + 1).value = 'Dolu Port';
+      sanHeaderRow2.getCell(col + 1).font = HEADER_FONT_WHITE;
+      sanHeaderRow2.getCell(col + 1).fill = HEADER_BLUE;
+      sanHeaderRow2.getCell(col + 1).alignment = CENTER;
+      sanHeaderRow2.getCell(col + 1).border = BORDER_THIN;
+
+      col += sanColsPerMonth;
+    }
+    currentRow++;
+
+    // --- SAN DATA ROWS ---
+    for (const objId of sanIds) {
+      const dev = deviceMap[objId];
+      const row = ws.getRow(currentRow);
+      row.getCell(1).value = dev?.name || objId;
+      row.getCell(1).alignment = LEFT;
+      row.getCell(1).border = BORDER_THIN;
+
+      col = 2;
+      for (const month of sortedMonths) {
+        const data = sanMonthlyMap[objId]?.[month];
+
+        // Boş Port
+        const freePorts = data?.free_ports;
+        row.getCell(col).value = freePorts !== null && freePorts !== undefined ? freePorts : '-';
+        row.getCell(col).alignment = CENTER;
+        row.getCell(col).border = BORDER_THIN;
+
+        // Dolu Port
+        const usedPorts = data?.used_ports;
+        row.getCell(col + 1).value = usedPorts !== null && usedPorts !== undefined ? usedPorts : '-';
+        row.getCell(col + 1).alignment = CENTER;
+        row.getCell(col + 1).border = BORDER_THIN;
+
+        col += sanColsPerMonth;
+      }
+      currentRow++;
+    }
+
+    // 5. Persist to MonthlyCapacityKPI for history
+    for (const objId of Object.keys(storageMonthlyMap)) {
+      for (const mKey of Object.keys(storageMonthlyMap[objId])) {
+        const [mName, yStr] = mKey.split(' ');
+        const mIdx = MONTHS_TR.indexOf(mName);
+        const reportDate = new Date(parseInt(yStr), mIdx, 1);
+        const entry = storageMonthlyMap[objId][mKey];
+
+        try {
+          await prisma.monthlyCapacityKPI.upsert({
+            where: { object_id_report_month: { object_id: objId, report_month: reportDate } },
+            update: { capacity_percent: entry.capacity_used_percent || 0, capacity_gib: entry.capacity_total_gib },
+            create: {
+              object_id: objId,
+              object_name: deviceMap[objId]?.name || objId,
+              report_month: reportDate,
+              capacity_percent: entry.capacity_used_percent || 0,
+              capacity_gib: entry.capacity_total_gib
+            }
+          });
+        } catch (dbErr: any) {
+          console.warn(`[KPI] DB persist warning: ${dbErr.message}`);
+        }
+      }
+    }
+
+    // 6. Send Excel
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', 'attachment; filename="inventrops-aylik-kpi.xlsx"');
-
     await workbook.xlsx.write(res);
     res.end();
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('[KPI Controller Error]', error);
-    res.status(500).json({ error: 'Excel raporu oluşturulurken hata oluştu.' });
+    res.status(500).json({ error: 'Excel raporu oluşturulurken hata oluştu.', detail: error.message });
   }
 };
