@@ -8,8 +8,9 @@ const HYPERVISOR_KEYWORDS = [
 ];
 
 export const getItems = async (req: Request, res: Response) => {
-  const { rack, room, datacenter, search, device_type, vendor, model, status = 'active', page = '1', ordering = '-created_at', warranty_before, warranty_after } = req.query;
-  const skip = (parseInt(page as string) - 1) * 25;
+  const { rack, room, datacenter, search, device_type, vendor, model, status = 'active', page = '1', ordering = '-created_at', warranty_before, warranty_after, limit } = req.query;
+  const takeAmount = limit ? parseInt(limit as string) : 25;
+  const skip = (parseInt(page as string) - 1) * takeAmount;
   const { team_id, role } = (req as any).user || {};
 
   try {
@@ -103,7 +104,7 @@ export const getItems = async (req: Request, res: Response) => {
         },
         orderBy: { [orderField]: orderDir },
         skip,
-        take: 25
+        take: takeAmount
       }),
       prisma.inventoryItem.count({ where })
     ]);

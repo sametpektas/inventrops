@@ -16,7 +16,7 @@ export default function Bulletin() {
     try {
       setLoading(true);
       
-      const data = await api.get('/inventory?limit=500');
+      const data = await api.get('/inventory/items?limit=500');
       
       const storageDevices = data.results.filter(
         d => d.model?.device_type === 'storage'
