@@ -194,8 +194,8 @@ export const generateKpiExcel = async (req: Request, res: Response) => {
     // Column layout for storage:
     // Col A: Device name (KPI header)
     // For each month: 2 columns (Boş Kapasite GiB, Dolu Kapasite %)
-    const storageColsPerMonth = 2;
-    const sanColsPerMonth = 2; // Boş Port, Dolu Port
+    const storageColsPerMonth = 3; // Boş Kapasite (GiB), Dolu Kapasite (%), Kapasite (GiB)
+    const sanColsPerMonth = 3; // Boş Port, Dolu Port, Toplam Port
 
     // --- ROW 1: Top-level headers ---
     const headerRow1 = ws.getRow(1);
@@ -244,6 +244,12 @@ export const generateKpiExcel = async (req: Request, res: Response) => {
       headerRow2.getCell(col + 1).alignment = CENTER;
       headerRow2.getCell(col + 1).border = BORDER_THIN;
 
+      headerRow2.getCell(col + 2).value = 'Kapasite (GiB)';
+      headerRow2.getCell(col + 2).font = HEADER_FONT_WHITE;
+      headerRow2.getCell(col + 2).fill = HEADER_BLUE;
+      headerRow2.getCell(col + 2).alignment = CENTER;
+      headerRow2.getCell(col + 2).border = BORDER_THIN;
+
       col += storageColsPerMonth;
     }
 
@@ -282,6 +288,15 @@ export const generateKpiExcel = async (req: Request, res: Response) => {
         row.getCell(col + 1).border = BORDER_THIN;
         if (typeof row.getCell(col + 1).value === 'number') {
           row.getCell(col + 1).numFmt = '0.00';
+        }
+
+        // Kapasite (GiB) - Toplam
+        const totalGib = data?.capacity_total_gib;
+        row.getCell(col + 2).value = totalGib !== null && totalGib !== undefined ? parseFloat(totalGib.toFixed(2)) : '-';
+        row.getCell(col + 2).alignment = CENTER;
+        row.getCell(col + 2).border = BORDER_THIN;
+        if (typeof row.getCell(col + 2).value === 'number') {
+          row.getCell(col + 2).numFmt = '#,##0.00';
         }
 
         col += storageColsPerMonth;
@@ -335,6 +350,12 @@ export const generateKpiExcel = async (req: Request, res: Response) => {
       sanHeaderRow2.getCell(col + 1).alignment = CENTER;
       sanHeaderRow2.getCell(col + 1).border = BORDER_THIN;
 
+      sanHeaderRow2.getCell(col + 2).value = 'Toplam Port';
+      sanHeaderRow2.getCell(col + 2).font = HEADER_FONT_WHITE;
+      sanHeaderRow2.getCell(col + 2).fill = HEADER_BLUE;
+      sanHeaderRow2.getCell(col + 2).alignment = CENTER;
+      sanHeaderRow2.getCell(col + 2).border = BORDER_THIN;
+
       col += sanColsPerMonth;
     }
     currentRow++;
@@ -362,6 +383,12 @@ export const generateKpiExcel = async (req: Request, res: Response) => {
         row.getCell(col + 1).value = usedPorts !== null && usedPorts !== undefined ? usedPorts : '-';
         row.getCell(col + 1).alignment = CENTER;
         row.getCell(col + 1).border = BORDER_THIN;
+
+        // Toplam Port
+        const totalPorts = data?.available_ports;
+        row.getCell(col + 2).value = totalPorts !== null && totalPorts !== undefined ? totalPorts : '-';
+        row.getCell(col + 2).alignment = CENTER;
+        row.getCell(col + 2).border = BORDER_THIN;
 
         col += sanColsPerMonth;
       }
