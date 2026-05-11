@@ -1,51 +1,87 @@
-# Aylık KPI Raporu (Excel) Entegrasyon Planı
+# Bülten Ay Seçici & Değerlendirme Slaytı Geliştirme Planı
 
-## 1. Genel Bakış
-Kullanıcının talebi üzerine, Xormon üzerinden çekilen Storage ve SAN cihazlarına ait Aylık KPI verilerini hesaplayan, geçmiş aylar ile karşılaştırmalı olarak Excel formatında raporlayan bir sistem oluşturulacaktır. Her aya ait performans ve kapasite değerleri (Örn: Önceki Ay IOPS vs Bu Ay IOPS) veritabanında saklanarak tarihsel bütünlük korunacaktır.
-
-## 2. Mimari ve Veritabanı (Database Architect)
-### 2.1. Yeni Prisma Modeli (KPI History)
-Aylık Kapasite KPI verilerinin dondurulup saklanması için Prisma şemasına yeni bir model eklenecektir.
-* **Model:** `MonthlyCapacityKPI`
-* **Alanlar:**
-  * `id`: UUID
-  * `deviceId`: String (InventoryItem bağlantısı)
-  * `reportMonth`: DateTime (Hangi aya ait olduğu)
-  * `capacityUsedPercent`: Float
-  * `capacityUsedGiB`: Float (opsiyonel/gerekirse)
-  * `createdAt`: DateTime
-
-### 2.2. Veri Akışı
-* Rapor oluşturulduğunda sistem önce `MonthlyCapacityKPI` tablosunda ilgili aya ait veri var mı diye bakar.
-* Yoksa, o aya ait kapasite verilerini çekip dondurur (snapshot alır).
-* Excel oluşturulurken cihaz bazında "Önceki Aylar" ve "Bu Ay" yan yana (ay bazlı kolonlar halinde) listelenir.
-
-## 3. Backend (Backend Specialist)
-### 3.1. API Uç Noktaları
-* `GET /api/reports/kpi/excel`: Excel raporunu üretecek uç nokta.
-* Parametre: Hangi ay/yıl aralığının isteneceği (varsayılan: son 6 ay vb.)
-
-### 3.2. Excel Üretimi (ExcelJS)
-* `exceljs` kullanılarak sadece **Kapasite Kullanım** verilerini içeren bir Excel üretilecek.
-* Kolonlar (Örnek):
-  - Cihaz Adı
-  - Toplam Kapasite
-  - Ocak Ayı Kullanım (%)
-  - Şubat Ayı Kullanım (%)
-  - Mart Ayı Kullanım (%)
-  - Nisan Ayı Kullanım (%)
-  - Mayıs Ayı Kullanım (%)
-
-## 4. Frontend (Frontend Specialist)
-### 4.1. UI Entegrasyonu
-* Raporlama/Bülten veya Analytics sayfasına yeni bir **"Aylık KPI Raporu İndir (Excel)"** butonu eklenecek.
-* Butona tıklandığında hangi ay için rapor alınacağı (Ay/Yıl seçici) sorulacak.
-
-## 5. Doğrulama (Test Engineer)
-* `schema_validator.py` çalıştırılarak yeni tablonun veritabanına sorunsuz eklendiği doğrulanacak.
-* Excel dosyasının formatı test edilecek.
+## Özet
+Bülten ve KPI raporlarına ay bazlı filtreleme özelliği eklenmesi, bültenin sonuna otomatik IOPS/Response Time yorumları ve manuel madde girişi içeren "Değerlendirme" slaytı eklenmesi.
 
 ---
-**Bekleyen Sorular / Kararlar (Socratic Gate):**
-1. Excel görselini henüz iletmediniz, kolonlar yukarıdaki tahminim gibi (Önceki ay vs Bu ay yan yana) mi olacak yoksa eklemek istediğiniz başka kolonlar var mı?
-2. KPI raporu tüm lokasyonlardaki cihazları tek sekmede mi göstersin, yoksa lokasyon bazlı Excel sekmeleri (Ankara, İstanbul) mi oluşturalım?
+
+## 1. Frontend Değişiklikleri (Bulletin.jsx)
+
+### 1.1 Ay Seçici (Month Picker)
+- Bülten oluştur formuna Ay/Yıl seçici dropdown eklenir
+- Varsayılan: Bir önceki ay (Mayıs'taysak → Nisan)
+- Format: { month: 0-11, year: 2026 } olarak backend'e gönderilir
+- KPI butonu da aynı ay seçiciden faydalanır
+
+### 1.2 Manuel Madde Girişi (Text Area)
+- "Bülten Oluştur" butonuna tıklandığında önce bir modal/dialog açılır
+- Dialog içinde:
+  - Seçilen ay bilgisi gösterilir
+  - Çok satırlı text alanı ("Ek değerlendirme maddeleri") yer alır
+  - Her satır ayrı bir bullet point olarak slayta basılır
+  - "Oluştur" ve "İptal" butonları
+- "Oluştur"a tıklandığında customNotes olarak backend'e POST edilir
+
+### 1.3 API İstek Formatı (Güncelleme)
+POST /api/bulletin/generate
+- serialNumbers, targetMonth, targetYear, customNotes
+
+POST /api/bulletin/generate-excel
+- targetMonth, targetYear
+
+---
+
+## 2. Backend — Bulletin Controller Değişiklikleri
+
+### 2.1 Tarih Aralığı Hesaplama
+- targetMonth ve targetYear request body'den alınır
+- Seçilen ayın 1. günü ile son günü arasındaki IOPS/Response Time verileri çekilir
+- Kapasite grafikleri: Seçilen aydan geriye 6 aylık veri
+- Varsayılan (parametre yoksa): Bir önceki ay
+
+### 2.2 Kapak Slaytı Güncelleme
+- Başlık: "BT Storage Yönetimi" (sabit)
+- Alt başlık: "BT Açık Sistemler Depolama ve Yedekleme Sistemleri Yönetimi" (sabit)
+- Alt satır: "Storage {Ay Adı} Ayı Bülteni" (dinamik)
+- Logo: backend/assets/logo.png dosyasından (varsa) sağ üst köşeye eklenir
+
+### 2.3 Değerlendirme Slaytı (Son Slayt)
+- Başlık: "Değerlendirme (Disk - SAN) – {Ay Adı} -{Yıl}"
+- Otomatik maddeler (her seçilen cihaz için):
+  - Seçilen aydaki ortalama Response Time ve IOPS hesaplanır
+  - Format: "{Cihaz} disklerinde cevap süreleri {avg_rt} ms seyretmektedir. Disk I/O rate ay ortalamasında {avg_iops} IOPS civarındadır."
+- Manuel maddeler: customNotes dizisindeki her eleman ayrı bullet point olarak eklenir
+- Sıralama: Önce manuel maddeler, sonra otomatik maddeler
+
+### 2.4 Logo Desteği
+- backend/assets/logo.png dosyası varsa kapak ve değerlendirme slaytlarının sağ üst köşesine eklenir
+- Dosya yoksa logo alanı boş bırakılır (hata vermez)
+
+---
+
+## 3. Backend — KPI Controller Değişiklikleri
+
+### 3.1 Ay Filtresi
+- targetMonth ve targetYear request body'den alınır
+- Seçilen ayın verileri ile önceki ayların verilerini birlikte gösterir
+- Varsayılan: Mevcut ay
+
+---
+
+## 4. Dosya Değişiklik Listesi
+
+| Dosya | Değişiklik |
+|-------|-----------|
+| frontend/src/pages/Bulletin.jsx | Ay seçici, modal dialog, customNotes text area |
+| backend/src/controllers/bulletin.controller.ts | targetMonth/Year, kapak slaytı, değerlendirme slaytı, logo |
+| backend/src/controllers/kpi.controller.ts | targetMonth/Year, tarih filtreleme |
+| backend/assets/logo.png | Kullanıcı tarafından yüklenir |
+
+---
+
+## 5. Uygulama Sırası
+
+1. Backend: Bulletin controller — ay filtresi + değerlendirme slaytı + kapak güncelleme
+2. Backend: KPI controller — ay filtresi
+3. Frontend: Bulletin.jsx — ay seçici + modal dialog
+4. Test: Build doğrulama

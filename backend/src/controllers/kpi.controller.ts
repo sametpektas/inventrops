@@ -31,6 +31,15 @@ interface MonthlySanData {
 
 export const generateKpiExcel = async (req: Request, res: Response) => {
   try {
+    // Parse target month/year (default: current month)
+    const { targetMonth, targetYear } = req.body || {};
+    const now = new Date();
+    const tMonth = targetMonth !== undefined ? targetMonth : now.getMonth(); // 0-indexed
+    const tYear = targetYear !== undefined ? targetYear : now.getFullYear();
+
+    const monthEnd = new Date(tYear, tMonth + 1, 0, 23, 59, 59);
+    const sixMonthsAgo = new Date(tYear, tMonth - 5, 1);
+
     // 1. Get all Storage and SAN Switch devices
     const devices = await prisma.inventoryItem.findMany({
       where: {
@@ -61,15 +70,12 @@ export const generateKpiExcel = async (req: Request, res: Response) => {
 
     const allObjectIds = devices.map(d => serialToXormonMap[d.serial_number] || d.serial_number);
 
-    // 2. Get snapshot data for the last 6 months
-    const sixMonthsAgo = new Date();
-    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-
+    // 2. Get snapshot data for the 6-month window ending at target month
     const snapshots = await prisma.forecastMetricSnapshot.findMany({
       where: {
         object_id: { in: allObjectIds },
         metric_name: { in: ['capacity_total', 'capacity_used', 'capacity_used_percent', 'capacity_free', 'available_ports', 'free_ports', 'port_utilization_percent'] },
-        captured_at: { gte: sixMonthsAgo }
+        captured_at: { gte: sixMonthsAgo, lte: monthEnd }
       },
       orderBy: { captured_at: 'asc' }
     });

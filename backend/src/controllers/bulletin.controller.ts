@@ -1,20 +1,35 @@
 import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import pptxgen from 'pptxgenjs';
+import fs from 'fs';
+import path from 'path';
+
+const MONTHS_TR = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
 
 export const generateBulletin = async (req: Request, res: Response) => {
   try {
-    const { serialNumbers } = req.body;
+    const { serialNumbers, targetMonth, targetYear, customNotes } = req.body;
 
     if (!Array.isArray(serialNumbers)) {
       return res.status(400).json({ error: 'serialNumbers must be an array of strings' });
     }
 
-    const sixMonthsAgo = new Date();
-    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+    // Determine target month/year (default: previous month)
+    const now = new Date();
+    const prevMonth = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
+    const prevYear = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
+    
+    const tMonth = targetMonth !== undefined ? targetMonth : prevMonth; // 0-indexed
+    const tYear = targetYear !== undefined ? targetYear : prevYear;
 
-    const oneMonthAgo = new Date();
-    oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+    // Calculate date ranges based on target month
+    const monthStart = new Date(tYear, tMonth, 1);
+    const monthEnd = new Date(tYear, tMonth + 1, 0, 23, 59, 59); // Last day of target month
+    
+    // Capacity charts: 6 months ending at the target month
+    const sixMonthsBefore = new Date(tYear, tMonth - 5, 1); // 6 months back from target
+
+    const targetMonthName = MONTHS_TR[tMonth];
 
     const allStorageDevices = await prisma.inventoryItem.findMany({
       where: { model: { device_type: { in: ['storage'] } } },
@@ -23,6 +38,7 @@ export const generateBulletin = async (req: Request, res: Response) => {
 
     const xormonLocationMap: Record<string, string> = {};
     const serialToXormonMap: Record<string, string> = {};
+    const xormonToNameMap: Record<string, string> = {};
 
     allStorageDevices.forEach((d: any) => {
       const dcName = (d.rack?.room?.datacenter?.name || '').toLowerCase();
@@ -33,30 +49,34 @@ export const generateBulletin = async (req: Request, res: Response) => {
       if (dcName.includes('avm') || dcName.includes('ankara')) location = 'Ankara';
       else if (dcName.includes('varyap') || dcName.includes('istanbul')) location = 'Istanbul';
 
-      if (xormonId) xormonLocationMap[xormonId] = location;
+      if (xormonId) {
+        xormonLocationMap[xormonId] = location;
+        xormonToNameMap[xormonId] = d.hostname || d.serial_number;
+      }
       xormonLocationMap[d.serial_number] = location;
+      xormonToNameMap[d.serial_number] = d.hostname || d.serial_number;
       if (xormonId) serialToXormonMap[d.serial_number] = xormonId;
     });
 
     const selectedObjectIds = serialNumbers.map(sn => serialToXormonMap[sn] || sn);
 
-    // Fetch capacity metrics (6 months)
+    // Fetch capacity metrics (6 months ending at target month)
     const allStorageMetrics = await prisma.forecastMetricSnapshot.findMany({
-      where: { metric_name: 'capacity_used_percent', captured_at: { gte: sixMonthsAgo } },
+      where: { metric_name: 'capacity_used_percent', captured_at: { gte: sixMonthsBefore, lte: monthEnd } },
       orderBy: { captured_at: 'asc' }
     });
 
     const selectedCapacityMetrics = await prisma.forecastMetricSnapshot.findMany({
-      where: { object_id: { in: selectedObjectIds }, metric_name: 'capacity_used_percent', captured_at: { gte: sixMonthsAgo } },
+      where: { object_id: { in: selectedObjectIds }, metric_name: 'capacity_used_percent', captured_at: { gte: sixMonthsBefore, lte: monthEnd } },
       orderBy: { captured_at: 'asc' }
     });
 
-    // Fetch IOPS & Response Time metrics (last 1 month only)
+    // Fetch IOPS & Response Time metrics (target month only)
     const selectedPerfMetrics = await prisma.forecastMetricSnapshot.findMany({
       where: { 
         object_id: { in: selectedObjectIds }, 
         metric_name: { in: ['iops', 'io_total', 'response_time', 'latency'] },
-        captured_at: { gte: oneMonthAgo } 
+        captured_at: { gte: monthStart, lte: monthEnd } 
       },
       orderBy: { captured_at: 'asc' }
     });
@@ -64,7 +84,6 @@ export const generateBulletin = async (req: Request, res: Response) => {
     // Process data
     const generalCapacity = getLatestCapacityPerDevice(allStorageMetrics, xormonLocationMap);
     
-    // Process selected devices into individual device data structures
     const deviceCapacities = processIndividualDeviceMetrics(
       selectedCapacityMetrics
     );
@@ -81,49 +100,143 @@ export const generateBulletin = async (req: Request, res: Response) => {
     const pres = new pptxgen();
     pres.layout = 'LAYOUT_WIDE'; // 13.33 x 7.5 inches
 
+    // Check if logo exists
+    const logoPath = path.join(__dirname, '../../assets/logo.png');
+    const hasLogo = fs.existsSync(logoPath);
+
     // === SLIDE 0: Kapak Slaytı (Cover Slide) ===
-    const monthsTr = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
-    const currentMonth = monthsTr[new Date().getMonth()];
-    const currentYear = new Date().getFullYear();
-    
     const coverSlide = pres.addSlide();
-    coverSlide.background = { color: '1a1a2e' }; // Koyu lacivert/siyah arka plan
-    coverSlide.addText(`Storage ${currentMonth} Ayı Bülteni`, {
-      x: '10%', y: '40%', w: '80%', h: 2,
-      fontSize: 48,
-      bold: true,
-      color: 'ffffff',
-      align: 'center',
-      fontFace: 'Segoe UI'
-    });
-    coverSlide.addText(`${currentYear} Yılı Altyapı Kapasite ve Performans Raporu`, {
-      x: '10%', y: '60%', w: '80%', h: 1,
-      fontSize: 24,
-      color: 'cccccc',
-      align: 'center',
-      fontFace: 'Segoe UI'
+    coverSlide.background = { color: 'FFFFFF' };
+    
+    // Header bar
+    coverSlide.addShape(pres.ShapeType.rect, {
+      x: 0, y: 0, w: '100%', h: 1.5,
+      fill: { color: '1a5276' }
     });
 
-    // === SLIDE 1 & 2: Genel Kapasite (Bar Chart) ===
+    coverSlide.addText('BT Storage Yönetimi', {
+      x: 0.5, y: 0.2, w: 10, h: 0.6,
+      fontSize: 32, bold: true, color: 'FFFFFF', fontFace: 'Segoe UI'
+    });
+
+    coverSlide.addText('BT Açık Sistemler Depolama ve Yedekleme Sistemleri Yönetimi', {
+      x: 0.5, y: 0.8, w: 10, h: 0.5,
+      fontSize: 16, color: 'B0C4DE', fontFace: 'Segoe UI'
+    });
+
+    if (hasLogo) {
+      coverSlide.addImage({ path: logoPath, x: 10.8, y: 0.2, w: 2, h: 1.0 });
+    }
+
+    // Main title area
+    coverSlide.addText(`Storage ${targetMonthName} Ayı Bülteni`, {
+      x: '10%', y: '35%', w: '80%', h: 1.5,
+      fontSize: 44, bold: true, color: '1a5276', align: 'center', fontFace: 'Segoe UI'
+    });
+
+    coverSlide.addText(`${tYear} Yılı Altyapı Kapasite ve Performans Raporu`, {
+      x: '10%', y: '55%', w: '80%', h: 1,
+      fontSize: 22, color: '666666', align: 'center', fontFace: 'Segoe UI'
+    });
+
+    // === CHART SLIDES ===
     addBarChartSlide(pres, 'Genel Depolama Kapasite Kullanımı - Ankara (Prod)', generalCapacity.ankara);
     addBarChartSlide(pres, 'Genel Depolama Kapasite Kullanımı - İstanbul (DR)', generalCapacity.istanbul);
 
-    // Generate Side-by-Side Slides for Ankara
     generateSideBySideSlides(pres, ankaraDevices, deviceCapacities, 'capacity', 'Kapasite Kullanımı - Ankara (Prod)');
     generateSideBySideSlides(pres, ankaraDevices, deviceCapacities, 'capacity_trend', 'Kapasite Trendi - Ankara (Prod)');
     generateSideBySideSlides(pres, ankaraDevices, deviceIops, 'iops', 'IOPS - Ankara (Prod)');
     generateSideBySideSlides(pres, ankaraDevices, deviceResponseTime, 'responsetime', 'Response Time / Gecikme - Ankara (Prod)');
 
-    // Generate Side-by-Side Slides for Istanbul
     generateSideBySideSlides(pres, istanbulDevices, deviceCapacities, 'capacity', 'Kapasite Kullanımı - İstanbul (DR)');
     generateSideBySideSlides(pres, istanbulDevices, deviceCapacities, 'capacity_trend', 'Kapasite Trendi - İstanbul (DR)');
     generateSideBySideSlides(pres, istanbulDevices, deviceIops, 'iops', 'IOPS - İstanbul (DR)');
     generateSideBySideSlides(pres, istanbulDevices, deviceResponseTime, 'responsetime', 'Response Time / Gecikme - İstanbul (DR)');
 
+    // === LAST SLIDE: Değerlendirme (Evaluation) ===
+    const evalSlide = pres.addSlide();
+    evalSlide.background = { color: 'FFFFFF' };
+
+    // Header bar (same as cover)
+    evalSlide.addShape(pres.ShapeType.rect, {
+      x: 0, y: 0, w: '100%', h: 1.2,
+      fill: { color: '1a5276' }
+    });
+
+    evalSlide.addText('BT Storage Yönetimi', {
+      x: 0.5, y: 0.15, w: 10, h: 0.4,
+      fontSize: 24, bold: true, color: 'FFFFFF', fontFace: 'Segoe UI'
+    });
+
+    evalSlide.addText('BT Açık Sistemler Depolama ve Yedekleme Sistemleri Yönetimi', {
+      x: 0.5, y: 0.55, w: 10, h: 0.4,
+      fontSize: 13, color: 'B0C4DE', fontFace: 'Segoe UI'
+    });
+
+    if (hasLogo) {
+      evalSlide.addImage({ path: logoPath, x: 10.8, y: 0.15, w: 1.8, h: 0.9 });
+    }
+
+    // Section title
+    evalSlide.addText(`Değerlendirme (Disk - SAN) – ${targetMonthName} -${tYear}`, {
+      x: 1, y: 1.5, w: 11, h: 0.6,
+      fontSize: 18, bold: true, color: '1a5276', fontFace: 'Segoe UI'
+    });
+
+    // Build bullet points
+    const bulletPoints: Array<{ text: string; options: any }> = [];
+
+    // 1. Manual notes first
+    const notes = Array.isArray(customNotes) ? customNotes : [];
+    for (const note of notes) {
+      if (typeof note === 'string' && note.trim()) {
+        bulletPoints.push({ text: note.trim(), options: { bullet: true, fontSize: 13, color: '333333', fontFace: 'Segoe UI', paraSpaceAfter: 10 } });
+      }
+    }
+
+    // 2. Auto-generated IOPS/Response Time summaries per device
+    for (const objId of selectedObjectIds) {
+      const deviceName = xormonToNameMap[objId] || objId;
+      const iopsData = deviceIops[objId];
+      const rtData = deviceResponseTime[objId];
+
+      if (iopsData || rtData) {
+        const avgIops = iopsData?.values?.length 
+          ? Math.round(iopsData.values.reduce((a: number, b: number) => a + b, 0) / iopsData.values.length) 
+          : null;
+        const avgRt = rtData?.values?.length 
+          ? (rtData.values.reduce((a: number, b: number) => a + b, 0) / rtData.values.length).toFixed(1) 
+          : null;
+
+        let text = `${deviceName} disklerinde`;
+        if (avgRt !== null) {
+          text += ` cevap süreleri ${avgRt} ms seyretmektedir.`;
+        }
+        if (avgIops !== null) {
+          text += `  Disk I/O rate ay ortalamasında ${avgIops} IOPS civarındadır.`;
+        }
+
+        if (avgIops !== null || avgRt !== null) {
+          bulletPoints.push({ text, options: { bullet: true, fontSize: 13, color: '333333', fontFace: 'Segoe UI', paraSpaceAfter: 10 } });
+        }
+      }
+    }
+
+    if (bulletPoints.length > 0) {
+      evalSlide.addText(bulletPoints, {
+        x: 1.2, y: 2.3, w: 10.5, h: 4.5,
+        valign: 'top'
+      });
+    } else {
+      evalSlide.addText('Bu dönem için değerlendirme verisi bulunamadı.', {
+        x: 1.2, y: 3, w: 10.5, fontSize: 14, color: '999999', fontFace: 'Segoe UI'
+      });
+    }
+
     const buffer = await pres.stream() as Buffer;
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.presentationml.presentation');
-    res.setHeader('Content-Disposition', 'attachment; filename="inventrops-bulten.pptx"');
+    res.setHeader('Content-Disposition', `attachment; filename="bulten-${targetMonthName}-${tYear}.pptx"`);
     res.send(buffer);
 
   } catch (error) {
