@@ -251,17 +251,18 @@ function addDeviceChart(
 
   let title = '';
   let chartData: any[] = [];
+  let trendData: any[] | null = null;
   let yAxisFormat = 'General';
   let yAxisMax: number | undefined = undefined;
 
   let chartColors = ['5b9bd5', 'ed7d31', 'a5a5a5']; // Default colors
 
   if (metricType === 'capacity' || metricType === 'capacity_trend') {
-    title = data.name; // User image shows just device name as title
+    title = data.name;
     yAxisFormat = '0"%"';
     yAxisMax = 100;
     
-    // Add 3 lines: Used %, Capacity % (100), Critical Capacity % (80)
+    // 3 lines: Used %, Capacity % (100), Critical Capacity % (80)
     const capacityLine = data.labels.map(() => 100);
     const criticalLine = data.labels.map(() => 80);
 
@@ -272,7 +273,7 @@ function addDeviceChart(
     ];
 
     if (metricType === 'capacity_trend') {
-      // Calculate linear trendline for the Used Capacity data
+      // Calculate linear regression trendline
       const n = data.values.length;
       let sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
       for (let i = 0; i < n; i++) {
@@ -285,8 +286,10 @@ function addDeviceChart(
       const b = (sumY - m * sumX) / n;
       const trendlineValues = data.values.map((_, i) => m * i + b);
 
-      chartData.push({ name: 'Linear (Used Capacity (%))', labels: data.labels, values: trendlineValues });
-      chartColors = ['5b9bd5', 'ed7d31', 'a5a5a5', '5b9bd5']; // Add same blue for trendline
+      // Trendline rendered as separate overlay chart (dashed, dark red)
+      trendData = [
+        { name: 'Linear (Used Capacity (%))', labels: data.labels, values: trendlineValues }
+      ];
     }
 
   } else if (metricType === 'iops') {
@@ -301,25 +304,43 @@ function addDeviceChart(
     ];
   }
 
-  // Draw chart title manually (looks closer to user's screenshots)
+  // Chart title
   slide.addText(title, {
     x: xPos, y: 0.5, w: 6, h: 0.6, fontSize: 14, align: 'center', color: '333333'
   });
 
-  // Add the chart
+  // Main chart
   slide.addChart(pres.ChartType.line, chartData, {
     x: xPos, y: 1.2, w: 6, h: 4.5,
     showLegend: true,
     legendPos: 'b',
-    lineSmooth: false, // User screenshots show jagged lines
+    lineSmooth: false,
     showValue: false,
     catAxisLabelFontSize: 8,
     valAxisLabelFontSize: 9,
     valAxisMaxVal: yAxisMax,
     valAxisLabelFormatCode: yAxisFormat,
-    lineDataSymbol: 'none', // Remove circles to match screenshot
-    chartColors: chartColors // Dynamic colors based on metric type
+    lineDataSymbol: 'none',
+    chartColors: chartColors
   });
+
+  // Overlay trendline chart (dashed, dark red) on top of main chart
+  if (trendData) {
+    slide.addChart(pres.ChartType.line, trendData, {
+      x: xPos, y: 1.2, w: 6, h: 4.5,
+      showLegend: true,
+      legendPos: 'b',
+      lineSmooth: false,
+      showValue: false,
+      catAxisLabelFontSize: 8,
+      valAxisLabelFontSize: 9,
+      valAxisMaxVal: yAxisMax,
+      valAxisLabelFormatCode: yAxisFormat,
+      lineDataSymbol: 'none',
+      lineDash: 'dash',
+      chartColors: ['C00000'] // Dark red for trendline
+    });
+  }
 }
 
 function addBarChartSlide(pres: pptxgen, title: string, chartData: any[]) {
