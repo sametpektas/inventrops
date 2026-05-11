@@ -85,12 +85,16 @@ export const generateKpiExcel = async (req: Request, res: Response) => {
     const sanMonthlyMap: Record<string, Record<string, MonthlySanData>> = {};
     const monthsSet = new Set<string>();
 
+    // Force add the target month to ensure it appears in the report even without snapshots
+    const targetMonthKey = `${MONTHS_TR[tMonth]} ${tYear}`;
+    monthsSet.add(targetMonthKey);
+
     for (const snap of snapshots) {
       const d = new Date(snap.captured_at);
       const monthKey = `${MONTHS_TR[d.getMonth()]} ${d.getFullYear()}`;
       monthsSet.add(monthKey);
 
-      const objId = snap.object_id;
+      const objId = (snap.object_id || '').trim().toLowerCase();
       const objType = snap.object_type;
       const val = parseFloat(snap.metric_value as any) || 0;
 
@@ -114,6 +118,19 @@ export const generateKpiExcel = async (req: Request, res: Response) => {
         if (snap.metric_name === 'free_ports') entry.free_ports = val;
       }
     }
+
+    // Sort months chronologically
+    const sortedMonths = Array.from(monthsSet).sort((a, b) => {
+      const [mNameA, yA] = a.split(' ');
+      const [mNameB, yB] = b.split(' ');
+      const dateA = new Date(parseInt(yA), MONTHS_TR.indexOf(mNameA), 1);
+      const dateB = new Date(parseInt(yB), MONTHS_TR.indexOf(mNameB), 1);
+      return dateA.getTime() - dateB.getTime();
+    });
+
+    // Separate devices by type using original list
+    const storageDevices = devices.filter(d => d.model?.device_type === 'storage');
+    const sanDevices = devices.filter(d => d.model?.device_type === 'san_switch');
 
     // Calculate derived values for storage
     for (const objId of Object.keys(storageMonthlyMap)) {
@@ -139,15 +156,6 @@ export const generateKpiExcel = async (req: Request, res: Response) => {
         }
       }
     }
-
-    // Sort months chronologically
-    const sortedMonths = Array.from(monthsSet).sort((a, b) => {
-      const [mNameA, yA] = a.split(' ');
-      const [mNameB, yB] = b.split(' ');
-      const dateA = new Date(parseInt(yA), MONTHS_TR.indexOf(mNameA), 1);
-      const dateB = new Date(parseInt(yB), MONTHS_TR.indexOf(mNameB), 1);
-      return dateA.getTime() - dateB.getTime();
-    });
 
     // Separate device IDs by type
     const storageIds = allObjectIds.filter(id => {
@@ -367,47 +375,55 @@ export const generateKpiExcel = async (req: Request, res: Response) => {
     currentRow++;
 
     // --- SAN DATA ROWS ---
-    for (const objId of sanIds) {
-      const dev = deviceMap[objId];
-      const device = devices.find(d => (d.metadata as any)?.xormon_id === objId || d.serial_number === objId);
+    for (const device of sanDevices) {
+      const metadata = (device.metadata as any) || {};
+      const xormonId = (metadata.xormon_id || '').trim().toLowerCase();
+      const serial = (device.serial_number || '').trim().toLowerCase();
+      
       const row = ws.getRow(currentRow);
-      row.getCell(1).value = dev?.name || objId;
+      row.getCell(1).value = device.hostname || device.serial_number;
       row.getCell(1).alignment = LEFT;
       row.getCell(1).border = BORDER_THIN;
 
       col = 2;
       for (const mKey of sortedMonths) {
-        const data = sanMonthlyMap[objId]?.[mKey];
-        const metadata = (device?.metadata as any) || {};
-
-        // Use snapshot data if available, otherwise fallback to current metadata
-        let availablePorts = data?.available_ports;
-        if (availablePorts === null || availablePorts === undefined) {
-          availablePorts = parseFloat(String(metadata.available_ports || '0')) || null;
+        // Try to match snapshots using both xormon_id and serial (normalized)
+        let data = sanMonthlyMap[xormonId]?.[mKey] || sanMonthlyMap[serial]?.[mKey];
+        
+        // If still no data, try to find in sanMonthlyMap with case-insensitive search
+        if (!data) {
+          const matchingId = Object.keys(sanMonthlyMap).find(id => id.toLowerCase() === xormonId || id.toLowerCase() === serial);
+          if (matchingId) data = sanMonthlyMap[matchingId][mKey];
         }
 
-        let freePorts = data?.free_ports;
-        if (freePorts === null || freePorts === undefined) {
-          freePorts = parseFloat(String(metadata.free_ports || '0')) || null;
+        // Fallback to current metadata if snapshot is missing for this month
+        let total = data?.available_ports;
+        if (total === null || total === undefined) {
+          total = parseFloat(String(metadata.available_ports || metadata.total_ports || '0')) || null;
         }
 
-        let usedPorts = data?.used_ports;
-        if ((usedPorts === null || usedPorts === undefined) && availablePorts !== null && freePorts !== null) {
-          usedPorts = availablePorts - freePorts;
+        let free = data?.free_ports;
+        if (free === null || free === undefined) {
+          free = parseFloat(String(metadata.free_ports || '0')) || null;
+        }
+
+        let used = data?.used_ports;
+        if ((used === null || used === undefined) && total !== null && free !== null) {
+          used = total - free;
         }
 
         // Boş Port
-        row.getCell(col).value = freePorts !== null && freePorts !== undefined ? freePorts : '-';
+        row.getCell(col).value = free !== null && free !== undefined && free > 0 ? free : (free === 0 ? 0 : '-');
         row.getCell(col).alignment = CENTER;
         row.getCell(col).border = BORDER_THIN;
 
         // Dolu Port
-        row.getCell(col + 1).value = usedPorts !== null && usedPorts !== undefined ? usedPorts : '-';
+        row.getCell(col + 1).value = used !== null && used !== undefined && used > 0 ? used : (used === 0 ? 0 : '-');
         row.getCell(col + 1).alignment = CENTER;
         row.getCell(col + 1).border = BORDER_THIN;
 
         // Toplam Port
-        row.getCell(col + 2).value = availablePorts !== null && availablePorts !== undefined ? availablePorts : '-';
+        row.getCell(col + 2).value = total !== null && total !== undefined && total > 0 ? total : (total === 0 ? 0 : '-');
         row.getCell(col + 2).alignment = CENTER;
         row.getCell(col + 2).border = BORDER_THIN;
 

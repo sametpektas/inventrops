@@ -100,9 +100,26 @@ export const generateBulletin = async (req: Request, res: Response) => {
     const pres = new pptxgen();
     pres.layout = 'LAYOUT_WIDE'; // 13.33 x 7.5 inches
 
-    // Check if logo exists (using absolute path from project root)
-    const logoPath = path.join(process.cwd(), 'assets/logo.png');
-    const hasLogo = fs.existsSync(logoPath);
+    // --- ROBUST LOGO DETECTION ---
+    let foundLogoPath: string | undefined = undefined;
+    const possiblePaths = [
+      path.join(process.cwd(), 'assets/logo.png'),
+      path.join(process.cwd(), 'assets/logo.jpg'),
+      path.join(process.cwd(), 'assets/logo.jpeg'),
+      path.join(process.cwd(), 'backend/assets/logo.png'),
+      path.join(process.cwd(), 'logo.png'),
+      path.join(__dirname, '../../assets/logo.png'),
+      path.join(__dirname, '../../../assets/logo.png')
+    ];
+
+    for (const p of possiblePaths) {
+      if (fs.existsSync(p)) {
+        foundLogoPath = p;
+        break;
+      }
+    }
+
+    const hasLogo = !!foundLogoPath;
 
     // === SLIDE 0: Kapak Slaytı (Cover Slide) ===
     const coverSlide = pres.addSlide();
@@ -124,8 +141,8 @@ export const generateBulletin = async (req: Request, res: Response) => {
       fontSize: 16, color: 'B0C4DE', fontFace: 'Segoe UI'
     });
 
-    if (hasLogo) {
-      coverSlide.addImage({ path: logoPath, x: 10.8, y: 0.2, w: 2, h: 1.0 });
+    if (hasLogo && foundLogoPath) {
+      coverSlide.addImage({ path: foundLogoPath, x: 10.8, y: 0.2, w: 2, h: 1.0 });
     }
 
     // Main title area
@@ -140,19 +157,18 @@ export const generateBulletin = async (req: Request, res: Response) => {
     });
 
     // === CHART SLIDES ===
-    // We'll pass the logo info to chart slides
-    addBarChartSlide(pres, 'Genel Depolama Kapasite Kullanımı - Ankara (Prod)', generalCapacity.ankara, hasLogo ? logoPath : undefined);
-    addBarChartSlide(pres, 'Genel Depolama Kapasite Kullanımı - İstanbul (DR)', generalCapacity.istanbul, hasLogo ? logoPath : undefined);
+    addBarChartSlide(pres, 'Genel Depolama Kapasite Kullanımı - Ankara (Prod)', generalCapacity.ankara, foundLogoPath);
+    addBarChartSlide(pres, 'Genel Depolama Kapasite Kullanımı - İstanbul (DR)', generalCapacity.istanbul, foundLogoPath);
 
-    generateSideBySideSlides(pres, ankaraDevices, deviceCapacities, 'capacity', 'Kapasite Kullanımı - Ankara (Prod)', hasLogo ? logoPath : undefined);
-    generateSideBySideSlides(pres, ankaraDevices, deviceCapacities, 'capacity_trend', 'Kapasite Trendi - Ankara (Prod)', hasLogo ? logoPath : undefined);
-    generateSideBySideSlides(pres, ankaraDevices, deviceIops, 'iops', 'IOPS - Ankara (Prod)', hasLogo ? logoPath : undefined);
-    generateSideBySideSlides(pres, ankaraDevices, deviceResponseTime, 'responsetime', 'Response Time / Gecikme - Ankara (Prod)', hasLogo ? logoPath : undefined);
+    generateSideBySideSlides(pres, ankaraDevices, deviceCapacities, 'capacity', 'Kapasite Kullanımı - Ankara (Prod)', foundLogoPath);
+    generateSideBySideSlides(pres, ankaraDevices, deviceCapacities, 'capacity_trend', 'Kapasite Trendi - Ankara (Prod)', foundLogoPath);
+    generateSideBySideSlides(pres, ankaraDevices, deviceIops, 'iops', 'IOPS - Ankara (Prod)', foundLogoPath);
+    generateSideBySideSlides(pres, ankaraDevices, deviceResponseTime, 'responsetime', 'Response Time / Gecikme - Ankara (Prod)', foundLogoPath);
 
-    generateSideBySideSlides(pres, istanbulDevices, deviceCapacities, 'capacity', 'Kapasite Kullanımı - İstanbul (DR)', hasLogo ? logoPath : undefined);
-    generateSideBySideSlides(pres, istanbulDevices, deviceCapacities, 'capacity_trend', 'Kapasite Trendi - İstanbul (DR)', hasLogo ? logoPath : undefined);
-    generateSideBySideSlides(pres, istanbulDevices, deviceIops, 'iops', 'IOPS - İstanbul (DR)', hasLogo ? logoPath : undefined);
-    generateSideBySideSlides(pres, istanbulDevices, deviceResponseTime, 'responsetime', 'Response Time / Gecikme - İstanbul (DR)', hasLogo ? logoPath : undefined);
+    generateSideBySideSlides(pres, istanbulDevices, deviceCapacities, 'capacity', 'Kapasite Kullanımı - İstanbul (DR)', foundLogoPath);
+    generateSideBySideSlides(pres, istanbulDevices, deviceCapacities, 'capacity_trend', 'Kapasite Trendi - İstanbul (DR)', foundLogoPath);
+    generateSideBySideSlides(pres, istanbulDevices, deviceIops, 'iops', 'IOPS - İstanbul (DR)', foundLogoPath);
+    generateSideBySideSlides(pres, istanbulDevices, deviceResponseTime, 'responsetime', 'Response Time / Gecikme - İstanbul (DR)', foundLogoPath);
 
     // === LAST SLIDE: Değerlendirme (Evaluation) ===
     const evalSlide = pres.addSlide();
@@ -174,8 +190,8 @@ export const generateBulletin = async (req: Request, res: Response) => {
       fontSize: 13, color: 'B0C4DE', fontFace: 'Segoe UI'
     });
 
-    if (hasLogo) {
-      evalSlide.addImage({ path: logoPath, x: 10.8, y: 0.15, w: 1.8, h: 0.9 });
+    if (hasLogo && foundLogoPath) {
+      evalSlide.addImage({ path: foundLogoPath, x: 10.8, y: 0.15, w: 1.8, h: 0.9 });
     }
 
     // Section title
