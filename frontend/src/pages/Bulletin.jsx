@@ -106,7 +106,7 @@ export default function Bulletin() {
     <div className="bulletin-page" style={{ padding: '20px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <div>
-          <h2 style={{ margin: 0, color: 'var(--text)' }}>Bülten (PowerPoint Raporu)</h2>
+          <h2 style={{ margin: 0, color: 'var(--text)' }}>Bülten</h2>
           <p style={{ color: 'var(--text-muted)', margin: '5px 0 0' }}>
             Raporlamak istediğiniz depolama (Storage/SAN) cihazlarını seçin ve 6 aylık performans bültenini indirin.
           </p>

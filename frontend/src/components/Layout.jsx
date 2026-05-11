@@ -23,7 +23,7 @@ const NAV_ITEMS = [
   {
     section: 'Reports',
     items: [
-      { to: '/bulletin', label: 'Bülten (PowerPoint)', icon: '📊' },
+      { to: '/bulletin', label: 'Bülten', icon: '📊' },
     ],
   },
 ];
