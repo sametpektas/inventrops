@@ -13,6 +13,9 @@ export const generateBulletin = async (req: Request, res: Response) => {
     const sixMonthsAgo = new Date();
     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
 
+    const oneMonthAgo = new Date();
+    oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+
     const allStorageDevices = await prisma.inventoryItem.findMany({
       where: { model: { device_type: { in: ['storage'] } } },
       include: { rack: { include: { room: { include: { datacenter: true } } } } }
@@ -37,14 +40,24 @@ export const generateBulletin = async (req: Request, res: Response) => {
 
     const selectedObjectIds = serialNumbers.map(sn => serialToXormonMap[sn] || sn);
 
-    // Fetch metrics
+    // Fetch capacity metrics (6 months)
     const allStorageMetrics = await prisma.forecastMetricSnapshot.findMany({
       where: { metric_name: 'capacity_used_percent', captured_at: { gte: sixMonthsAgo } },
       orderBy: { captured_at: 'asc' }
     });
 
-    const selectedMetrics = await prisma.forecastMetricSnapshot.findMany({
-      where: { object_id: { in: selectedObjectIds }, captured_at: { gte: sixMonthsAgo } },
+    const selectedCapacityMetrics = await prisma.forecastMetricSnapshot.findMany({
+      where: { object_id: { in: selectedObjectIds }, metric_name: 'capacity_used_percent', captured_at: { gte: sixMonthsAgo } },
+      orderBy: { captured_at: 'asc' }
+    });
+
+    // Fetch IOPS & Response Time metrics (last 1 month only)
+    const selectedPerfMetrics = await prisma.forecastMetricSnapshot.findMany({
+      where: { 
+        object_id: { in: selectedObjectIds }, 
+        metric_name: { in: ['iops', 'io_total', 'response_time', 'latency'] },
+        captured_at: { gte: oneMonthAgo } 
+      },
       orderBy: { captured_at: 'asc' }
     });
 
@@ -53,13 +66,13 @@ export const generateBulletin = async (req: Request, res: Response) => {
     
     // Process selected devices into individual device data structures
     const deviceCapacities = processIndividualDeviceMetrics(
-      selectedMetrics.filter(m => m.metric_name === 'capacity_used_percent')
+      selectedCapacityMetrics
     );
     const deviceIops = processIndividualDeviceMetrics(
-      selectedMetrics.filter(m => m.metric_name.includes('iops') || m.metric_name.includes('io_total'))
+      selectedPerfMetrics.filter(m => m.metric_name.includes('iops') || m.metric_name.includes('io_total'))
     );
     const deviceResponseTime = processIndividualDeviceMetrics(
-      selectedMetrics.filter(m => m.metric_name.includes('response_time') || m.metric_name.includes('latency'))
+      selectedPerfMetrics.filter(m => m.metric_name.includes('response_time') || m.metric_name.includes('latency'))
     );
 
     // Group selected devices by location
@@ -251,7 +264,6 @@ function addDeviceChart(
 
   let title = '';
   let chartData: any[] = [];
-  let trendData: any[] | null = null;
   let yAxisFormat = 'General';
   let yAxisMax: number | undefined = undefined;
 
@@ -286,10 +298,9 @@ function addDeviceChart(
       const b = (sumY - m * sumX) / n;
       const trendlineValues = data.values.map((_, i) => m * i + b);
 
-      // Trendline rendered as separate overlay chart (dashed, dark red)
-      trendData = [
-        { name: 'Linear (Used Capacity (%))', labels: data.labels, values: trendlineValues }
-      ];
+      // Add trendline as 4th series with dark red color
+      chartData.push({ name: 'Linear (Used Capacity (%))', labels: data.labels, values: trendlineValues });
+      chartColors = ['5b9bd5', 'ed7d31', 'a5a5a5', 'C00000'];
     }
 
   } else if (metricType === 'iops') {
@@ -304,43 +315,32 @@ function addDeviceChart(
     ];
   }
 
+  // Thin out x-axis labels to prevent overlap (show every Nth label)
+  const totalPoints = data.labels.length;
+  const labelFreq = totalPoints > 60 ? 14 : totalPoints > 30 ? 7 : totalPoints > 14 ? 3 : 1;
+
   // Chart title
   slide.addText(title, {
     x: xPos, y: 0.5, w: 6, h: 0.6, fontSize: 14, align: 'center', color: '333333'
   });
 
-  // Main chart
+  // Main chart (includes trendline as 4th series if applicable)
   slide.addChart(pres.ChartType.line, chartData, {
     x: xPos, y: 1.2, w: 6, h: 4.5,
     showLegend: true,
     legendPos: 'b',
+    legendFontSize: 7,
     lineSmooth: false,
     showValue: false,
-    catAxisLabelFontSize: 8,
+    catAxisLabelFontSize: 7,
+    catAxisLabelFreq: labelFreq,
+    catAxisOrientation: 'minMax',
     valAxisLabelFontSize: 9,
     valAxisMaxVal: yAxisMax,
     valAxisLabelFormatCode: yAxisFormat,
     lineDataSymbol: 'none',
     chartColors: chartColors
-  });
-
-  // Overlay trendline chart (dashed, dark red) on top of main chart
-  if (trendData) {
-    slide.addChart(pres.ChartType.line, trendData, {
-      x: xPos, y: 1.2, w: 6, h: 4.5,
-      showLegend: true,
-      legendPos: 'b',
-      lineSmooth: false,
-      showValue: false,
-      catAxisLabelFontSize: 8,
-      valAxisLabelFontSize: 9,
-      valAxisMaxVal: yAxisMax,
-      valAxisLabelFormatCode: yAxisFormat,
-      lineDataSymbol: 'none',
-      lineDash: 'dash',
-      chartColors: ['C00000'] // Dark red for trendline
-    });
-  }
+  } as any);
 }
 
 function addBarChartSlide(pres: pptxgen, title: string, chartData: any[]) {
