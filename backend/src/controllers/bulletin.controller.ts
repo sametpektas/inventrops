@@ -100,8 +100,8 @@ export const generateBulletin = async (req: Request, res: Response) => {
     const pres = new pptxgen();
     pres.layout = 'LAYOUT_WIDE'; // 13.33 x 7.5 inches
 
-    // Check if logo exists
-    const logoPath = path.join(__dirname, '../../assets/logo.png');
+    // Check if logo exists (using absolute path from project root)
+    const logoPath = path.join(process.cwd(), 'assets/logo.png');
     const hasLogo = fs.existsSync(logoPath);
 
     // === SLIDE 0: Kapak Slaytı (Cover Slide) ===
@@ -140,18 +140,19 @@ export const generateBulletin = async (req: Request, res: Response) => {
     });
 
     // === CHART SLIDES ===
-    addBarChartSlide(pres, 'Genel Depolama Kapasite Kullanımı - Ankara (Prod)', generalCapacity.ankara);
-    addBarChartSlide(pres, 'Genel Depolama Kapasite Kullanımı - İstanbul (DR)', generalCapacity.istanbul);
+    // We'll pass the logo info to chart slides
+    addBarChartSlide(pres, 'Genel Depolama Kapasite Kullanımı - Ankara (Prod)', generalCapacity.ankara, hasLogo ? logoPath : undefined);
+    addBarChartSlide(pres, 'Genel Depolama Kapasite Kullanımı - İstanbul (DR)', generalCapacity.istanbul, hasLogo ? logoPath : undefined);
 
-    generateSideBySideSlides(pres, ankaraDevices, deviceCapacities, 'capacity', 'Kapasite Kullanımı - Ankara (Prod)');
-    generateSideBySideSlides(pres, ankaraDevices, deviceCapacities, 'capacity_trend', 'Kapasite Trendi - Ankara (Prod)');
-    generateSideBySideSlides(pres, ankaraDevices, deviceIops, 'iops', 'IOPS - Ankara (Prod)');
-    generateSideBySideSlides(pres, ankaraDevices, deviceResponseTime, 'responsetime', 'Response Time / Gecikme - Ankara (Prod)');
+    generateSideBySideSlides(pres, ankaraDevices, deviceCapacities, 'capacity', 'Kapasite Kullanımı - Ankara (Prod)', hasLogo ? logoPath : undefined);
+    generateSideBySideSlides(pres, ankaraDevices, deviceCapacities, 'capacity_trend', 'Kapasite Trendi - Ankara (Prod)', hasLogo ? logoPath : undefined);
+    generateSideBySideSlides(pres, ankaraDevices, deviceIops, 'iops', 'IOPS - Ankara (Prod)', hasLogo ? logoPath : undefined);
+    generateSideBySideSlides(pres, ankaraDevices, deviceResponseTime, 'responsetime', 'Response Time / Gecikme - Ankara (Prod)', hasLogo ? logoPath : undefined);
 
-    generateSideBySideSlides(pres, istanbulDevices, deviceCapacities, 'capacity', 'Kapasite Kullanımı - İstanbul (DR)');
-    generateSideBySideSlides(pres, istanbulDevices, deviceCapacities, 'capacity_trend', 'Kapasite Trendi - İstanbul (DR)');
-    generateSideBySideSlides(pres, istanbulDevices, deviceIops, 'iops', 'IOPS - İstanbul (DR)');
-    generateSideBySideSlides(pres, istanbulDevices, deviceResponseTime, 'responsetime', 'Response Time / Gecikme - İstanbul (DR)');
+    generateSideBySideSlides(pres, istanbulDevices, deviceCapacities, 'capacity', 'Kapasite Kullanımı - İstanbul (DR)', hasLogo ? logoPath : undefined);
+    generateSideBySideSlides(pres, istanbulDevices, deviceCapacities, 'capacity_trend', 'Kapasite Trendi - İstanbul (DR)', hasLogo ? logoPath : undefined);
+    generateSideBySideSlides(pres, istanbulDevices, deviceIops, 'iops', 'IOPS - İstanbul (DR)', hasLogo ? logoPath : undefined);
+    generateSideBySideSlides(pres, istanbulDevices, deviceResponseTime, 'responsetime', 'Response Time / Gecikme - İstanbul (DR)', hasLogo ? logoPath : undefined);
 
     // === LAST SLIDE: Değerlendirme (Evaluation) ===
     const evalSlide = pres.addSlide();
@@ -329,10 +330,12 @@ function generateSideBySideSlides(
   devices: string[], 
   deviceDataMap: Record<string, { labels: string[], values: number[], name: string }>, 
   metricType: 'capacity' | 'capacity_trend' | 'iops' | 'responsetime',
-  slideTitle: string
+  slideTitle: string,
+  logoPath?: string
 ) {
   if (devices.length === 0) {
     const slide = pres.addSlide();
+    if (logoPath) slide.addImage({ path: logoPath, x: 11.5, y: 0.15, w: 1.5, h: 0.75 });
     slide.addText(slideTitle, { x: 0.5, y: 0.3, w: '90%', fontSize: 22, bold: true, color: '1a1a2e', fontFace: 'Segoe UI' });
     slide.addText('Bu lokasyon için yeterli cihaz bulunamadı.', { x: 0.5, y: 3, w: '90%', fontSize: 16, color: '999999', fontFace: 'Segoe UI' });
     return;
@@ -347,6 +350,7 @@ function generateSideBySideSlides(
     const data2 = dev2Id ? deviceDataMap[dev2Id] : null;
 
     const slide = pres.addSlide();
+    if (logoPath) slide.addImage({ path: logoPath, x: 11.5, y: 0.15, w: 1.5, h: 0.75 });
     slide.addText(slideTitle, { x: 0.5, y: 0.3, w: '90%', fontSize: 22, bold: true, color: '1a1a2e', fontFace: 'Segoe UI' });
 
     if (!data1 && !data2) {
@@ -456,8 +460,9 @@ function addDeviceChart(
   } as any);
 }
 
-function addBarChartSlide(pres: pptxgen, title: string, chartData: any[]) {
+function addBarChartSlide(pres: pptxgen, title: string, chartData: any[], logoPath?: string) {
   const slide = pres.addSlide();
+  if (logoPath) slide.addImage({ path: logoPath, x: 11.5, y: 0.15, w: 1.5, h: 0.75 });
   slide.addText(title, {
     x: 0.5, y: 0.3, w: '90%', fontSize: 22, bold: true, color: '1a1a2e', fontFace: 'Segoe UI'
   });

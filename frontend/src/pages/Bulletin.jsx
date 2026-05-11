@@ -153,13 +153,14 @@ export default function Bulletin() {
               value={selectedMonth} 
               onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
               style={{
-                background: 'var(--bg-panel)',
-                color: 'var(--text)',
-                border: '1px solid var(--border)',
+                background: '#1e293b', // Darker background for contrast
+                color: '#f8fafc',      // Bright text
+                border: '1px solid #475569',
                 padding: '8px 12px',
                 borderRadius: '6px',
                 fontSize: '0.9rem',
-                cursor: 'pointer'
+                cursor: 'pointer',
+                outline: 'none'
               }}
             >
               {MONTHS_TR.map((m, i) => (
@@ -170,13 +171,14 @@ export default function Bulletin() {
               value={selectedYear} 
               onChange={(e) => setSelectedYear(parseInt(e.target.value))}
               style={{
-                background: 'var(--bg-panel)',
-                color: 'var(--text)',
-                border: '1px solid var(--border)',
+                background: '#1e293b',
+                color: '#f8fafc',
+                border: '1px solid #475569',
                 padding: '8px 12px',
                 borderRadius: '6px',
                 fontSize: '0.9rem',
-                cursor: 'pointer'
+                cursor: 'pointer',
+                outline: 'none'
               }}
             >
               {yearOptions.map(y => (

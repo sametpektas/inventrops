@@ -89,7 +89,7 @@ export default function ForecastDashboard() {
 
   // Filter data by active tab — storage only shows capacity_used_percent
   const storageItems = data.filter(d=>d.object_type==='storage' && d.metric_name==='capacity_used_percent').filter(d=>d.object_name.toLowerCase().includes(search.toLowerCase()));
-  const sanItems = data.filter(d=>d.object_type==='san').filter(d=>d.object_name.toLowerCase().includes(search.toLowerCase()));
+  const sanItems = data.filter(d=>d.object_type==='san' && d.metric_name==='port_utilization_percent').filter(d=>d.object_name.toLowerCase().includes(search.toLowerCase()));
   const virtItems = data.filter(d=>d.object_type==='cluster'||d.object_type==='virtualization').filter(d=>d.object_name.toLowerCase().includes(search.toLowerCase()));
 
   // Build a lookup: object_id -> capacity_total current value (in GB)

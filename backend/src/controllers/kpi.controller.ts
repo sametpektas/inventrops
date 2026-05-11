@@ -369,30 +369,45 @@ export const generateKpiExcel = async (req: Request, res: Response) => {
     // --- SAN DATA ROWS ---
     for (const objId of sanIds) {
       const dev = deviceMap[objId];
+      const device = devices.find(d => (d.metadata as any)?.xormon_id === objId || d.serial_number === objId);
       const row = ws.getRow(currentRow);
       row.getCell(1).value = dev?.name || objId;
       row.getCell(1).alignment = LEFT;
       row.getCell(1).border = BORDER_THIN;
 
       col = 2;
-      for (const month of sortedMonths) {
-        const data = sanMonthlyMap[objId]?.[month];
+      for (const mKey of sortedMonths) {
+        const data = sanMonthlyMap[objId]?.[mKey];
+        const metadata = (device?.metadata as any) || {};
+
+        // Use snapshot data if available, otherwise fallback to current metadata
+        let availablePorts = data?.available_ports;
+        if (availablePorts === null || availablePorts === undefined) {
+          availablePorts = parseFloat(String(metadata.available_ports || '0')) || null;
+        }
+
+        let freePorts = data?.free_ports;
+        if (freePorts === null || freePorts === undefined) {
+          freePorts = parseFloat(String(metadata.free_ports || '0')) || null;
+        }
+
+        let usedPorts = data?.used_ports;
+        if ((usedPorts === null || usedPorts === undefined) && availablePorts !== null && freePorts !== null) {
+          usedPorts = availablePorts - freePorts;
+        }
 
         // Boş Port
-        const freePorts = data?.free_ports;
         row.getCell(col).value = freePorts !== null && freePorts !== undefined ? freePorts : '-';
         row.getCell(col).alignment = CENTER;
         row.getCell(col).border = BORDER_THIN;
 
         // Dolu Port
-        const usedPorts = data?.used_ports;
         row.getCell(col + 1).value = usedPorts !== null && usedPorts !== undefined ? usedPorts : '-';
         row.getCell(col + 1).alignment = CENTER;
         row.getCell(col + 1).border = BORDER_THIN;
 
         // Toplam Port
-        const totalPorts = data?.available_ports;
-        row.getCell(col + 2).value = totalPorts !== null && totalPorts !== undefined ? totalPorts : '-';
+        row.getCell(col + 2).value = availablePorts !== null && availablePorts !== undefined ? availablePorts : '-';
         row.getCell(col + 2).alignment = CENTER;
         row.getCell(col + 2).border = BORDER_THIN;
 
