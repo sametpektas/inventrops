@@ -18,7 +18,7 @@ connection.on('error', (err: any) => {
   }
 });
 
-export const forecastQueue = new Queue('forecast-jobs', { connection });
+export const forecastQueue = new Queue('forecast-jobs', { connection: connection as any });
 
 export function startForecastWorker() {
   const worker = new Worker('forecast-jobs', async job => {
@@ -135,7 +135,7 @@ export function startForecastWorker() {
         }
       }
     }
-  }, { connection });
+  }, { connection: connection as any });
 
   worker.on('failed', (job, err) => {
     console.error(`[Forecast Worker] Job ${job?.id} failed:`, err);

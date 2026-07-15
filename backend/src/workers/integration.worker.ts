@@ -10,7 +10,7 @@ const connection = new IORedis(process.env.REDIS_URL || 'redis://localhost:6379/
   maxRetriesPerRequest: null
 });
 
-export const integrationQueue = new Queue('integration-sync', { connection });
+export const integrationQueue = new Queue('integration-sync', { connection: connection as any });
 
 async function getOrCreateVendor(name: string) {
   let vendor = await prisma.vendor.findUnique({ where: { name } });
@@ -302,7 +302,7 @@ export const startIntegrationWorker = () => {
         }
       });
     }
-  }, { connection });
+  }, { connection: connection as any });
 };
 
 export const startIntegrationScheduler = async () => {

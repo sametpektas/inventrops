@@ -6,7 +6,7 @@ const connection = new IORedis(process.env.REDIS_URL || 'redis://localhost:6379/
   maxRetriesPerRequest: null
 });
 
-export const warrantyQueue = new Queue('warranty-alerts', { connection });
+export const warrantyQueue = new Queue('warranty-alerts', { connection: connection as any });
 
 export const startWarrantyWorker = () => {
   const worker = new Worker('warranty-alerts', async (job) => {
@@ -41,7 +41,7 @@ export const startWarrantyWorker = () => {
         console.log(`[Alert] Item ${item.serial_number} expiring in ~${t.days} days.`);
       }
     }
-  }, { connection });
+  }, { connection: connection as any });
 
   worker.on('completed', (job) => {
     console.log(`[Worker] Job ${job.id} completed`);
