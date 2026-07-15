@@ -123,7 +123,21 @@ export const generateBulletin = async (req: Request, res: Response) => {
       if (xormonId) serialToXormonMap[d.serial_number] = xormonId;
     });
 
+    // Build reverse lookup: xormon_id -> serial, and hostname -> xormon_id
+    const hostnameToXormonMap: Record<string, string> = {};
+    allStorageDevices.forEach((d: any) => {
+      const metadata = d.metadata as any;
+      const xormonId = metadata?.xormon_id || '';
+      const hostname = d.hostname || d.serial_number;
+      if (xormonId && hostname) hostnameToXormonMap[hostname.toLowerCase()] = xormonId;
+    });
+
+    // selectedObjectIds: prefer xormon_id from metadata, fallback to serial
     const selectedObjectIds = serialNumbers.map(sn => serialToXormonMap[sn] || sn);
+
+    console.log(`[Bulletin] Selected serials: ${serialNumbers.join(', ')}`);
+    console.log(`[Bulletin] Mapped object IDs: ${selectedObjectIds.join(', ')}`);
+
 
     // Fetch capacity metrics (6 months ending at target month)
     const allStorageMetrics = await prisma.forecastMetricSnapshot.findMany({
@@ -131,20 +145,65 @@ export const generateBulletin = async (req: Request, res: Response) => {
       orderBy: { captured_at: 'asc' }
     });
 
-    const selectedCapacityMetrics = await prisma.forecastMetricSnapshot.findMany({
+    // Primary query by object_id (xormon item_id or serial)
+    let selectedCapacityMetrics = await prisma.forecastMetricSnapshot.findMany({
       where: { object_id: { in: selectedObjectIds }, metric_name: 'capacity_used_percent', captured_at: { gte: sixMonthsBefore, lte: monthEnd } },
       orderBy: { captured_at: 'asc' }
     });
 
+    // FALLBACK: if no results by object_id, try matching by device hostname/serial (object_name)
+    if (selectedCapacityMetrics.length === 0) {
+      console.log(`[Bulletin] No capacity metrics found by object_id. Trying object_name fallback...`);
+      const deviceNames = serialNumbers.map(sn => {
+        const dev = allStorageDevices.find((d: any) => d.serial_number === sn);
+        return dev?.hostname || dev?.serial_number || sn;
+      }).filter(Boolean);
+
+      selectedCapacityMetrics = await prisma.forecastMetricSnapshot.findMany({
+        where: {
+          object_name: { in: deviceNames },
+          metric_name: 'capacity_used_percent',
+          captured_at: { gte: sixMonthsBefore, lte: monthEnd }
+        },
+        orderBy: { captured_at: 'asc' }
+      });
+      console.log(`[Bulletin] Fallback capacity query (by name) returned ${selectedCapacityMetrics.length} records.`);
+
+      // Rebuild selectedObjectIds from found data so location maps still work
+      const foundIds = [...new Set(selectedCapacityMetrics.map((m: any) => m.object_id))];
+      if (foundIds.length > 0) {
+        foundIds.forEach(id => {
+          if (!xormonLocationMap[id]) xormonLocationMap[id] = 'Ankara'; // Default to Ankara
+        });
+        selectedObjectIds.splice(0, selectedObjectIds.length, ...foundIds);
+      }
+    }
+
     // Fetch IOPS & Response Time metrics (target month only)
-    const selectedPerfMetrics = await prisma.forecastMetricSnapshot.findMany({
+    let selectedPerfMetrics = await prisma.forecastMetricSnapshot.findMany({
       where: { 
         object_id: { in: selectedObjectIds }, 
-        metric_name: { in: ['iops', 'io_total', 'response_time', 'latency'] },
+        metric_name: { in: ['iops', 'io_total', 'response_time', 'latency', 'response_time'] },
         captured_at: { gte: monthStart, lte: monthEnd } 
       },
       orderBy: { captured_at: 'asc' }
     });
+
+    // Extend IOPS/RT window to 6 months if target-month only has no data
+    if (selectedPerfMetrics.length === 0) {
+      console.log(`[Bulletin] No perf metrics in target month. Widening window to 6 months...`);
+      selectedPerfMetrics = await prisma.forecastMetricSnapshot.findMany({
+        where: { 
+          object_id: { in: selectedObjectIds }, 
+          metric_name: { in: ['iops', 'io_total', 'response_time', 'latency'] },
+          captured_at: { gte: sixMonthsBefore, lte: monthEnd } 
+        },
+        orderBy: { captured_at: 'asc' }
+      });
+    }
+
+    console.log(`[Bulletin] Capacity metrics: ${selectedCapacityMetrics.length} | Perf metrics: ${selectedPerfMetrics.length}`);
+
 
     // Process data
     const generalCapacity = getLatestCapacityPerDevice(allStorageMetrics, xormonLocationMap);
@@ -160,7 +219,15 @@ export const generateBulletin = async (req: Request, res: Response) => {
     );
 
     // Group selected devices by location
-    const { ankaraDevices, istanbulDevices } = groupDevicesByLocation(selectedObjectIds, xormonLocationMap);
+    const { ankaraDevices, istanbulDevices, unknownDevices } = groupDevicesByLocation(selectedObjectIds, xormonLocationMap);
+
+    console.log(`[Bulletin] Location groups — Ankara: ${ankaraDevices.length}, Istanbul: ${istanbulDevices.length}, Unknown/Fallback: ${unknownDevices.length}`);
+    console.log(`[Bulletin] Capacity metrics per device:`, Object.keys(deviceCapacities).map(k => `${k}(${deviceCapacities[k].values.length}pts)`));
+    console.log(`[Bulletin] IOPS metrics per device:`, Object.keys(deviceIops).map(k => `${k}(${deviceIops[k].values.length}pts)`));
+
+    // FALLBACK: Eğer tüm cihazlar lokasyon atamasından kaçıyorsa, tüm seçilenleri Ankara grubuna koy
+    const effectiveAnkara = ankaraDevices.length > 0 ? ankaraDevices : [...unknownDevices];
+    const effectiveIstanbul = istanbulDevices;
 
     const pres = new pptxgen();
     pres.layout = 'LAYOUT_WIDE'; // 13.33 x 7.5 inches
@@ -213,15 +280,16 @@ export const generateBulletin = async (req: Request, res: Response) => {
     addBarChartSlide(pres, 'Genel Depolama Kapasite Kullanımı - Ankara (Prod)', generalCapacity.ankara, foundLogoPath);
     addBarChartSlide(pres, 'Genel Depolama Kapasite Kullanımı - İstanbul (DR)', generalCapacity.istanbul, foundLogoPath);
 
-    generateSideBySideSlides(pres, ankaraDevices, deviceCapacities, 'capacity', 'Kapasite Kullanımı - Ankara (Prod)', foundLogoPath);
-    generateSideBySideSlides(pres, ankaraDevices, deviceCapacities, 'capacity_trend', 'Kapasite Trendi - Ankara (Prod)', foundLogoPath);
-    generateSideBySideSlides(pres, ankaraDevices, deviceIops, 'iops', 'IOPS - Ankara (Prod)', foundLogoPath);
-    generateSideBySideSlides(pres, ankaraDevices, deviceResponseTime, 'responsetime', 'Response Time / Gecikme - Ankara (Prod)', foundLogoPath);
+    generateSideBySideSlides(pres, effectiveAnkara, deviceCapacities, 'capacity', 'Kapasite Kullanımı - Ankara (Prod)', foundLogoPath);
+    generateSideBySideSlides(pres, effectiveAnkara, deviceCapacities, 'capacity_trend', 'Kapasite Trendi - Ankara (Prod)', foundLogoPath);
+    generateSideBySideSlides(pres, effectiveAnkara, deviceIops, 'iops', 'IOPS - Ankara (Prod)', foundLogoPath);
+    generateSideBySideSlides(pres, effectiveAnkara, deviceResponseTime, 'responsetime', 'Response Time / Gecikme - Ankara (Prod)', foundLogoPath);
 
-    generateSideBySideSlides(pres, istanbulDevices, deviceCapacities, 'capacity', 'Kapasite Kullanımı - İstanbul (DR)', foundLogoPath);
-    generateSideBySideSlides(pres, istanbulDevices, deviceCapacities, 'capacity_trend', 'Kapasite Trendi - İstanbul (DR)', foundLogoPath);
-    generateSideBySideSlides(pres, istanbulDevices, deviceIops, 'iops', 'IOPS - İstanbul (DR)', foundLogoPath);
-    generateSideBySideSlides(pres, istanbulDevices, deviceResponseTime, 'responsetime', 'Response Time / Gecikme - İstanbul (DR)', foundLogoPath);
+    generateSideBySideSlides(pres, effectiveIstanbul, deviceCapacities, 'capacity', 'Kapasite Kullanımı - İstanbul (DR)', foundLogoPath);
+    generateSideBySideSlides(pres, effectiveIstanbul, deviceCapacities, 'capacity_trend', 'Kapasite Trendi - İstanbul (DR)', foundLogoPath);
+    generateSideBySideSlides(pres, effectiveIstanbul, deviceIops, 'iops', 'IOPS - İstanbul (DR)', foundLogoPath);
+    generateSideBySideSlides(pres, effectiveIstanbul, deviceResponseTime, 'responsetime', 'Response Time / Gecikme - İstanbul (DR)', foundLogoPath);
+
 
     // === LAST SLIDE: Değerlendirme (Evaluation) ===
     const evalSlide = pres.addSlide();
@@ -384,14 +452,19 @@ function processIndividualDeviceMetrics(metrics: any[]) {
 function groupDevicesByLocation(objectIds: string[], locationMap: Record<string, string>) {
   const ankaraDevices: string[] = [];
   const istanbulDevices: string[] = [];
+  const unknownDevices: string[] = [];
 
   objectIds.forEach(id => {
     const loc = (locationMap[id] || '').toLowerCase();
     if (loc.includes('ankara')) ankaraDevices.push(id);
     else if (loc.includes('istanbul')) istanbulDevices.push(id);
+    else {
+      unknownDevices.push(id);
+      console.log(`[Bulletin] Device ${id} has no location mapping (loc='${loc}'), adding to fallback group.`);
+    }
   });
 
-  return { ankaraDevices, istanbulDevices };
+  return { ankaraDevices, istanbulDevices, unknownDevices };
 }
 
 function generateSideBySideSlides(
@@ -510,6 +583,8 @@ function addDeviceChart(
     x: xPos, y: 0.5, w: 6, h: 0.6, fontSize: 14, align: 'center', color: '333333'
   });
 
+  console.log(`[Bulletin] Adding chart: ${title.split('\n')[0]} | ${data.labels.length} points | type=${metricType}`);
+
   // Main chart (includes trendline as 4th series if applicable)
   slide.addChart(pres.ChartType.line, chartData, {
     x: xPos, y: 1.2, w: 6, h: 4.5,
@@ -519,7 +594,7 @@ function addDeviceChart(
     lineSmooth: false,
     showValue: false,
     catAxisLabelFontSize: 7,
-    catAxisLabelFreq: labelFreq,
+    catAxisLabelInterval: labelFreq,      // pptxgenjs correct parameter name
     catAxisOrientation: 'minMax',
     valAxisLabelFontSize: 9,
     valAxisMaxVal: yAxisMax,
