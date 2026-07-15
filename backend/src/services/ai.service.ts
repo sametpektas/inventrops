@@ -21,6 +21,24 @@ const httpsAgent = new https.Agent({
 });
 
 /**
+ * OpenAI SDK v4+ Node 18/20 üzerinde global fetch (undici) kullanır ve httpAgent seçeneğini yok sayar.
+ * Self-signed TLS sertifikalarını kabul edebilmesi için özel fetch sarmalayıcısı tanıyoruz.
+ */
+const customFetch = async (url: any, init?: any): Promise<Response> => {
+  const origReject = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+  try {
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+    return await fetch(url, init);
+  } finally {
+    if (origReject !== undefined) {
+      process.env.NODE_TLS_REJECT_UNAUTHORIZED = origReject;
+    } else {
+      delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+    }
+  }
+};
+
+/**
  * AI Konfigürasyonunu veritabanından veya .env'den alır.
  */
 async function getAIClient() {
@@ -33,7 +51,8 @@ async function getAIClient() {
       client: new OpenAI({
         apiKey: config.api_key ? decrypt(config.api_key) : '',
         baseURL: sanitizeBaseUrl(config.url),
-        httpAgent: httpsAgent
+        httpAgent: httpsAgent,
+        fetch: customFetch
       } as any),
       model: config.username || 'llama3' // Model adını username alanında saklayabiliriz
     };
@@ -44,7 +63,8 @@ async function getAIClient() {
     client: new OpenAI({
       apiKey: process.env.AI_API_KEY || 'sk-placeholder',
       baseURL: sanitizeBaseUrl(process.env.AI_API_BASE_URL || 'http://your-company-ai-api.local/v1'),
-      httpAgent: httpsAgent
+      httpAgent: httpsAgent,
+      fetch: customFetch
     } as any),
     model: process.env.AI_MODEL || 'llama3'
   };
