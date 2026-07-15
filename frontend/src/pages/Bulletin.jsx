@@ -201,118 +201,241 @@ export default function Bulletin() {
         <p style={{ color: '#64748b', marginTop: 8, fontSize: '0.95rem' }}>Depolama cihazları seçerek PowerPoint ve Excel raporları oluşturun.</p>
       </div>
 
-      {/* Logo Settings Card */}
-      <div style={{ background: 'rgba(15,23,42,0.4)', borderRadius: 20, border: '1px solid rgba(255,255,255,0.06)', padding: '20px 24px', marginBottom: 24, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(99,102,241,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <Image size={22} color="#818cf8" />
-          </div>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: 3 }}>Firma Logosu</div>
-            <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
-              {logoStatus === null ? 'Kontrol ediliyor...' : logoStatus.has_logo
-                ? <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: 5 }}><CheckCircle2 size={13} /> Logo yüklü — PowerPoint\'a otomatik ekleniyor</span>
-                : <span style={{ color: '#fb923c', display: 'flex', alignItems: 'center', gap: 5 }}><AlertTriangle size={13} /> Logo yüklenmemiş — bültenlerde logo olmayacak</span>
-              }
+      {/* Control Command Grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: 20, marginBottom: 28 }}>
+        
+        {/* Left Card: Report Period & Action */}
+        <div style={{
+          background: '#0f172a',
+          borderRadius: 16,
+          border: '1px solid var(--border-default)',
+          padding: '24px',
+          position: 'relative',
+          overflow: 'hidden',
+          boxShadow: '0 10px 30px rgba(0,0,0,0.3)'
+        }}>
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: 'linear-gradient(to right, #6366f1, #3b82f6)' }} />
+          
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 38, height: 38, borderRadius: 10, background: 'rgba(99,102,241,0.15)', color: '#818cf8', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <FileText size={20} />
+              </div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '0.98rem', color: '#f8fafc' }}>Raporlama Dönemi &amp; Çıktılar</div>
+                <div style={{ fontSize: '0.78rem', color: '#64748b' }}>Bülten ve KPI raporu için hedef zaman aralığı</div>
+              </div>
             </div>
           </div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <input ref={logoInputRef} type="file" accept="image/png,image/jpeg" onChange={handleLogoUpload} style={{ display: 'none' }} id="logo-upload-input" />
-          <label htmlFor="logo-upload-input" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 20px', borderRadius: 10, background: 'linear-gradient(135deg,#6366f1,#4f46e5)', color: '#fff', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer', boxShadow: '0 6px 16px rgba(99,102,241,0.35)', transition: 'opacity 0.2s', opacity: uploadingLogo ? 0.6 : 1, pointerEvents: uploadingLogo ? 'none' : 'auto' }}>
-            <Upload size={16} /> {uploadingLogo ? 'Yükleniyor...' : logoStatus?.has_logo ? 'Logoyu Güncelle' : 'Logo Yükle'}
-          </label>
-          <div style={{ fontSize: '0.72rem', color: '#475569' }}>PNG / JPG &lt; 5MB</div>
-        </div>
-      </div>
 
-      {/* Action Bar */}
-      <div style={{ background: 'rgba(15,23,42,0.4)', borderRadius: 16, border: '1px solid rgba(255,255,255,0.06)', padding: '16px 20px', marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          <label style={{ color: '#94a3b8', fontSize: '0.85rem', fontWeight: 600 }}>Hedef Ay:</label>
-          <select 
-            value={selectedMonth} 
-            onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
-            style={{
-              background: 'rgba(30,41,59,0.8)',
-              color: '#f8fafc',
-              border: '1px solid rgba(255,255,255,0.1)',
-              padding: '8px 14px',
-              borderRadius: 8,
-              fontSize: '0.88rem',
-              cursor: 'pointer',
-              outline: 'none'
-            }}
-          >
-            {MONTHS_TR.map((m, i) => (
-              <option key={i} value={i}>{m}</option>
-            ))}
-          </select>
-          <select 
-            value={selectedYear} 
-            onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-            style={{
-              background: 'rgba(30,41,59,0.8)',
-              color: '#f8fafc',
-              border: '1px solid rgba(255,255,255,0.1)',
-              padding: '8px 14px',
-              borderRadius: 8,
-              fontSize: '0.88rem',
-              cursor: 'pointer',
-              outline: 'none'
-            }}
-          >
-            {yearOptions.map(y => (
-              <option key={y} value={y}>{y}</option>
-            ))}
-          </select>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 22, flexWrap: 'wrap', background: '#0a0e1a', padding: '14px 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.04)' }}>
+            <span style={{ color: '#94a3b8', fontSize: '0.84rem', fontWeight: 600 }}>Hedef Dönem:</span>
+            <select 
+              value={selectedMonth} 
+              onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
+              style={{
+                background: '#1e293b',
+                color: '#f8fafc',
+                border: '1px solid rgba(255,255,255,0.1)',
+                padding: '7px 14px',
+                borderRadius: 8,
+                fontSize: '0.86rem',
+                cursor: 'pointer',
+                outline: 'none',
+                fontWeight: 500
+              }}
+            >
+              {MONTHS_TR.map((m, i) => (
+                <option key={i} value={i}>{m}</option>
+              ))}
+            </select>
+            <select 
+              value={selectedYear} 
+              onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+              style={{
+                background: '#1e293b',
+                color: '#f8fafc',
+                border: '1px solid rgba(255,255,255,0.1)',
+                padding: '7px 14px',
+                borderRadius: 8,
+                fontSize: '0.86rem',
+                cursor: 'pointer',
+                outline: 'none',
+                fontWeight: 500
+              }}
+            >
+              {yearOptions.map(y => (
+                <option key={y} value={y}>{y}</option>
+              ))}
+            </select>
+          </div>
+
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            <button 
+              onClick={generateExcelReport}
+              disabled={generating}
+              title="Tüm Storage ve SAN Switch'ler için Aylık KPI oluşturur"
+              style={{
+                flex: 1,
+                background: 'linear-gradient(135deg,#10b981,#059669)',
+                color: '#fff',
+                border: 'none',
+                padding: '11px 18px',
+                borderRadius: 10,
+                cursor: generating ? 'not-allowed' : 'pointer',
+                opacity: generating ? 0.7 : 1,
+                fontWeight: 600,
+                fontSize: '0.86rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                boxShadow: '0 4px 16px rgba(16,185,129,0.25)',
+                transition: 'all 0.2s'
+              }}
+            >
+              {generating ? 'Oluşturuluyor...' : 'Aylık KPI (Excel)'}
+            </button>
+            
+            <button 
+              onClick={openBulletinModal}
+              disabled={generating || selectedSerials.length === 0}
+              style={{
+                flex: 1,
+                background: 'linear-gradient(135deg,#6366f1,#4f46e5)',
+                color: '#fff',
+                border: 'none',
+                padding: '11px 18px',
+                borderRadius: 10,
+                cursor: generating || selectedSerials.length === 0 ? 'not-allowed' : 'pointer',
+                opacity: generating || selectedSerials.length === 0 ? 0.6 : 1,
+                fontWeight: 600,
+                fontSize: '0.86rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                boxShadow: '0 4px 16px rgba(99,102,241,0.3)',
+                transition: 'all 0.2s'
+              }}
+            >
+              {generating ? 'Oluşturuluyor...' : 'Bülten Oluştur (PPTX)'}
+            </button>
+          </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-          <button 
-            onClick={generateExcelReport}
-            disabled={generating}
-            title="Tüm Storage ve SAN Switch'ler için Aylık KPI oluşturur"
-            style={{
-              background: 'linear-gradient(135deg,#10b981,#059669)',
-              color: '#fff',
-              border: 'none',
-              padding: '10px 20px',
-              borderRadius: 10,
-              cursor: generating ? 'not-allowed' : 'pointer',
-              opacity: generating ? 0.7 : 1,
-              fontWeight: 600,
-              fontSize: '0.88rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              boxShadow: '0 4px 12px rgba(16,185,129,0.25)'
-            }}
-          >
-            {generating ? 'Oluşturuluyor...' : 'Aylık KPI (Excel)'}
-          </button>
+        {/* Right Card: Corporate Branding / Logo Upload */}
+        <div style={{
+          background: '#0f172a',
+          borderRadius: 16,
+          border: '1px solid var(--border-default)',
+          padding: '24px',
+          position: 'relative',
+          overflow: 'hidden',
+          boxShadow: '0 10px 30px rgba(0,0,0,0.3)',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'space-between'
+        }}>
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: 'linear-gradient(to right, #10b981, #059669)' }} />
           
-          <button 
-            onClick={openBulletinModal}
-            disabled={generating || selectedSerials.length === 0}
-            style={{
-              background: 'linear-gradient(135deg,#6366f1,#4f46e5)',
-              color: '#fff',
-              border: 'none',
-              padding: '10px 20px',
-              borderRadius: 10,
-              cursor: generating || selectedSerials.length === 0 ? 'not-allowed' : 'pointer',
-              opacity: generating || selectedSerials.length === 0 ? 0.6 : 1,
-              fontWeight: 600,
-              fontSize: '0.88rem',
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ width: 38, height: 38, borderRadius: 10, background: 'rgba(16,185,129,0.15)', color: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Image size={20} />
+                </div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: '0.98rem', color: '#f8fafc' }}>Sunum Marka &amp; Logo Yönetimi</div>
+                  <div style={{ fontSize: '0.78rem', color: '#64748b' }}>PowerPoint bülten şablonu özelleştirme</div>
+                </div>
+              </div>
+              
+              <div>
+                {logoStatus === null ? (
+                  <span style={{ fontSize: '0.72rem', color: '#64748b' }}>Kontrol ediliyor...</span>
+                ) : logoStatus.has_logo ? (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 12px', borderRadius: 20, fontSize: '0.74rem', fontWeight: 700, background: 'rgba(16,185,129,0.15)', color: '#10b981', border: '1px solid rgba(16,185,129,0.3)' }}>
+                    <CheckCircle2 size={13} /> LOGO AKTİF
+                  </span>
+                ) : (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 12px', borderRadius: 20, fontSize: '0.74rem', fontWeight: 700, background: 'rgba(251,146,60,0.15)', color: '#fb923c', border: '1px solid rgba(251,146,60,0.3)' }}>
+                    <AlertTriangle size={13} /> LOGO BEKLENİYOR
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div style={{
+              background: '#0a0e1a',
+              border: '1px dashed rgba(255,255,255,0.14)',
+              borderRadius: 12,
+              padding: '18px 20px',
               display: 'flex',
               alignItems: 'center',
-              gap: 8,
-              boxShadow: '0 4px 12px rgba(99,102,241,0.3)'
-            }}
-          >
-            {generating ? 'Oluşturuluyor...' : 'Bülten Oluştur (PPTX)'}
-          </button>
+              justifyContent: 'space-between',
+              gap: 16,
+              transition: 'border-color 0.2s'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <div style={{
+                  width: 50,
+                  height: 50,
+                  borderRadius: 12,
+                  background: logoStatus?.has_logo ? 'rgba(16,185,129,0.1)' : 'rgba(99,102,241,0.1)',
+                  border: `1px solid ${logoStatus?.has_logo ? 'rgba(16,185,129,0.25)' : 'rgba(99,102,241,0.25)'}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: logoStatus?.has_logo ? '#10b981' : '#818cf8',
+                  flexShrink: 0
+                }}>
+                  {logoStatus?.has_logo ? <CheckCircle2 size={24} /> : <Image size={24} />}
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.86rem', color: '#e2e8f0', fontWeight: 600, marginBottom: 3 }}>
+                    {logoStatus?.has_logo ? 'Kurumsal Logo Yüklendi' : 'Henüz Logo Tanımlanmadı'}
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: '#64748b', lineHeight: 1.4 }}>
+                    {logoStatus?.has_logo
+                      ? 'Oluşturduğunuz tüm PowerPoint sunumlarının sağ üst köşesine otomatik ekleniyor.'
+                      : 'Sunumlarınıza firma logosu eklemek için sağdan dosya seçin.'}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--border-muted)' }}>
+            <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 500 }}>
+              Desteklenen formatlar: <strong style={{ color: '#94a3b8' }}>PNG, JPG</strong> (Maks. 5 MB)
+            </span>
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              <input ref={logoInputRef} type="file" accept="image/png,image/jpeg" onChange={handleLogoUpload} style={{ display: 'none' }} id="logo-upload-input" />
+              <label 
+                htmlFor="logo-upload-input" 
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  padding: '9px 18px',
+                  borderRadius: 8,
+                  background: logoStatus?.has_logo ? '#1e293b' : 'linear-gradient(135deg,#6366f1,#4f46e5)',
+                  color: logoStatus?.has_logo ? '#f8fafc' : '#fff',
+                  border: logoStatus?.has_logo ? '1px solid rgba(255,255,255,0.15)' : 'none',
+                  fontWeight: 600,
+                  fontSize: '0.82rem',
+                  cursor: 'pointer',
+                  boxShadow: logoStatus?.has_logo ? 'none' : '0 4px 14px rgba(99,102,241,0.35)',
+                  transition: 'all 0.2s',
+                  opacity: uploadingLogo ? 0.6 : 1,
+                  pointerEvents: uploadingLogo ? 'none' : 'auto'
+                }}
+              >
+                <Upload size={15} /> {uploadingLogo ? 'Yükleniyor...' : logoStatus?.has_logo ? 'Logoyu Değiştir' : 'Logo Seç & Yükle'}
+              </label>
+            </div>
+          </div>
         </div>
       </div>
 

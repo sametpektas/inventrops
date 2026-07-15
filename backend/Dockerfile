@@ -3,7 +3,7 @@ FROM registry.access.redhat.com/ubi9/nodejs-20 AS builder
 USER root
 WORKDIR /app
 COPY package*.json ./
-RUN npm install --prefer-offline --no-audit
+RUN npm install --prefer-offline --no-audit --no-deprecation --loglevel=error
 COPY . .
 RUN ./node_modules/.bin/prisma generate
 RUN npm run build

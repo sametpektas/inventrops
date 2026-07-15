@@ -44,17 +44,17 @@ export default function AdminLayout() {
 
   return (
     <div className="app-layout">
-      <aside className="sidebar" style={{ borderRight: '1px solid rgba(255, 107, 53, 0.15)' }}>
+      <aside className="sidebar">
         <div className="sidebar__brand">
-          <div className="sidebar__logo" style={{ background: 'var(--orange)' }}>
+          <div className="sidebar__logo">
             <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-              <rect x="2" y="2" width="16" height="16" rx="2" fill="#0D1117" opacity="0.8" />
-              <path d="M7 10h6M10 7v6" stroke="#FF6B35" strokeWidth="2" strokeLinecap="round" />
+              <rect x="2" y="2" width="16" height="16" rx="4" fill="#fff" opacity="0.2" />
+              <path d="M7 10h6M10 7v6" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" />
             </svg>
           </div>
           <div>
             <span className="sidebar__app-name">InvenTrOps</span>
-            <span className="sidebar__team-badge" style={{ color: 'var(--orange)' }}>
+            <span className="sidebar__team-badge">
               Admin Panel
             </span>
           </div>
@@ -82,7 +82,7 @@ export default function AdminLayout() {
 
         <div className="sidebar__footer">
           <div className="sidebar__user">
-            <div className="sidebar__avatar" style={{ background: 'var(--orange-dim)', color: 'var(--orange)' }}>
+            <div className="sidebar__avatar">
               {user?.username?.[0]?.toUpperCase() || 'A'}
             </div>
             <div className="sidebar__user-info">
