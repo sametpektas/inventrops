@@ -441,18 +441,18 @@ export default function Bulletin() {
 
       {error && <div style={{ background: 'rgba(244,63,94,0.12)', border: '1px solid rgba(244,63,94,0.3)', color: '#f43f5e', padding: '12px 16px', borderRadius: 10, marginBottom: 20, fontSize: '0.9rem' }}>{error}</div>}
 
-      <div style={{ background: 'rgba(15,23,42,0.4)', padding: '24px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.06)' }}>
+      <div style={{ background: '#0f172a', padding: '24px', borderRadius: '16px', border: '1px solid var(--border-default)', boxShadow: '0 10px 25px rgba(0,0,0,0.3)' }}>
         <h3 style={{ marginTop: 0, marginBottom: '18px', color: '#f8fafc', fontSize: '1.1rem', fontWeight: 700 }}>Depolama Cihazları ({devices.length})</h3>
         
         {loading ? (
-          <div style={{ color: 'var(--text-muted)' }}>Cihazlar yükleniyor...</div>
+          <div style={{ color: 'var(--text-muted)', padding: '20px 0' }}>Cihazlar yükleniyor...</div>
         ) : devices.length === 0 ? (
-          <div style={{ color: 'var(--text-muted)' }}>Sistemde storage cihazı bulunamadı.</div>
+          <div style={{ color: 'var(--text-muted)', padding: '20px 0' }}>Sistemde storage cihazı bulunamadı.</div>
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+          <table className="data-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
             <thead>
-              <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                <th style={{ padding: '10px' }}>
+              <tr style={{ borderBottom: '1px solid var(--border-default)', background: 'rgba(15, 23, 42, 0.8)' }}>
+                <th style={{ padding: '12px 14px' }}>
                   <input 
                     type="checkbox" 
                     onChange={(e) => {
@@ -462,26 +462,26 @@ export default function Bulletin() {
                     checked={selectedSerials.length === devices.length && devices.length > 0}
                   />
                 </th>
-                <th style={{ padding: '10px', color: 'var(--text-muted)' }}>Hostname</th>
-                <th style={{ padding: '10px', color: 'var(--text-muted)' }}>Seri No</th>
-                <th style={{ padding: '10px', color: 'var(--text-muted)' }}>Model</th>
-                <th style={{ padding: '10px', color: 'var(--text-muted)' }}>Lokasyon (Veri Merkezi)</th>
+                <th style={{ padding: '12px 14px', color: 'var(--text-muted)' }}>Hostname</th>
+                <th style={{ padding: '12px 14px', color: 'var(--text-muted)' }}>Seri No</th>
+                <th style={{ padding: '12px 14px', color: 'var(--text-muted)' }}>Model</th>
+                <th style={{ padding: '12px 14px', color: 'var(--text-muted)' }}>Lokasyon (Veri Merkezi)</th>
               </tr>
             </thead>
             <tbody>
               {devices.map(device => (
-                <tr key={device.serial_number} style={{ borderBottom: '1px solid var(--border)' }}>
-                  <td style={{ padding: '10px' }}>
+                <tr key={device.serial_number} style={{ borderBottom: '1px solid var(--border-muted)' }}>
+                  <td style={{ padding: '12px 14px' }}>
                     <input 
                       type="checkbox" 
                       checked={selectedSerials.includes(device.serial_number)}
                       onChange={() => handleSelect(device.serial_number)}
                     />
                   </td>
-                  <td style={{ padding: '10px', color: 'var(--text)' }}>{device.hostname || '-'}</td>
-                  <td style={{ padding: '10px', color: 'var(--text)' }}>{device.serial_number}</td>
-                  <td style={{ padding: '10px', color: 'var(--text)' }}>{device.model?.vendor?.name} {device.model?.name}</td>
-                  <td style={{ padding: '10px', color: 'var(--text)' }}>
+                  <td style={{ padding: '12px 14px', color: 'var(--text-primary)', fontWeight: 500 }}>{device.hostname || '-'}</td>
+                  <td className="mono" style={{ padding: '12px 14px', color: 'var(--text-secondary)' }}>{device.serial_number}</td>
+                  <td style={{ padding: '12px 14px', color: 'var(--text-primary)' }}>{device.model?.vendor?.name} {device.model?.name}</td>
+                  <td style={{ padding: '12px 14px', color: 'var(--text-secondary)' }}>
                     {device.rack?.room?.datacenter?.name || 'Belirtilmemiş'}
                   </td>
                 </tr>
@@ -493,82 +493,85 @@ export default function Bulletin() {
 
       {/* Custom Notes Modal */}
       {showModal && (
-        <div style={{
-          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          background: 'rgba(0,0,0,0.6)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          zIndex: 9999
-        }}>
-          <div style={{
-            background: 'var(--bg-panel)',
-            border: '1px solid var(--border)',
-            borderRadius: '12px',
-            padding: '30px',
-            width: '550px',
-            maxWidth: '90vw',
-            boxShadow: '0 20px 40px rgba(0,0,0,0.4)'
-          }}>
-            <h3 style={{ margin: '0 0 5px', color: 'var(--text)' }}>
-              Bülten Oluştur
-            </h3>
-            <p style={{ color: 'var(--text-muted)', margin: '0 0 20px', fontSize: '0.9rem' }}>
-              <strong>{MONTHS_TR[selectedMonth]} {selectedYear}</strong> dönemi için bülten oluşturulacak. 
-              Değerlendirme slaytına eklemek istediğiniz maddeleri aşağıya yazabilirsiniz.
-            </p>
+        <div className="modal-overlay" style={{ background: 'rgba(0, 0, 0, 0.82)', backdropFilter: 'blur(8px)', zIndex: 9999 }}>
+          <div className="modal" style={{ background: '#0f172a', border: '1px solid rgba(255, 255, 255, 0.16)', borderRadius: '16px', maxWidth: '560px', width: '100%', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.9)', overflow: 'hidden' }}>
+            
+            <div className="modal__header" style={{ background: 'rgba(19, 28, 53, 0.95)', padding: '18px 24px', borderBottom: '1px solid rgba(255, 255, 255, 0.08)' }}>
+              <h3 className="modal__title" style={{ fontSize: '1.1rem', fontWeight: 700, color: '#f8fafc', margin: 0 }}>
+                Bülten Oluştur (PPTX)
+              </h3>
+              <button className="modal__close" onClick={() => setShowModal(false)} style={{ color: 'var(--text-muted)', fontSize: '1.5rem', background: 'transparent', border: 'none', cursor: 'pointer' }}>×</button>
+            </div>
 
-            <label style={{ color: 'var(--text)', fontWeight: '600', fontSize: '0.85rem', display: 'block', marginBottom: '8px' }}>
-              Ek Değerlendirme Maddeleri (opsiyonel)
-            </label>
-            <p style={{ color: 'var(--text-muted)', margin: '0 0 8px', fontSize: '0.8rem' }}>
-              Her satır ayrı bir madde olarak slayta eklenir.
-            </p>
-            <textarea
-              value={customNotes}
-              onChange={(e) => setCustomNotes(e.target.value)}
-              placeholder={"Cloud projesine destek verilmeye devam edilmekte.\nNAS ortamının kurulumu devam ediyor."}
-              rows={6}
-              style={{
-                width: '100%',
-                background: 'var(--bg)',
-                color: 'var(--text)',
-                border: '1px solid var(--border)',
-                borderRadius: '8px',
-                padding: '12px',
-                fontSize: '0.9rem',
-                resize: 'vertical',
-                fontFamily: 'inherit',
-                boxSizing: 'border-box'
-              }}
-            />
+            <div className="modal__body" style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px', background: '#0f172a' }}>
+              <p style={{ color: '#94a3b8', margin: 0, fontSize: '0.92rem', lineHeight: 1.5 }}>
+                <strong style={{ color: '#f8fafc' }}>{MONTHS_TR[selectedMonth]} {selectedYear}</strong> dönemi için PowerPoint bülteni oluşturulacak. 
+                Değerlendirme slaytına eklemek istediğiniz maddeleri aşağıya yazabilirsiniz.
+              </p>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' }}>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label" style={{ color: '#818cf8', fontWeight: 600, fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px', display: 'block' }}>
+                  Ek Değerlendirme Maddeleri (Opsiyonel)
+                </label>
+                <p style={{ color: '#64748b', margin: '0 0 10px', fontSize: '0.8rem' }}>
+                  Her satır ayrı bir madde olarak sunumdaki Değerlendirme slaytına eklenir.
+                </p>
+                <textarea
+                  className="form-input"
+                  value={customNotes}
+                  onChange={(e) => setCustomNotes(e.target.value)}
+                  placeholder={"Cloud projesine destek verilmeye devam edilmekte.\nNAS ortamının kurulumu devam ediyor."}
+                  rows={6}
+                  style={{
+                    width: '100%',
+                    background: '#1e293b !important',
+                    color: '#f8fafc !important',
+                    border: '1px solid rgba(255, 255, 255, 0.15) !important',
+                    borderRadius: '8px',
+                    padding: '12px 14px',
+                    fontSize: '0.9rem',
+                    resize: 'vertical',
+                    fontFamily: 'inherit',
+                    boxSizing: 'border-box',
+                    outline: 'none'
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="modal__footer" style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', padding: '16px 24px', borderTop: '1px solid rgba(255, 255, 255, 0.08)', background: '#0a0e1a' }}>
               <button 
+                className="btn btn--secondary"
                 onClick={() => setShowModal(false)}
                 style={{
-                  background: 'transparent',
-                  color: 'var(--text-muted)',
-                  border: '1px solid var(--border)',
-                  padding: '10px 20px',
-                  borderRadius: '6px',
+                  background: '#1e293b',
+                  color: '#f8fafc',
+                  border: '1px solid rgba(255, 255, 255, 0.12)',
+                  padding: '9px 20px',
+                  borderRadius: '8px',
                   cursor: 'pointer',
-                  fontWeight: '600'
+                  fontWeight: 600,
+                  fontSize: '0.86rem'
                 }}
               >
                 İptal
               </button>
               <button 
+                className="btn btn--primary"
                 onClick={generateReport}
                 style={{
-                  background: 'var(--teal)',
+                  background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
                   color: '#fff',
                   border: 'none',
-                  padding: '10px 24px',
-                  borderRadius: '6px',
+                  padding: '9px 24px',
+                  borderRadius: '8px',
                   cursor: 'pointer',
-                  fontWeight: 'bold'
+                  fontWeight: 700,
+                  fontSize: '0.86rem',
+                  boxShadow: '0 4px 14px rgba(99, 102, 241, 0.35)'
                 }}
               >
-                Oluştur
+                Bülteni İndir (PPTX)
               </button>
             </div>
           </div>

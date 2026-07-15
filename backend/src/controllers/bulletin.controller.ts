@@ -478,8 +478,8 @@ function generateSideBySideSlides(
   if (devices.length === 0) {
     const slide = pres.addSlide();
     if (logoPath) slide.addImage({ path: logoPath, x: 11.5, y: 0.15, w: 1.5, h: 0.75 });
-    slide.addText(slideTitle, { x: 0.5, y: 0.3, w: '90%', fontSize: 22, bold: true, color: '1a1a2e', fontFace: 'Segoe UI' });
-    slide.addText('Bu lokasyon için yeterli cihaz bulunamadı.', { x: 0.5, y: 3, w: '90%', fontSize: 16, color: '999999', fontFace: 'Segoe UI' });
+    slide.addText(slideTitle, { x: 0.67, y: 0.3, w: 12.0, fontSize: 22, bold: true, color: '1a1a2e', fontFace: 'Segoe UI' });
+    slide.addText('Bu lokasyon için yeterli cihaz bulunamadı.', { x: 0.67, y: 3, w: 12.0, fontSize: 16, color: '999999', fontFace: 'Segoe UI', align: 'center' });
     return;
   }
 
@@ -493,18 +493,20 @@ function generateSideBySideSlides(
 
     const slide = pres.addSlide();
     if (logoPath) slide.addImage({ path: logoPath, x: 11.5, y: 0.15, w: 1.5, h: 0.75 });
-    slide.addText(slideTitle, { x: 0.5, y: 0.3, w: '90%', fontSize: 22, bold: true, color: '1a1a2e', fontFace: 'Segoe UI' });
+    slide.addText(slideTitle, { x: 0.67, y: 0.3, w: 12.0, fontSize: 22, bold: true, color: '1a1a2e', fontFace: 'Segoe UI' });
 
     if (!data1 && !data2) {
-      slide.addText('Bu lokasyon ve metrik için yeterli veri bulunamadı.', { x: 0.5, y: 3, w: '90%', fontSize: 16, color: '999999', fontFace: 'Segoe UI' });
+      slide.addText('Bu lokasyon ve metrik için yeterli veri bulunamadı.', { x: 0.67, y: 3, w: 12.0, fontSize: 16, color: '999999', fontFace: 'Segoe UI', align: 'center' });
       continue;
     }
 
-    if (data1) {
-      addDeviceChart(pres, slide, data1, metricType, 0.5);
-    }
-    if (data2) {
-      addDeviceChart(pres, slide, data2, metricType, 6.8);
+    if (data1 && data2) {
+      // Side-by-Side: Symmetrically centered (w=6.0 each, total 12.4 width -> xPos=0.47 and 6.87)
+      addDeviceChart(pres, slide, data1, metricType, 0.47, 6.0, 4.5);
+      addDeviceChart(pres, slide, data2, metricType, 6.87, 6.0, 4.5);
+    } else if (data1 && !data2) {
+      // Single Chart on Slide: Centered right in the middle (w=11.0 -> xPos=1.17)
+      addDeviceChart(pres, slide, data1, metricType, 1.17, 11.0, 5.0);
     }
   }
 }
@@ -514,10 +516,12 @@ function addDeviceChart(
   slide: pptxgen.Slide, 
   data: { labels: string[], values: number[], name: string }, 
   metricType: 'capacity' | 'capacity_trend' | 'iops' | 'responsetime', 
-  xPos: number
+  xPos: number,
+  chartWidth: number = 6.0,
+  chartHeight: number = 4.5
 ) {
   if (!data.labels || data.labels.length === 0) {
-    slide.addText(`Veri bulunamadı: ${data.name}`, { x: xPos, y: 3, w: 6, fontSize: 14, color: '999999' });
+    slide.addText(`Veri bulunamadı: ${data.name}`, { x: xPos, y: 3, w: chartWidth, fontSize: 14, color: '999999', align: 'center' });
     return;
   }
 
@@ -578,16 +582,16 @@ function addDeviceChart(
   const totalPoints = data.labels.length;
   const labelFreq = totalPoints > 60 ? 14 : totalPoints > 30 ? 7 : totalPoints > 14 ? 3 : 1;
 
-  // Chart title
+  // Chart title centered directly above the chart
   slide.addText(title, {
-    x: xPos, y: 0.5, w: 6, h: 0.6, fontSize: 14, align: 'center', color: '333333'
+    x: xPos, y: 0.5, w: chartWidth, h: 0.6, fontSize: 14, align: 'center', color: '333333', fontFace: 'Segoe UI'
   });
 
   console.log(`[Bulletin] Adding chart: ${title.split('\n')[0]} | ${data.labels.length} points | type=${metricType}`);
 
   // Main chart (includes trendline as 4th series if applicable)
   slide.addChart(pres.ChartType.line, chartData, {
-    x: xPos, y: 1.2, w: 6, h: 4.5,
+    x: xPos, y: 1.2, w: chartWidth, h: chartHeight,
     showLegend: true,
     legendPos: 'b',
     legendFontSize: 7,
@@ -608,18 +612,19 @@ function addBarChartSlide(pres: pptxgen, title: string, chartData: any[], logoPa
   const slide = pres.addSlide();
   if (logoPath) slide.addImage({ path: logoPath, x: 11.5, y: 0.15, w: 1.5, h: 0.75 });
   slide.addText(title, {
-    x: 0.5, y: 0.3, w: '90%', fontSize: 22, bold: true, color: '1a1a2e', fontFace: 'Segoe UI'
+    x: 0.67, y: 0.3, w: 12.0, fontSize: 22, bold: true, color: '1a1a2e', fontFace: 'Segoe UI'
   });
 
   if (!chartData || chartData.length === 0 || chartData[0].labels.length === 0) {
     slide.addText('Bu lokasyon için yeterli veri bulunamadı.', {
-      x: 0.5, y: 3, w: '90%', fontSize: 16, color: '999999', fontFace: 'Segoe UI'
+      x: 0.67, y: 3, w: 12.0, fontSize: 16, color: '999999', fontFace: 'Segoe UI', align: 'center'
     });
     return;
   }
 
+  // Centered Bar Chart (w=12.0 on 13.333 slide -> x=0.67)
   slide.addChart(pres.ChartType.bar, chartData, {
-    x: 0.5, y: 1.2, w: 12, h: 5.5,
+    x: 0.67, y: 1.2, w: 12.0, h: 5.5,
     showLegend: false,
     barDir: 'col',
     showValue: true,
