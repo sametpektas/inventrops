@@ -6,8 +6,8 @@ import { decrypt } from '../utils/crypto';
 
 dotenv.config();
 
-// SSL Sertifika doğrulamasını tamamen devre dışı bırak (Şirket içi self-signed sertifikalar için)
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+// NOT: TLS doğrulaması sadece AI HTTP agent'ı için devre dışı bırakılıyor (aşağıda).
+// Tüm süreç için geçersiz kılmak güvenlik riski oluşturur — kaldırıldı.
 
 function sanitizeBaseUrl(url: string): string {
   if (!url) return url;
@@ -298,7 +298,65 @@ const tools: OpenAI.Chat.ChatCompletionTool[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'get_sync_status',
+      description: 'Tüm entegrasyonların son senkronizasyon durumunu, başarı/hata loglarını ve zamanlamasını getirir.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_forecast_risks',
+      description: 'Kapasite tahminine göre risk seviyesi yüksek (red veya orange) olan cihazları listeler.',
+      parameters: {
+        type: 'object',
+        properties: {
+          min_level: { type: 'string', enum: ['orange', 'red'], description: 'Minimum risk seviyesi filtresi.' }
+        }
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'bulk_update_team',
+      description: 'Birden fazla cihazı aynı anda bir takıma atar.',
+      parameters: {
+        type: 'object',
+        properties: {
+          serial_numbers: { type: 'array', items: { type: 'string' }, description: 'Güncellenecek cihazların seri numaraları listesi.' },
+          team_name: { type: 'string', description: 'Hedef takım adı.' }
+        },
+        required: ['serial_numbers', 'team_name'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_vendor_summary',
+      description: 'Marka (vendor) bazlı envanter özeti: her üretici için toplam cihaz sayısı, garanti süresi geçmiş ve yaklaşan cihaz sayısı.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_rack_utilization',
+      description: 'Rack (kabin) bazlı doluluk analizi. Her rack için toplam U, kullanılan U ve boş U sayısını hesaplar.',
+      parameters: {
+        type: 'object',
+        properties: {
+          datacenter_name: { type: 'string', description: 'Sadece belirli bir veri merkezindeki rack\'leri filtrelemek için (opsiyonel).' }
+        }
+      },
+    },
+  },
 ];
+
 
 /**
  * Tool Execution: LLM bir tool çağırdığında çalışacak gerçek kodlar.
@@ -660,7 +718,7 @@ async function executeTool(toolCall: any) {
           ]
         },
         include: { model: true },
-        take: 50 // Limit to 50 results
+        take: 50
       });
 
       return {
@@ -676,6 +734,101 @@ async function executeTool(toolCall: any) {
       };
     }
 
+    case 'get_sync_status': {
+      const integrations = await prisma.integrationConfig.findMany({
+        include: {
+          logs: {
+            orderBy: { created_at: 'desc' },
+            take: 3
+          }
+        }
+      });
+      return integrations.map(i => ({
+        name: i.name,
+        type: i.integration_type,
+        is_active: i.is_active,
+        last_sync_at: i.last_sync_at,
+        recent_logs: i.logs.map(l => ({
+          status: l.status,
+          created: l.created_at,
+          completed: l.completed_at,
+          created_count: l.items_created,
+          updated_count: l.items_updated,
+          error: l.error_message
+        }))
+      }));
+    }
+
+    case 'get_forecast_risks': {
+      const minLevel = args.min_level || 'orange';
+      const riskLevels = minLevel === 'red' ? ['red'] : ['orange', 'red'];
+      return await prisma.forecastResult.findMany({
+        where: { risk_level: { in: riskLevels as any } },
+        orderBy: { days_to_critical: 'asc' }
+      });
+    }
+
+    case 'bulk_update_team': {
+      if (!args.serial_numbers?.length || !args.team_name)
+        return { error: 'serial_numbers ve team_name zorunludur.' };
+      const team = await prisma.team.findFirst({
+        where: { name: { contains: args.team_name, mode: 'insensitive' } }
+      });
+      if (!team) return { error: `'${args.team_name}' adlı takım bulunamadı.` };
+      const result = await prisma.inventoryItem.updateMany({
+        where: { serial_number: { in: args.serial_numbers } },
+        data: { team_id: team.id }
+      });
+      return { success: true, updated_count: result.count, team_name: team.name };
+    }
+
+    case 'get_vendor_summary': {
+      const now = new Date();
+      const allItems = await prisma.inventoryItem.findMany({
+        include: { model: { include: { vendor: true } } }
+      });
+      const summary: Record<string, any> = {};
+      allItems.forEach(item => {
+        const vendor = item.model.vendor.name;
+        if (!summary[vendor]) summary[vendor] = { total: 0, expired: 0, expiring_1y: 0, active: 0 };
+        summary[vendor].total++;
+        if (item.status === 'active') summary[vendor].active++;
+        if (item.warranty_expiry) {
+          const exp = new Date(item.warranty_expiry);
+          if (exp < now) summary[vendor].expired++;
+          else if (exp < new Date(now.getFullYear() + 1, now.getMonth(), now.getDate()))
+            summary[vendor].expiring_1y++;
+        }
+      });
+      return summary;
+    }
+
+    case 'get_rack_utilization': {
+      const where: any = {};
+      if (args.datacenter_name) {
+        where.room = { datacenter: { name: { contains: args.datacenter_name, mode: 'insensitive' } } };
+      }
+      const racks = await prisma.rack.findMany({
+        where,
+        include: {
+          items: { select: { rack_unit_size: true, rack_unit_start: true } },
+          room: { include: { datacenter: true } }
+        }
+      });
+      return racks.map(rack => {
+        const usedUnits = rack.items.reduce((sum, item) => sum + (item.rack_unit_size || 1), 0);
+        return {
+          rack_name: rack.name,
+          room: rack.room.name,
+          datacenter: rack.room.datacenter.name,
+          total_units: rack.total_units,
+          used_units: usedUnits,
+          free_units: rack.total_units - usedUnits,
+          utilization_pct: Math.round((usedUnits / rack.total_units) * 100)
+        };
+      });
+    }
+
     default:
       return { error: 'Unknown tool' };
   }
@@ -686,7 +839,9 @@ export const processChatMessage = async (messages: OpenAI.Chat.ChatCompletionMes
     const { client, model } = await getAIClient();
 
     const systemPrompt: OpenAI.Chat.ChatCompletionMessageParam = {
-      role: 'system', content: `Sen InvenTrOps altyapı yönetim sisteminin Kıdemli Altyapı Mimarı ve Finansal Analistisin. 
+      role: 'system', content: `Sen InvenTrOps altyapı yönetim sisteminin Kıdemli Altyapı Mimarı ve Finansal Analistisin.
+
+DİL KURALI (ZORUNLU): Kullanıcı hangi dilde yazarsa AYNI dilde cevap ver. Türkçe soru → Türkçe cevap, İngilizce soru → İngilizce cevap. Dili karıştırma.
 
 Analiz Prensiplerin:
 1. Marka Bazlı Ayrı Hesaplama (MANDATORY): Bakım ve garanti analizlerini yaparken asla tüm markaları birleştirme. Dell, HPE, Huawei, Cisco gibi her üreticiyi ayrı bir başlık altında incele.

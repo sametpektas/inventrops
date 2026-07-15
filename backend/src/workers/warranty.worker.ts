@@ -51,3 +51,15 @@ export const startWarrantyWorker = () => {
     console.error(`[Worker] Job ${job?.id} failed:`, err);
   });
 };
+
+export const startWarrantyScheduler = async () => {
+  const jobs = await warrantyQueue.getRepeatableJobs();
+  const exists = jobs.some(j => j.name === 'daily-check');
+
+  if (!exists) {
+    console.log('[Scheduler] Initializing warranty check schedule (Daily at 08:00)');
+    await warrantyQueue.add('daily-check', {}, {
+      repeat: { pattern: '0 8 * * *' } // Every day at 08:00
+    });
+  }
+};

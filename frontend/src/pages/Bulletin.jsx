@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { FileText, Upload, CheckCircle2, AlertTriangle, Image, Download, Settings } from 'lucide-react';
 import api from '../api/client';
 
 const MONTHS_TR = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
@@ -9,6 +10,12 @@ export default function Bulletin() {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState(null);
+  const [toast, setToast] = useState(null);
+
+  // Logo state
+  const [logoStatus, setLogoStatus] = useState(null); // { has_logo: bool }
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const logoInputRef = useRef(null);
 
   // Month/Year selector state (default: previous month)
   const now = new Date();
@@ -23,7 +30,9 @@ export default function Bulletin() {
 
   useEffect(() => {
     fetchStorageDevices();
+    fetchLogoStatus();
   }, []);
+
 
   const fetchStorageDevices = async () => {
     try {
@@ -40,6 +49,43 @@ export default function Bulletin() {
       setLoading(false);
     }
   };
+
+  const fetchLogoStatus = async () => {
+    try {
+      const data = await api.get('/bulletin/logo-status');
+      setLogoStatus(data);
+    } catch {}
+  };
+
+  const handleLogoUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('logo', file);
+
+    try {
+      setUploadingLogo(true);
+      const token = localStorage.getItem('access_token');
+      const res = await fetch(`/api/bulletin/upload-logo`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Upload failed');
+      setLogoStatus({ has_logo: true });
+      setToast({ type: 'success', message: 'Logo başarıyla yüklendi! Tüm bültenlerde kullanılacak.' });
+      setTimeout(() => setToast(null), 3500);
+    } catch (err) {
+      setToast({ type: 'error', message: err.message || 'Logo yüklenemedi.' });
+      setTimeout(() => setToast(null), 3500);
+    } finally {
+      setUploadingLogo(false);
+      if (logoInputRef.current) logoInputRef.current.value = '';
+    }
+  };
+
 
   const handleSelect = (serial_number) => {
     setSelectedSerials(prev => 
@@ -137,14 +183,49 @@ export default function Bulletin() {
   }
 
   return (
-    <div className="bulletin-page" style={{ padding: '20px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '15px' }}>
-        <div>
-          <h2 style={{ margin: 0, color: 'var(--text)' }}>Bülten</h2>
-          <p style={{ color: 'var(--text-muted)', margin: '5px 0 0' }}>
-            Raporlamak istediğiniz depolama cihazlarını seçin, hedef ayı belirleyin ve bülten oluşturun.
-          </p>
+    <div style={{ padding: 32, color: '#fff', minHeight: '100vh' }}>
+      {/* Toast */}
+      {toast && (
+        <div style={{ position: 'fixed', top: 32, right: 32, zIndex: 1000, padding: '16px 24px', borderRadius: 16, background: 'rgba(30,41,59,0.9)', backdropFilter: 'blur(12px)', border: `1px solid ${toast.type === 'success' ? '#10b981' : '#f43f5e'}`, boxShadow: '0 20px 40px rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', gap: 12 }}>
+          {toast.type === 'success' ? <CheckCircle2 size={20} color="#10b981" /> : <AlertTriangle size={20} color="#f43f5e" />}
+          <span style={{ fontSize: '0.9rem', fontWeight: 500 }}>{toast.message}</span>
         </div>
+      )}
+
+      {/* Header */}
+      <div style={{ marginBottom: 32 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: '#6366f1', fontWeight: 600, fontSize: '0.875rem', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>
+          <FileText size={18} /> Raporlama
+        </div>
+        <h1 style={{ fontSize: '2.5rem', fontWeight: 800, letterSpacing: '-0.02em', margin: 0, background: 'linear-gradient(to right,#fff,#94a3b8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Bülten &amp; Raporlar</h1>
+        <p style={{ color: '#64748b', marginTop: 8, fontSize: '0.95rem' }}>Depolama cihazları seçerek PowerPoint ve Excel raporları oluşturun.</p>
+      </div>
+
+      {/* Logo Settings Card */}
+      <div style={{ background: 'rgba(15,23,42,0.4)', borderRadius: 20, border: '1px solid rgba(255,255,255,0.06)', padding: '20px 24px', marginBottom: 24, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(99,102,241,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Image size={22} color="#818cf8" />
+          </div>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: 3 }}>Firma Logosu</div>
+            <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
+              {logoStatus === null ? 'Kontrol ediliyor...' : logoStatus.has_logo
+                ? <span style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: 5 }}><CheckCircle2 size={13} /> Logo yüklü — PowerPoint\'a otomatik ekleniyor</span>
+                : <span style={{ color: '#fb923c', display: 'flex', alignItems: 'center', gap: 5 }}><AlertTriangle size={13} /> Logo yüklenmemiş — bültenlerde logo olmayacak</span>
+              }
+            </div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <input ref={logoInputRef} type="file" accept="image/png,image/jpeg" onChange={handleLogoUpload} style={{ display: 'none' }} id="logo-upload-input" />
+          <label htmlFor="logo-upload-input" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 20px', borderRadius: 10, background: 'linear-gradient(135deg,#6366f1,#4f46e5)', color: '#fff', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer', boxShadow: '0 6px 16px rgba(99,102,241,0.35)', transition: 'opacity 0.2s', opacity: uploadingLogo ? 0.6 : 1, pointerEvents: uploadingLogo ? 'none' : 'auto' }}>
+            <Upload size={16} /> {uploadingLogo ? 'Yükleniyor...' : logoStatus?.has_logo ? 'Logoyu Güncelle' : 'Logo Yükle'}
+          </label>
+          <div style={{ fontSize: '0.72rem', color: '#475569' }}>PNG / JPG &lt; 5MB</div>
+        </div>
+      </div>
+
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
           {/* Month/Year Selector */}
           <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>

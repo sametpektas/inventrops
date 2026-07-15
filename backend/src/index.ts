@@ -14,6 +14,7 @@ import bulletinRoutes from './routes/bulletin.routes';
 import { hashPassword } from './utils/auth';
 import { startIntegrationWorker, startIntegrationScheduler } from './workers/integration.worker';
 import { startForecastWorker, startForecastScheduler } from './workers/forecast.worker';
+import { startWarrantyWorker, startWarrantyScheduler } from './workers/warranty.worker';
 
 dotenv.config();
 
@@ -30,44 +31,14 @@ const port = process.env.PORT || 8000;
 app.use(helmet());
 app.use(rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5000, // Limit each IP to 5000 requests per windowMs
+  max: 500, // Limit each IP to 500 requests per windowMs
   standardHeaders: true,
   legacyHeaders: false,
   message: 'Too many requests from this IP, please try again later.',
   skip: (req: any) => req.path === '/api/health' // Don't count healthchecks
 }));
 
-// Emergency Admin Setup (Remove in production)
-app.get('/api/setup-admin', async (req, res) => {
-  const hp = await hashPassword('admin123');
-  try {
-    const user = await prisma.user.upsert({
-      where: { username: 'admin' },
-      update: { password: hp, role: 'admin' },
-      create: { 
-        username: 'admin', 
-        password: hp, 
-        email: 'admin@inventrops.com', 
-        role: 'admin' 
-      }
-    });
-    res.json({ message: 'Admin created/updated', username: user.username });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
 // Workers are initialized inside app.listen() callback below
-
-// Schedule Repeats (Daily at midnight)
-// warrantyQueue.add('daily-check', {}, {
-//   repeat: { pattern: '0 0 * * *' }
-// });
-
-// Schedule Integration Sync (Disabled for local run without Redis)
-app.get('/api/admin/integrations/sync-all', async (req, res) => {
-  res.status(503).json({ error: 'Redis worker queue not available in local mode.' });
-});
 
 app.use(cors());
 app.use(express.json());
@@ -126,6 +97,8 @@ app.listen(Number(port), '0.0.0.0', () => {
       await startIntegrationScheduler();
       startForecastWorker();
       await startForecastScheduler();
+      startWarrantyWorker();
+      await startWarrantyScheduler();
       
       // 2. Admin User Verification
       const adminExists = await prisma.user.findUnique({ where: { username: 'admin' } });

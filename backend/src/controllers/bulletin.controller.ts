@@ -6,6 +6,71 @@ import path from 'path';
 
 const MONTHS_TR = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
 
+// Persistent assets directory — survives container restarts via volume mount
+const ASSETS_DIR = process.env.ASSETS_DIR || path.join(process.cwd(), 'assets');
+
+/**
+ * Logo dosyasının tam yolunu döner. Desteklenen: .png, .jpg, .jpeg
+ */
+function findLogoPath(): string | undefined {
+  const exts = ['png', 'jpg', 'jpeg'];
+  for (const ext of exts) {
+    const p = path.join(ASSETS_DIR, `logo.${ext}`);
+    if (fs.existsSync(p)) return p;
+  }
+  return undefined;
+}
+
+/**
+ * POST /api/bulletin/upload-logo
+ * Multipart: field name = "logo"
+ * Firma logosunu assets/ klasörüne kaydeder.
+ */
+export const uploadLogo = async (req: Request, res: Response) => {
+  try {
+    const file = (req as any).file;
+    if (!file) {
+      return res.status(400).json({ error: 'Logo dosyası gönderilmedi. Form field adı: logo' });
+    }
+
+    const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg'];
+    if (!allowedTypes.includes(file.mimetype)) {
+      return res.status(400).json({ error: 'Sadece PNG veya JPG formatı desteklenmektedir.' });
+    }
+
+    // Ensure assets directory exists
+    if (!fs.existsSync(ASSETS_DIR)) {
+      fs.mkdirSync(ASSETS_DIR, { recursive: true });
+    }
+
+    // Remove any existing logo files
+    ['png', 'jpg', 'jpeg'].forEach(ext => {
+      const existing = path.join(ASSETS_DIR, `logo.${ext}`);
+      if (fs.existsSync(existing)) fs.unlinkSync(existing);
+    });
+
+    const ext = file.mimetype === 'image/png' ? 'png' : 'jpg';
+    const logoPath = path.join(ASSETS_DIR, `logo.${ext}`);
+    fs.writeFileSync(logoPath, file.buffer);
+
+    console.log(`[Bulletin] Logo saved to: ${logoPath} (${file.size} bytes)`);
+    res.json({ success: true, message: 'Logo başarıyla yüklendi.', path: logoPath });
+  } catch (err: any) {
+    console.error('[Bulletin] Logo upload error:', err);
+    res.status(500).json({ error: 'Logo yüklenirken bir hata oluştu.' });
+  }
+};
+
+/**
+ * GET /api/bulletin/logo-status
+ * Logo yüklenmiş mi kontrol eder.
+ */
+export const getLogoStatus = async (req: Request, res: Response) => {
+  const logoPath = findLogoPath();
+  res.json({ has_logo: !!logoPath, path: logoPath || null });
+};
+
+
 export const generateBulletin = async (req: Request, res: Response) => {
   try {
     const { serialNumbers, targetMonth, targetYear, customNotes } = req.body;
@@ -100,26 +165,14 @@ export const generateBulletin = async (req: Request, res: Response) => {
     const pres = new pptxgen();
     pres.layout = 'LAYOUT_WIDE'; // 13.33 x 7.5 inches
 
-    // --- ROBUST LOGO DETECTION ---
-    let foundLogoPath: string | undefined = undefined;
-    const possiblePaths = [
-      path.join(process.cwd(), 'assets/logo.png'),
-      path.join(process.cwd(), 'assets/logo.jpg'),
-      path.join(process.cwd(), 'assets/logo.jpeg'),
-      path.join(process.cwd(), 'backend/assets/logo.png'),
-      path.join(process.cwd(), 'logo.png'),
-      path.join(__dirname, '../../assets/logo.png'),
-      path.join(__dirname, '../../../assets/logo.png')
-    ];
-
-    for (const p of possiblePaths) {
-      if (fs.existsSync(p)) {
-        foundLogoPath = p;
-        break;
-      }
-    }
-
+    // --- LOGO DETECTION (reads from persistent assets directory) ---
+    const foundLogoPath = findLogoPath();
     const hasLogo = !!foundLogoPath;
+    if (hasLogo) {
+      console.log(`[Bulletin] Using logo from: ${foundLogoPath}`);
+    } else {
+      console.log(`[Bulletin] No logo found in ${ASSETS_DIR}. Upload via POST /api/bulletin/upload-logo`);
+    }
 
     // === SLIDE 0: Kapak Slaytı (Cover Slide) ===
     const coverSlide = pres.addSlide();
