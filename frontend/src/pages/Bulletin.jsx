@@ -226,64 +226,67 @@ export default function Bulletin() {
         </div>
       </div>
 
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-          {/* Month/Year Selector */}
-          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-            <label style={{ color: 'var(--text-muted)', fontSize: '0.85rem', fontWeight: '600' }}>Hedef Ay:</label>
-            <select 
-              value={selectedMonth} 
-              onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
-              style={{
-                background: '#1e293b', // Darker background for contrast
-                color: '#f8fafc',      // Bright text
-                border: '1px solid #475569',
-                padding: '8px 12px',
-                borderRadius: '6px',
-                fontSize: '0.9rem',
-                cursor: 'pointer',
-                outline: 'none'
-              }}
-            >
-              {MONTHS_TR.map((m, i) => (
-                <option key={i} value={i}>{m}</option>
-              ))}
-            </select>
-            <select 
-              value={selectedYear} 
-              onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-              style={{
-                background: '#1e293b',
-                color: '#f8fafc',
-                border: '1px solid #475569',
-                padding: '8px 12px',
-                borderRadius: '6px',
-                fontSize: '0.9rem',
-                cursor: 'pointer',
-                outline: 'none'
-              }}
-            >
-              {yearOptions.map(y => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
-          </div>
+      {/* Action Bar */}
+      <div style={{ background: 'rgba(15,23,42,0.4)', borderRadius: 16, border: '1px solid rgba(255,255,255,0.06)', padding: '16px 20px', marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <label style={{ color: '#94a3b8', fontSize: '0.85rem', fontWeight: 600 }}>Hedef Ay:</label>
+          <select 
+            value={selectedMonth} 
+            onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
+            style={{
+              background: 'rgba(30,41,59,0.8)',
+              color: '#f8fafc',
+              border: '1px solid rgba(255,255,255,0.1)',
+              padding: '8px 14px',
+              borderRadius: 8,
+              fontSize: '0.88rem',
+              cursor: 'pointer',
+              outline: 'none'
+            }}
+          >
+            {MONTHS_TR.map((m, i) => (
+              <option key={i} value={i}>{m}</option>
+            ))}
+          </select>
+          <select 
+            value={selectedYear} 
+            onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+            style={{
+              background: 'rgba(30,41,59,0.8)',
+              color: '#f8fafc',
+              border: '1px solid rgba(255,255,255,0.1)',
+              padding: '8px 14px',
+              borderRadius: 8,
+              fontSize: '0.88rem',
+              cursor: 'pointer',
+              outline: 'none'
+            }}
+          >
+            {yearOptions.map(y => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
+        </div>
 
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
           <button 
             onClick={generateExcelReport}
             disabled={generating}
-            title="Tüm Storage ve SAN Switch'ler için Aylık KPI oluşturur (Seçime gerek yok)"
+            title="Tüm Storage ve SAN Switch'ler için Aylık KPI oluşturur"
             style={{
-              background: 'var(--green)',
+              background: 'linear-gradient(135deg,#10b981,#059669)',
               color: '#fff',
               border: 'none',
               padding: '10px 20px',
-              borderRadius: '6px',
+              borderRadius: 10,
               cursor: generating ? 'not-allowed' : 'pointer',
               opacity: generating ? 0.7 : 1,
-              fontWeight: 'bold',
+              fontWeight: 600,
+              fontSize: '0.88rem',
               display: 'flex',
               alignItems: 'center',
-              gap: '8px'
+              gap: 8,
+              boxShadow: '0 4px 12px rgba(16,185,129,0.25)'
             }}
           >
             {generating ? 'Oluşturuluyor...' : 'Aylık KPI (Excel)'}
@@ -293,17 +296,19 @@ export default function Bulletin() {
             onClick={openBulletinModal}
             disabled={generating || selectedSerials.length === 0}
             style={{
-              background: 'var(--teal)',
+              background: 'linear-gradient(135deg,#6366f1,#4f46e5)',
               color: '#fff',
               border: 'none',
               padding: '10px 20px',
-              borderRadius: '6px',
+              borderRadius: 10,
               cursor: generating || selectedSerials.length === 0 ? 'not-allowed' : 'pointer',
-              opacity: generating || selectedSerials.length === 0 ? 0.7 : 1,
-              fontWeight: 'bold',
+              opacity: generating || selectedSerials.length === 0 ? 0.6 : 1,
+              fontWeight: 600,
+              fontSize: '0.88rem',
               display: 'flex',
               alignItems: 'center',
-              gap: '8px'
+              gap: 8,
+              boxShadow: '0 4px 12px rgba(99,102,241,0.3)'
             }}
           >
             {generating ? 'Oluşturuluyor...' : 'Bülten Oluştur (PPTX)'}
@@ -311,10 +316,10 @@ export default function Bulletin() {
         </div>
       </div>
 
-      {error && <div style={{ color: 'red', marginBottom: '20px' }}>{error}</div>}
+      {error && <div style={{ background: 'rgba(244,63,94,0.12)', border: '1px solid rgba(244,63,94,0.3)', color: '#f43f5e', padding: '12px 16px', borderRadius: 10, marginBottom: 20, fontSize: '0.9rem' }}>{error}</div>}
 
-      <div style={{ background: 'var(--bg-panel)', padding: '20px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-        <h3 style={{ marginTop: 0, marginBottom: '15px', color: 'var(--text)' }}>Depolama Cihazları ({devices.length})</h3>
+      <div style={{ background: 'rgba(15,23,42,0.4)', padding: '24px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.06)' }}>
+        <h3 style={{ marginTop: 0, marginBottom: '18px', color: '#f8fafc', fontSize: '1.1rem', fontWeight: 700 }}>Depolama Cihazları ({devices.length})</h3>
         
         {loading ? (
           <div style={{ color: 'var(--text-muted)' }}>Cihazlar yükleniyor...</div>
