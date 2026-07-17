@@ -127,7 +127,6 @@ export const getItems = async (req: Request, res: Response) => {
         ? `${item.rack.room.datacenter.name} / ${item.rack.room.name} / ${item.rack.name}`
         : (item.model.category === 'software' ? 'Cloud / Licensing' : 'Storage/Depot')
     }));
-
     res.json({ results, count });
   } catch (err) {
     console.error(err);

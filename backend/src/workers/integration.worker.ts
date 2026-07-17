@@ -67,6 +67,16 @@ async function getOrCreateModel(device: DiscoveredDevice, vendorId: number) {
         rack_units: 1
       }
     });
+  } else {
+    // Update device_type if the adapter reports a different classification
+    const newType = mapDeviceType(device.device_type);
+    if (model.device_type !== newType) {
+      console.log(`[Worker] Updating model "${model.name}" device_type: ${model.device_type} → ${newType}`);
+      model = await prisma.model.update({
+        where: { id: model.id },
+        data: { device_type: newType }
+      });
+    }
   }
   return model;
 }

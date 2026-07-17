@@ -205,9 +205,10 @@ export class XormonAdapter {
 
         const classStr = String(d.class || '').toLowerCase();
         const hwTypeStr = String(d.hw_type || '').toLowerCase();
+        // SAN switch detection: Only classify as san_switch if explicitly a SAN/fabric/switch device
+        // Do NOT classify storage arrays (IBM swiz, Huawei OceanStor, etc.) as san_switch just because they have ports
         const isSan = classStr.includes('san') || classStr.includes('fabric') || classStr.includes('switch') ||
-                      hwTypeStr.includes('brcd') || hwTypeStr === 'swiz' || vendor.toLowerCase().includes('brocade') ||
-                      (availablePorts !== undefined && !isNaN(availablePorts) && availablePorts > 0);
+                      hwTypeStr.includes('brcd') || hwTypeStr.includes('sanbrcd') || vendor.toLowerCase().includes('brocade');
         const deviceType = isSan ? 'san_switch' : (d.class || 'storage');
 
         const result: DiscoveredDevice = {
