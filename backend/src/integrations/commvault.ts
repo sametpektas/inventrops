@@ -372,19 +372,17 @@ export class CommvaultAdapter {
   async fetchInventory(): Promise<DiscoveredDevice[]> {
     console.log(`[Commvault] Starting inventory sync check from ${this.config.url}...`);
     try {
-      // Clean up any previously synced Commvault libraries (both Tape and Disk) from active inventory
-      // so they never appear in frontend or device counts (these metrics are kept exclusively in ForecastMetricSnapshot for bulletins)
+      // Clean up ONLY Commvault library items from active inventory (NOT real storage devices)
+      // Only target items with commvault- serial prefix (synthetic entries created by CommvaultAdapter)
       try {
         const deleted = await prisma.inventoryItem.deleteMany({
           where: {
-            OR: [
-              { serial_number: { startsWith: 'commvault-' } },
-              { discovered_via: 'commvault' },
-              { model: { name: { in: ['Tape Library', 'Disk Library', 'Backup Library'] } } }
-            ]
+            serial_number: { startsWith: 'commvault-' }
           }
         });
-        console.log(`[Commvault] Cleaned up ${deleted.count} library items from active inventory.`);
+        if (deleted.count > 0) {
+          console.log(`[Commvault] Cleaned up ${deleted.count} synthetic library items from active inventory.`);
+        }
       } catch (e: any) {
         console.warn(`[Commvault] Could not clean up old libraries from inventory: ${e.message}`);
       }

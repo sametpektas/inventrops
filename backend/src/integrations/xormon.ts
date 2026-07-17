@@ -237,11 +237,9 @@ export class XormonAdapter {
         console.log(`[Xormon] ${hostname} → SN: ${serial}, IP: ${ip}, Vendor: ${vendor}, Config: ${hasConfig ? 'YES' : 'NO'}`);
         return result;
       }).filter((d: DiscoveredDevice) => {
-        const vendor = (d.vendor_name || '').toLowerCase();
-        const model = (d.model_name || '').toLowerCase();
-        const name = (d.hostname || '').toLowerCase();
-        if (vendor.includes('commvault') || model.includes('library') || name.includes('library')) {
-          console.log(`[Xormon] Skipping backup library item ${d.hostname} (${d.serial_number}) from active inventory (kept for bulletin only).`);
+        const vendorLower = (d.vendor_name || '').toLowerCase();
+        if (vendorLower === 'commvault') {
+          console.log(`[Xormon] Skipping Commvault item ${d.hostname} (${d.serial_number}) from active inventory (kept for bulletin only).`);
           return false;
         }
         return true;
