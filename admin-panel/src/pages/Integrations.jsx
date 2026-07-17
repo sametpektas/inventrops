@@ -240,6 +240,7 @@ export default function Integrations() {
                     <option value="hpe_oneview">HPE OneView</option>
                     <option value="xormon">Xormon</option>
                     <option value="vrops">vROps (Aria Operations)</option>
+                    <option value="commvault">Commvault (Backup & Tape)</option>
                     <option value="ai_assistant">AI Assistant (OpenAI Format)</option>
                   </select>
                 </div>
@@ -284,11 +285,12 @@ export default function Integrations() {
                   </div>
                 </div>
 
-                {['dell_openmanage', 'hpe_oneview', 'xormon', 'vrops', 'ai_assistant'].includes(form.integration_type) ? (
+                {['dell_openmanage', 'hpe_oneview', 'xormon', 'vrops', 'commvault', 'ai_assistant'].includes(form.integration_type) ? (
                   <div className="form-group">
                     <label className="form-label">Team Assignment</label>
                     <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', padding: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px' }}>
                       {form.integration_type === 'xormon' ? 'Automatically assigned to Storage Team' : 
+                       form.integration_type === 'commvault' ? 'Automatically assigned to Storage & Backup Team' :
                        ['dell_openmanage', 'hpe_oneview'].includes(form.integration_type) ? 'Automatically assigned to Virtualization Team' :
                        'No team assignment for this integration type'}
                     </div>
