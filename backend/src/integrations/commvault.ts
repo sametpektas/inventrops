@@ -49,32 +49,45 @@ export class CommvaultAdapter {
 
     try {
       console.log(`[Commvault] Authenticating with ${this.config.url}...`);
-      let response: any;
-      try {
-        response = await this.client.post('/Login', {
-          username: this.config.username,
-          password: this.config.password
-        });
-      } catch (firstErr: any) {
-        if (firstErr.response?.status === 404) {
+      
+      const rawPassword = this.config.password || '';
+      const base64Password = Buffer.from(rawPassword).toString('base64');
+      
+      // We try both Base64-encoded password (standard Commvault API requirement) and raw password, across common endpoints
+      const endpoints = ['/Login', '/V4/Login', '/login'];
+      const passwords = [base64Password, rawPassword];
+
+      let response: any = null;
+      let lastError: any = null;
+
+      for (const endpoint of endpoints) {
+        for (const pwd of passwords) {
           try {
-            response = await this.client.post('/V4/Login', {
+            response = await this.client.post(endpoint, {
               username: this.config.username,
-              password: this.config.password
+              password: pwd
             });
-          } catch (secondErr: any) {
-            if (secondErr.response?.status === 404) {
-              response = await this.client.post('/login', {
-                username: this.config.username,
-                password: this.config.password
-              });
-            } else {
-              throw secondErr;
+            if (response && (response.headers['authtoken'] || response.headers['Authtoken'] || response.data?.token || response.data?.authtoken || response.data?.tokenResponse?.token)) {
+              break;
             }
+          } catch (err: any) {
+            lastError = err;
+            const status = err.response?.status;
+            // If 404 (endpoint not found) or 401/500 (auth error due to password format), continue trying next variation
+            if (status === 404 || status === 401 || status === 500) {
+              continue;
+            }
+            // If other unexpected error (e.g. timeout or network unreachable), break and throw
+            throw err;
           }
-        } else {
-          throw firstErr;
         }
+        if (response && (response.headers['authtoken'] || response.headers['Authtoken'] || response.data?.token || response.data?.authtoken || response.data?.tokenResponse?.token)) {
+          break;
+        }
+      }
+
+      if (!response) {
+        throw lastError || new Error('Failed to reach Commvault login endpoint');
       }
 
       const token = response.headers['authtoken'] || response.headers['Authtoken'] || response.data?.token || response.data?.authtoken || response.data?.tokenResponse?.token;
