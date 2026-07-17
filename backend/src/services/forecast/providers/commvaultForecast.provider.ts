@@ -28,7 +28,7 @@ export class CommvaultForecastProvider implements ForecastProvider {
         const objName = lib.libraryName;
         const objType = lib.isTape ? 'tape_library' : 'disk_library';
 
-        if (lib.capacityTotalGiB !== undefined && lib.capacityTotalGiB > 0) {
+        if (lib.capacityTotalGiB !== undefined && lib.capacityTotalGiB >= 0) {
           metrics.push({
             objectId: objId, objectName: objName, objectType: objType,
             metricName: 'capacity_total',

@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma';
 import pptxgen from 'pptxgenjs';
 import fs from 'fs';
 import path from 'path';
+import { CommvaultForecastProvider } from '../services/forecast/providers/commvaultForecast.provider';
 
 const MONTHS_TR = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
 
@@ -286,6 +287,60 @@ export const generateBulletin = async (req: Request, res: Response) => {
       });
     }
 
+    const hasCapacity = backupSnapshots.some(s => (s.metric_name === 'capacity_total' || s.metric_name === 'capacity_used') && s.metric_value > 0);
+    const hasSla = backupSnapshots.some(s => s.metric_name === 'sla_percent' && s.metric_value > 0);
+    const hasSubclients = backupSnapshots.some(s => s.metric_name === 'subclient_backup_gib');
+
+    if (!hasCapacity || !hasSla || !hasSubclients) {
+      console.log(`[Bulletin] Missing backup metrics (hasCapacity=${hasCapacity}, hasSla=${hasSla}, hasSubclients=${hasSubclients}). Triggering live sync via CommvaultForecastProvider...`);
+      try {
+        const commvaultSource = await prisma.integrationConfig.findFirst({
+          where: { is_active: true, integration_type: 'commvault' }
+        });
+        if (commvaultSource) {
+          const provider = new CommvaultForecastProvider();
+          const newMetrics = await provider.collectMetrics(commvaultSource.id);
+          for (const m of newMetrics) {
+            await prisma.forecastMetricSnapshot.upsert({
+              where: {
+                object_id_metric_name_captured_at: {
+                  object_id: m.objectId,
+                  metric_name: m.metricName,
+                  captured_at: m.timestamp
+                }
+              },
+              update: {
+                metric_value: m.metricValue,
+                object_name: m.objectName,
+                object_type: m.objectType
+              },
+              create: {
+                source_id: commvaultSource.id,
+                object_id: m.objectId,
+                object_name: m.objectName,
+                object_type: m.objectType,
+                metric_name: m.metricName,
+                metric_value: m.metricValue,
+                captured_at: m.timestamp
+              }
+            });
+          }
+          console.log(`[Bulletin] Live sync stored ${newMetrics.length} metrics. Re-querying backupSnapshots...`);
+          backupSnapshots = await prisma.forecastMetricSnapshot.findMany({
+            where: {
+              OR: [
+                { object_type: { in: ['tape_library', 'disk_library', 'backup_sla', 'backup_subclient', 'backup_library'] } },
+                { object_id: { startsWith: 'commvault-' } }
+              ]
+            },
+            orderBy: { captured_at: 'asc' }
+          });
+        }
+      } catch (err: any) {
+        console.warn(`[Bulletin] Live sync failed: ${err.message}`);
+      }
+    }
+
     const tapeLibraries: Array<{ name: string; assigned: number; spare: number }> = [];
     const allLibraries: Array<{ name: string; totalGiB: number; usedGiB: number; usedPct: number }> = [];
 
@@ -365,7 +420,7 @@ export const generateBulletin = async (req: Request, res: Response) => {
       latestGiB: sc.latest,
       growthGiB: sc.latest - sc.first,
       growthPct: sc.first > 0 ? ((sc.latest - sc.first) / sc.first) * 100 : 0
-    })).sort((a, b) => b.growthGiB - a.growthGiB).slice(0, 20);
+    })).sort((a, b) => b.growthGiB !== a.growthGiB ? b.growthGiB - a.growthGiB : b.latestGiB - a.latestGiB).slice(0, 20);
 
     console.log(`[Bulletin] Backup Stats — Devices: ${backupDevices.length}, Snapshots: ${backupSnapshots.length}, TapeLibs: ${tapeLibraries.length}, AllLibs: ${allLibraries.length}, GrowthMap Keys: ${Object.keys(libraryGrowthMap).length}, SLA Pts: ${slaHistory.length}, TopSubclients: ${topSubclients.length}`);
 

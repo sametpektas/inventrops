@@ -167,9 +167,20 @@ export class CommvaultAdapter {
             let spareMediaCount = lib.spareMediaCount !== undefined ? Number(lib.spareMediaCount) : (lib.spareMedia !== undefined ? Number(lib.spareMedia) : (lib.numOfSpareMediaInLib !== undefined ? Number(lib.numOfSpareMediaInLib) : undefined));
             let totalMediaCount = lib.totalMediaCount !== undefined ? Number(lib.totalMediaCount) : (lib.totalMedia !== undefined ? Number(lib.totalMedia) : undefined);
 
-            let capTotalBytes = Number(lib.capacityBytes || lib.totalCapacity || lib.capacity || lib.totalCapacityBytes || lib.diskCapacity || lib.totalSpace || 0);
-            let capFreeBytes = Number(lib.freeSpaceBytes || lib.freeCapacity || lib.freeSpace || lib.availableSpace || 0);
-            let capUsedBytes = Number(lib.usedSpaceBytes || lib.usedCapacity || lib.consumedSpace || (capTotalBytes > capFreeBytes ? capTotalBytes - capFreeBytes : 0));
+            // Broadly check capacity fields across library root and summary objects
+            const getBytes = (obj: any, keys: string[]): number => {
+              if (!obj || typeof obj !== 'object') return 0;
+              for (const k of keys) {
+                if (obj[k] !== undefined && obj[k] !== null && !isNaN(Number(obj[k]))) {
+                  return Number(obj[k]);
+                }
+              }
+              return 0;
+            };
+
+            let capTotalBytes = getBytes(lib, ['capacityBytes', 'totalCapacity', 'capacity', 'totalCapacityBytes', 'diskCapacity', 'totalSpace']) || getBytes(lib.summary || lib.diskSummary || lib.storageSummary || lib.mountPathSummary, ['totalCapacity', 'capacityBytes', 'totalSpace']);
+            let capFreeBytes = getBytes(lib, ['freeSpaceBytes', 'freeCapacity', 'freeSpace', 'availableSpace']) || getBytes(lib.summary || lib.diskSummary || lib.storageSummary || lib.mountPathSummary, ['freeCapacity', 'freeSpaceBytes', 'availableSpace']);
+            let capUsedBytes = getBytes(lib, ['usedSpaceBytes', 'usedCapacity', 'consumedSpace']) || getBytes(lib.summary || lib.diskSummary || lib.storageSummary || lib.mountPathSummary, ['usedCapacity', 'usedSpaceBytes', 'consumedSpace']) || (capTotalBytes > capFreeBytes ? capTotalBytes - capFreeBytes : 0);
 
             // ALWAYS try fetching library details from /Library/{id} or /V4/Storage/Tape/{id}
             try {
@@ -198,9 +209,9 @@ export class CommvaultAdapter {
                       totalMediaCount = assignedMediaCount + spareMediaCount;
                     }
 
-                    const dTotal = Number(detailObj.capacityBytes || detailObj.totalCapacity || detailObj.capacity || detailObj.totalCapacityBytes || detailObj.diskCapacity || detailObj.totalSpace || 0);
-                    const dFree = Number(detailObj.freeSpaceBytes || detailObj.freeCapacity || detailObj.freeSpace || detailObj.availableSpace || 0);
-                    const dUsed = Number(detailObj.usedSpaceBytes || detailObj.usedCapacity || detailObj.consumedSpace || (dTotal > dFree ? dTotal - dFree : 0));
+                    const dTotal = getBytes(detailObj, ['capacityBytes', 'totalCapacity', 'capacity', 'totalCapacityBytes', 'diskCapacity', 'totalSpace']) || getBytes(detailObj.summary || detailObj.diskSummary || detailObj.storageSummary || detailObj.mountPathSummary, ['totalCapacity', 'capacityBytes', 'totalSpace']);
+                    const dFree = getBytes(detailObj, ['freeSpaceBytes', 'freeCapacity', 'freeSpace', 'availableSpace']) || getBytes(detailObj.summary || detailObj.diskSummary || detailObj.storageSummary || detailObj.mountPathSummary, ['freeCapacity', 'freeSpaceBytes', 'availableSpace']);
+                    const dUsed = getBytes(detailObj, ['usedSpaceBytes', 'usedCapacity', 'consumedSpace']) || getBytes(detailObj.summary || detailObj.diskSummary || detailObj.storageSummary || detailObj.mountPathSummary, ['usedCapacity', 'usedSpaceBytes', 'consumedSpace']) || (dTotal > dFree ? dTotal - dFree : 0);
 
                     if (dTotal > capTotalBytes) capTotalBytes = dTotal;
                     if (dFree > capFreeBytes) capFreeBytes = dFree;
@@ -263,9 +274,9 @@ export class CommvaultAdapter {
               }
             }
 
-            const capacityTotalGiB = capTotalBytes ? capTotalBytes / (1024 * 1024 * 1024) : (lib.capacityTotalGiB || 0);
-            const capacityFreeGiB = capFreeBytes ? capFreeBytes / (1024 * 1024 * 1024) : (lib.capacityFreeGiB || 0);
-            const capacityUsedGiB = capUsedBytes ? capUsedBytes / (1024 * 1024 * 1024) : (lib.capacityUsedGiB || 0);
+            const capacityTotalGiB = capTotalBytes ? capTotalBytes / (1024 * 1024 * 1024) : (Number(lib.capacityTotalGiB || lib.capacityGiB || lib.totalCapacityGiB || 0));
+            const capacityFreeGiB = capFreeBytes ? capFreeBytes / (1024 * 1024 * 1024) : (Number(lib.capacityFreeGiB || lib.freeSpaceGiB || lib.freeCapacityGiB || 0));
+            const capacityUsedGiB = capUsedBytes ? capUsedBytes / (1024 * 1024 * 1024) : (Number(lib.capacityUsedGiB || lib.usedSpaceGiB || lib.usedCapacityGiB || (capacityTotalGiB > capacityFreeGiB ? capacityTotalGiB - capacityFreeGiB : 0)));
 
             resultMap.set(libId, {
               libraryId: libId,
@@ -329,8 +340,8 @@ export class CommvaultAdapter {
         const clientName = sc.clientName || sc.client?.name || sc.displayName || item.clientName || item.client?.name || 'Unknown-Client';
         const appName = sc.appName || sc.instanceName || sc.agentName;
 
-        const bytes = Number(item.applicationSize || item.backupSize || sc.applicationSize || sc.backupSize || 0);
-        const backupSizeGiB = bytes > 0 ? bytes / (1024 * 1024 * 1024) : (Number(item.backupSizeGiB || sc.backupSizeGiB || 0));
+        const bytes = Number(item.applicationSize || item.backupSize || sc.applicationSize || sc.backupSize || item.size || sc.size || item.lastBackupSize || sc.lastBackupSize || item.totalSize || sc.totalSize || 0);
+        const backupSizeGiB = bytes > 0 ? bytes / (1024 * 1024 * 1024) : (Number(item.backupSizeGiB || sc.backupSizeGiB || item.sizeGiB || sc.sizeGiB || item.lastBackupSizeGiB || sc.lastBackupSizeGiB || 0));
 
         result.push({
           subclientId,
@@ -351,12 +362,19 @@ export class CommvaultAdapter {
   async getSlaPercentage(): Promise<number | null> {
     try {
       const headers = await this.getHeaders();
-      const endpoints = ['/Commserv/SLA', '/SLA', '/V4/SLA', '/v4/sla', '/commandcenter/api/v4/SLA'];
+      const endpoints = ['/Commserv/SLA', '/SLA', '/V4/SLA', '/v4/sla', '/commandcenter/api/v4/SLA', '/V4/SLA/Summary', '/v4/sla/summary'];
       for (const ep of endpoints) {
         try {
           const response = await this.client.get(ep, { headers });
-          const slaData = response.data?.slaInfo || response.data?.sla || response.data || {};
-          const slaVal = parseFloat(String(slaData.slaPercentage || slaData.percentage || slaData.value || slaData.SLA || '0'));
+          const slaData = response.data?.slaInfo || response.data?.sla || response.data?.slaSummary || response.data || {};
+          let slaVal = parseFloat(String(slaData.slaPercentage || slaData.percentage || slaData.value || slaData.SLA || slaData.overallSLA || slaData.totalSLA || '0'));
+          if (isNaN(slaVal) || slaVal <= 0) {
+            const list = response.data?.slaList || response.data?.slas || response.data?.data || (Array.isArray(response.data) ? response.data : []);
+            if (Array.isArray(list) && list.length > 0) {
+              const firstItem = list[0] || {};
+              slaVal = parseFloat(String(firstItem.slaPercentage || firstItem.percentage || firstItem.value || firstItem.SLA || '0'));
+            }
+          }
           if (!isNaN(slaVal) && slaVal > 0) return slaVal;
         } catch {
           continue;
