@@ -56,9 +56,16 @@ export const generateKpiExcel = async (req: Request, res: Response) => {
     const serialToXormonMap: Record<string, string> = {};
 
     devices.forEach((d: any) => {
-      const metadata = d.metadata as any;
+      const metadata = (d.metadata || {}) as any;
       const xormonId = metadata?.xormon_id || '';
-      const deviceType = d.model?.device_type || 'storage';
+      const vendorName = (d.vendor?.name || '').toLowerCase();
+      const modelName = (d.model?.name || '').toLowerCase();
+      const hostName = (d.hostname || d.serial_number || '').toLowerCase();
+      const isSan = d.model?.device_type === 'san_switch' ||
+                    metadata?.available_ports !== undefined || metadata?.total_ports !== undefined || metadata?.free_ports !== undefined || metadata?.used_ports !== undefined ||
+                    vendorName.includes('brocade') || (vendorName.includes('cisco') && (modelName.includes('mds') || hostName.includes('mds'))) ||
+                    modelName.includes('brocade') || modelName.includes('mds') || (metadata?.hw_type || '').toLowerCase().includes('brcd');
+      const deviceType = isSan ? 'san_switch' : (d.model?.device_type || 'storage');
       const displayName = d.hostname || d.serial_number;
 
       if (xormonId) {
@@ -118,7 +125,7 @@ export const generateKpiExcel = async (req: Request, res: Response) => {
         if (snap.metric_name === 'capacity_used') entry.capacity_used_gib = val * 1024;
         if (snap.metric_name === 'capacity_free') entry.capacity_free_gib = val * 1024;
         if (snap.metric_name === 'capacity_used_percent') entry.capacity_used_percent = val;
-      } else if (objType === 'san') {
+      } else if (objType === 'san' || objType === 'san_switch' || ['available_ports', 'total_ports', 'free_ports', 'used_ports', 'port_utilization_percent'].includes(snap.metric_name)) {
         if (!sanMonthlyMap[objId]) sanMonthlyMap[objId] = {};
         if (!sanMonthlyMap[objId][monthKey]) {
           sanMonthlyMap[objId][monthKey] = { available_ports: null, free_ports: null, used_ports: null };
@@ -140,8 +147,14 @@ export const generateKpiExcel = async (req: Request, res: Response) => {
     });
 
     // Separate devices by type using original list
-    const storageDevices = devices.filter(d => d.model?.device_type === 'storage');
-    const sanDevices = devices.filter(d => d.model?.device_type === 'san_switch');
+    const sanDevices = devices.filter(d => {
+      const meta = (d.metadata || {}) as any;
+      const vendorName = (d.vendor?.name || '').toLowerCase();
+      const modelName = (d.model?.name || '').toLowerCase();
+      const hostName = (d.hostname || d.serial_number || '').toLowerCase();
+      return d.model?.device_type === 'san_switch' || meta.available_ports !== undefined || meta.total_ports !== undefined || meta.free_ports !== undefined || meta.used_ports !== undefined || vendorName.includes('brocade') || (vendorName.includes('cisco') && (modelName.includes('mds') || hostName.includes('mds'))) || modelName.includes('brocade') || modelName.includes('mds') || (meta.hw_type || '').toLowerCase().includes('brcd');
+    });
+    const storageDevices = devices.filter(d => !sanDevices.some(sd => sd.id === d.id) && (d.model?.device_type === 'storage' || !d.model?.device_type));
 
     // Calculate derived values for storage
     for (const objId of Object.keys(storageMonthlyMap)) {
@@ -388,7 +401,14 @@ export const generateKpiExcel = async (req: Request, res: Response) => {
     // --- SAN DATA ROWS ---
     for (const objId of sanIds) {
       const dev = deviceMap[objId] || { name: objId, type: 'san_switch', serial: objId };
-      const inventoryDevice = sanDevices.find(d => d.serial_number === objId || d.serial_number === dev.serial || ((d.metadata as any)?.xormon_id && (d.metadata as any).xormon_id === objId));
+      const inventoryDevice = devices.find(d => {
+        const meta = (d.metadata || {}) as any;
+        return (d.serial_number && d.serial_number.toLowerCase() === objId.toLowerCase()) ||
+               (d.serial_number && dev.serial && d.serial_number.toLowerCase() === dev.serial.toLowerCase()) ||
+               (meta.xormon_id && String(meta.xormon_id).toLowerCase() === objId.toLowerCase()) ||
+               (d.hostname && d.hostname.toLowerCase() === objId.toLowerCase()) ||
+               (d.hostname && dev.name && d.hostname.toLowerCase() === dev.name.toLowerCase());
+      });
       const metadata = (inventoryDevice?.metadata as any) || {};
       const xormonId = (metadata.xormon_id || '').trim().toLowerCase();
       const serial = (inventoryDevice?.serial_number || dev.serial || objId).trim().toLowerCase();
@@ -413,19 +433,19 @@ export const generateKpiExcel = async (req: Request, res: Response) => {
         // Fallback to current metadata if snapshot is missing for this month
         let total = data?.available_ports;
         if (total === null || total === undefined || isNaN(total)) {
-          const mTotal = parseFloat(String(metadata.available_ports || metadata.total_ports || '0'));
+          const mTotal = parseFloat(String(metadata.available_ports ?? metadata.total_ports ?? metadata.ports_total ?? metadata.ports_count ?? metadata.port_count ?? metadata.max_ports ?? '0'));
           total = !isNaN(mTotal) && mTotal > 0 ? mTotal : null;
         }
 
         let free = data?.free_ports;
         if (free === null || free === undefined || isNaN(free)) {
-          const mFree = parseFloat(String(metadata.free_ports || '0'));
-          free = !isNaN(mFree) && (mFree > 0 || mFree === 0 && total !== null) ? mFree : null;
+          const mFree = parseFloat(String(metadata.free_ports ?? metadata.ports_free ?? metadata.unused_ports ?? '0'));
+          free = !isNaN(mFree) && (mFree > 0 || (mFree === 0 && total !== null)) ? mFree : null;
         }
 
         let used = data?.used_ports;
         if (used === null || used === undefined || isNaN(used)) {
-          const mUsed = parseFloat(String(metadata.used_ports || '0'));
+          const mUsed = parseFloat(String(metadata.used_ports ?? metadata.ports_used ?? metadata.active_ports ?? '0'));
           if (!isNaN(mUsed) && mUsed > 0) {
             used = mUsed;
           } else if (total !== null && free !== null) {
@@ -436,6 +456,9 @@ export const generateKpiExcel = async (req: Request, res: Response) => {
         }
         if ((used === null || used === undefined || isNaN(used)) && total !== null && free !== null) {
           used = total - free;
+        }
+        if ((free === null || free === undefined || isNaN(free)) && total !== null && used !== null) {
+          free = total - used;
         }
 
         // Boş Port

@@ -68,9 +68,16 @@ export class XormonForecastProvider implements ForecastProvider {
         const hwType = String(device.hw_type || '').toLowerCase();
         const vendor = String(device.vendor || '').toLowerCase();
         const deviceClass = String(device.class || '').toLowerCase();
+        const model = String(device.model || device.hw_model || '').toLowerCase();
         
         let finalType = deviceClass;
-        if (hwType.includes('brcd') || vendor.includes('brocade') || label.toLowerCase().includes('sw') || finalType === 'san') {
+        const isSanDevice = deviceClass.includes('san') || deviceClass.includes('fabric') || deviceClass.includes('switch') ||
+                            hwType.includes('brcd') || hwType === 'swiz' || vendor.includes('brocade') ||
+                            (vendor.includes('cisco') && (model.includes('mds') || label.toLowerCase().includes('mds'))) ||
+                            model.includes('brocade') || model.includes('mds') ||
+                            device.available_ports !== undefined || device.total_ports !== undefined || device.free_ports !== undefined;
+
+        if (isSanDevice && !deviceClass.includes('storage') && !deviceClass.includes('array')) {
           finalType = 'san';
         } else {
           finalType = 'storage'; // Default for targeted sync
@@ -180,11 +187,14 @@ export class XormonForecastProvider implements ForecastProvider {
             const confData = Array.isArray(confRes.data) ? confRes.data[0] : (confRes.data?.data?.[0] || confRes.data || {});
             const conf = confData.configuration || confData.config || confData || {};
             
-            const availablePorts = parseFloat(String(conf.available_ports || conf.total_ports || device.available_ports || device.total_ports || '0'));
-            const freePorts = parseFloat(String(conf.free_ports || device.free_ports || '0'));
+            const availablePorts = parseFloat(String(conf.available_ports ?? conf.total_ports ?? conf.ports_total ?? conf.ports_count ?? conf.port_count ?? conf.max_ports ?? device.available_ports ?? device.total_ports ?? device.ports_total ?? device.ports_count ?? '0'));
+            const freePorts = parseFloat(String(conf.free_ports ?? conf.ports_free ?? conf.unused_ports ?? device.free_ports ?? device.ports_free ?? '0'));
+            let usedPorts = parseFloat(String(conf.used_ports ?? conf.ports_used ?? conf.active_ports ?? device.used_ports ?? device.ports_used ?? '0'));
+            if ((isNaN(usedPorts) || usedPorts === 0) && availablePorts > 0 && !isNaN(freePorts)) {
+              usedPorts = availablePorts - freePorts;
+            }
 
             if (availablePorts > 0) {
-              const usedPorts = availablePorts - freePorts;
               const usagePercent = (usedPorts / availablePorts) * 100;
               
               console.log(`[XormonForecast] SAN ${label}: ${usedPorts}/${availablePorts} used (${usagePercent.toFixed(2)}%)`);

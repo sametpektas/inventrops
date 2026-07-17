@@ -152,22 +152,39 @@ export class CommvaultAdapter {
         if (!libId) continue;
 
         const libName = lib.libraryName || lib.name || lib.LibraryName || `Library-${libId}`;
-        const isTape = Boolean(lib.isTapeLibrary || libName.toLowerCase().includes('tape') || lib.libraryType === 1);
+        const isTape = Boolean(lib.isTapeLibrary || libName.toLowerCase().includes('tape') || libName.toLowerCase().includes('msl') || libName.toLowerCase().includes('ts4') || libName.toLowerCase().includes('ts3') || libName.toLowerCase().includes('quantum') || libName.toLowerCase().includes('scalar') || lib.libraryType === 1 || String(lib.libraryType).toLowerCase().includes('tape'));
 
-        let assignedMediaCount = lib.assignedMediaCount !== undefined ? Number(lib.assignedMediaCount) : undefined;
-        let spareMediaCount = lib.spareMediaCount !== undefined ? Number(lib.spareMediaCount) : undefined;
-        let totalMediaCount = lib.totalMediaCount !== undefined ? Number(lib.totalMediaCount) : undefined;
+        let assignedMediaCount = lib.assignedMediaCount !== undefined ? Number(lib.assignedMediaCount) : (lib.assignedMedia !== undefined ? Number(lib.assignedMedia) : undefined);
+        let spareMediaCount = lib.spareMediaCount !== undefined ? Number(lib.spareMediaCount) : (lib.spareMedia !== undefined ? Number(lib.spareMedia) : undefined);
+        let totalMediaCount = lib.totalMediaCount !== undefined ? Number(lib.totalMediaCount) : (lib.totalMedia !== undefined ? Number(lib.totalMedia) : undefined);
 
         // If tape library and counts not in main summary, try fetching media or details
-        if (isTape && (assignedMediaCount === undefined || spareMediaCount === undefined)) {
-          try {
-            const detailRes = await this.client.get(`/Library/${libId}`, { headers });
-            const detailObj = detailRes.data?.libraryInfo || detailRes.data?.library || detailRes.data || {};
-            assignedMediaCount = detailObj.assignedMediaCount !== undefined ? Number(detailObj.assignedMediaCount) : (assignedMediaCount || 0);
-            spareMediaCount = detailObj.spareMediaCount !== undefined ? Number(detailObj.spareMediaCount) : (spareMediaCount || 0);
-            totalMediaCount = assignedMediaCount + spareMediaCount;
-          } catch (err: any) {
-            console.warn(`[Commvault] Could not fetch details for tape library ${libName}: ${err.message}`);
+        if (isTape || assignedMediaCount !== undefined || spareMediaCount !== undefined || libName.toLowerCase().includes('tape') || libName.toLowerCase().includes('lib')) {
+          if (assignedMediaCount === undefined || spareMediaCount === undefined || (assignedMediaCount === 0 && spareMediaCount === 0 && isTape)) {
+            try {
+              const detailRes = await this.client.get(`/Library/${libId}`, { headers }).catch(() =>
+                this.client.get(`/V4/Library/${libId}`, { headers })
+              );
+              const detailObj = detailRes.data?.libraryInfo || detailRes.data?.library || detailRes.data || {};
+              assignedMediaCount = detailObj.assignedMediaCount !== undefined ? Number(detailObj.assignedMediaCount) : (detailObj.assignedMedia !== undefined ? Number(detailObj.assignedMedia) : (assignedMediaCount || 0));
+              spareMediaCount = detailObj.spareMediaCount !== undefined ? Number(detailObj.spareMediaCount) : (detailObj.spareMedia !== undefined ? Number(detailObj.spareMedia) : (spareMediaCount || 0));
+              if (assignedMediaCount === 0 && spareMediaCount === 0) {
+                // Try media list endpoint
+                const mediaRes = await this.client.get(`/Library/${libId}/Media`, { headers }).catch(() =>
+                  this.client.get(`/V4/Library/${libId}/Media`, { headers })
+                ).catch(() => null);
+                if (mediaRes && mediaRes.data) {
+                  const mList = mediaRes.data.mediaList || mediaRes.data.media || [];
+                  if (Array.isArray(mList) && mList.length > 0) {
+                    assignedMediaCount = mList.filter((m: any) => m.assigned || m.isAssigned || m.status === 'ASSIGNED').length;
+                    spareMediaCount = mList.filter((m: any) => !m.assigned && !m.isAssigned && m.status !== 'ASSIGNED').length;
+                  }
+                }
+              }
+              totalMediaCount = (assignedMediaCount || 0) + (spareMediaCount || 0);
+            } catch (err: any) {
+              console.warn(`[Commvault] Could not fetch details for library ${libName}: ${err.message}`);
+            }
           }
         }
 
@@ -252,12 +269,18 @@ export class CommvaultAdapter {
   async getSlaPercentage(): Promise<number | null> {
     try {
       const headers = await this.getHeaders();
-      const response = await this.client.get('/Commserv/SLA', { headers }).catch(() => 
-        this.client.get('/SLA', { headers })
-      );
-      const slaData = response.data?.slaInfo || response.data?.sla || response.data || {};
-      const slaVal = parseFloat(String(slaData.slaPercentage || slaData.percentage || slaData.value || '0'));
-      return !isNaN(slaVal) && slaVal > 0 ? slaVal : null;
+      const endpoints = ['/Commserv/SLA', '/SLA', '/V4/SLA', '/v4/sla', '/commandcenter/api/v4/SLA'];
+      for (const ep of endpoints) {
+        try {
+          const response = await this.client.get(ep, { headers });
+          const slaData = response.data?.slaInfo || response.data?.sla || response.data || {};
+          const slaVal = parseFloat(String(slaData.slaPercentage || slaData.percentage || slaData.value || slaData.SLA || '0'));
+          if (!isNaN(slaVal) && slaVal > 0) return slaVal;
+        } catch {
+          continue;
+        }
+      }
+      return null;
     } catch (error: any) {
       console.warn(`[Commvault] getSlaPercentage failed: ${error.message}`);
       return null;

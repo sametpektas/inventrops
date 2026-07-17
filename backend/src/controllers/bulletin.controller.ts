@@ -235,19 +235,20 @@ export const generateBulletin = async (req: Request, res: Response) => {
 
     const backupDevices = await prisma.inventoryItem.findMany({
       where: {
-        model: {
-          OR: [
-            { device_type: 'backup' },
-            { name: { contains: 'Library', mode: 'insensitive' } }
-          ]
-        }
+        OR: [
+          { model: { device_type: 'backup' } },
+          { model: { name: { contains: 'Library', mode: 'insensitive' } } },
+          { discovered_via: 'commvault' },
+          { serial_number: { startsWith: 'commvault-' } },
+          { hostname: { contains: 'Library', mode: 'insensitive' } }
+        ]
       },
       include: {
         model: true
       }
     });
 
-    const backupSnapshots = await prisma.forecastMetricSnapshot.findMany({
+    let backupSnapshots = await prisma.forecastMetricSnapshot.findMany({
       where: {
         OR: [
           { object_type: { in: ['tape_library', 'disk_library', 'backup_sla', 'backup_subclient', 'backup_library'] } },
@@ -257,6 +258,19 @@ export const generateBulletin = async (req: Request, res: Response) => {
       },
       orderBy: { captured_at: 'asc' }
     });
+
+    if (backupSnapshots.length === 0) {
+      console.log(`[Bulletin] No backup snapshots found in target window (${thirtyDaysBefore.toISOString()} - ${monthEnd.toISOString()}). Widening window to all backup snapshots up to now...`);
+      backupSnapshots = await prisma.forecastMetricSnapshot.findMany({
+        where: {
+          OR: [
+            { object_type: { in: ['tape_library', 'disk_library', 'backup_sla', 'backup_subclient', 'backup_library'] } },
+            { object_id: { startsWith: 'commvault-' } }
+          ]
+        },
+        orderBy: { captured_at: 'asc' }
+      });
+    }
 
     const tapeLibraries: Array<{ name: string; assigned: number; spare: number }> = [];
     const allLibraries: Array<{ name: string; totalGiB: number; usedGiB: number; usedPct: number }> = [];
@@ -289,11 +303,25 @@ export const generateBulletin = async (req: Request, res: Response) => {
     });
 
     libSnapshotMap.forEach((val, key) => {
-      if (!tapeLibraries.some(l => l.name === val.name) && (val.type === 'tape_library' || val.assigned > 0 || val.spare > 0)) {
+      const existingTape = tapeLibraries.find(l => l.name === val.name);
+      if (existingTape) {
+        if (val.assigned > 0 || val.spare > 0) {
+          existingTape.assigned = val.assigned;
+          existingTape.spare = val.spare;
+        }
+      } else if (val.type === 'tape_library' || val.assigned > 0 || val.spare > 0 || val.name.toLowerCase().includes('tape')) {
         tapeLibraries.push({ name: val.name, assigned: val.assigned, spare: val.spare });
       }
-      if (!allLibraries.some(l => l.name === val.name)) {
-        const pct = val.totalGiB > 0 ? (val.usedGiB / val.totalGiB) * 100 : 0;
+
+      const existingAll = allLibraries.find(l => l.name === val.name);
+      const pct = val.totalGiB > 0 ? (val.usedGiB / val.totalGiB) * 100 : 0;
+      if (existingAll) {
+        if (val.totalGiB > 0 || val.usedGiB > 0) {
+          existingAll.totalGiB = val.totalGiB;
+          existingAll.usedGiB = val.usedGiB;
+          existingAll.usedPct = pct;
+        }
+      } else {
         allLibraries.push({ name: val.name, totalGiB: val.totalGiB, usedGiB: val.usedGiB, usedPct: pct });
       }
     });
@@ -899,13 +927,14 @@ function addLibraryGrowthSlide(pres: pptxgen, libraryGrowthMap: Record<string, A
     };
   });
 
-  slide.addChart(pres.ChartType.line, chartData, {
+  const chartType = sortedDates.length === 1 ? pres.ChartType.bar : pres.ChartType.line;
+  slide.addChart(chartType, chartData, {
     x: 0.67, y: 1.2, w: 12.0, h: 5.5,
     showLegend: true,
     legendPos: 'b',
     legendFontSize: 9,
     lineSmooth: false,
-    showValue: false,
+    showValue: sortedDates.length === 1,
     catAxisLabelFontSize: 8,
     valAxisLabelFontSize: 9,
     chartColors: ['5b9bd5', 'ed7d31', 'a5a5a5', 'ffc000', '4472c4']
@@ -935,7 +964,8 @@ function addDailySlaSlide(pres: pptxgen, slaHistory: Array<{ date: string; value
     }
   ];
 
-  slide.addChart(pres.ChartType.line, chartData, {
+  const chartType = sorted.length === 1 ? pres.ChartType.bar : pres.ChartType.line;
+  slide.addChart(chartType, chartData, {
     x: 0.67, y: 1.2, w: 12.0, h: 5.5,
     showLegend: false,
     lineSmooth: false,

@@ -18,14 +18,13 @@ function getRiskLevel(level) {
 
 function computeEffectiveRisk(item) {
   if (!item) return 'green';
-  let level = item.risk_level || 'green';
   const val = Number(item.current_value);
   const metric = item.metric_name || '';
   if (!isNaN(val) && (metric.includes('percent') || metric.includes('utilization') || metric.includes('usage') || metric === 'capacity_used_percent' || metric === 'port_utilization_percent')) {
     if (val > 90) return 'red';
-    if (val >= 80) return (level === 'red' ? 'red' : 'orange');
+    if (val >= 80) return 'orange';
   }
-  return level;
+  return item.risk_level || 'green';
 }
 
 function formatCapacity(v) {

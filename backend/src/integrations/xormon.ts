@@ -193,17 +193,22 @@ export class XormonAdapter {
         else if (modelLower.includes('hitachi') || modelLower.includes('vsp')) vendor = 'Hitachi';
 
         // Extract port metrics if present in configuration or item attributes
-        const availablePortsRaw = conf.available_ports || conf.total_ports || d.available_ports || d.total_ports;
+        const availablePortsRaw = conf.available_ports ?? conf.total_ports ?? conf.ports_total ?? conf.ports_count ?? conf.port_count ?? conf.max_ports ?? d.available_ports ?? d.total_ports ?? d.ports_total ?? d.ports_count;
         const availablePorts = availablePortsRaw !== undefined && availablePortsRaw !== null ? parseFloat(String(availablePortsRaw)) : undefined;
-        const freePortsRaw = conf.free_ports || d.free_ports;
+        const freePortsRaw = conf.free_ports ?? conf.ports_free ?? conf.unused_ports ?? d.free_ports ?? d.ports_free;
         const freePorts = freePortsRaw !== undefined && freePortsRaw !== null ? parseFloat(String(freePortsRaw)) : undefined;
-        let usedPortsRaw = conf.used_ports || d.used_ports;
+        let usedPortsRaw = conf.used_ports ?? conf.ports_used ?? conf.active_ports ?? d.used_ports ?? d.ports_used;
         let usedPorts = usedPortsRaw !== undefined && usedPortsRaw !== null ? parseFloat(String(usedPortsRaw)) : undefined;
         if (usedPorts === undefined && availablePorts !== undefined && !isNaN(availablePorts) && freePorts !== undefined && !isNaN(freePorts)) {
           usedPorts = availablePorts - freePorts;
         }
 
-        const deviceType = d.class || 'storage';
+        const classStr = String(d.class || '').toLowerCase();
+        const hwTypeStr = String(d.hw_type || '').toLowerCase();
+        const isSan = classStr.includes('san') || classStr.includes('fabric') || classStr.includes('switch') ||
+                      hwTypeStr.includes('brcd') || hwTypeStr === 'swiz' || vendor.toLowerCase().includes('brocade') ||
+                      (availablePorts !== undefined && !isNaN(availablePorts) && availablePorts > 0);
+        const deviceType = isSan ? 'san_switch' : (d.class || 'storage');
 
         const result: DiscoveredDevice = {
           serial_number: String(serial),
