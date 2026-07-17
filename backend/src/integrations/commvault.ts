@@ -327,9 +327,9 @@ export class CommvaultAdapter {
 
             const existing = resultMap.get(libId);
             if (existing) {
-              if (capacityTotalGiB > existing.capacityTotalGiB) existing.capacityTotalGiB = capacityTotalGiB;
-              if (capacityUsedGiB > existing.capacityUsedGiB) existing.capacityUsedGiB = capacityUsedGiB;
-              if (capacityFreeGiB > existing.capacityFreeGiB) existing.capacityFreeGiB = capacityFreeGiB;
+              if (capacityTotalGiB > (existing.capacityTotalGiB || 0)) existing.capacityTotalGiB = capacityTotalGiB;
+              if (capacityUsedGiB > (existing.capacityUsedGiB || 0)) existing.capacityUsedGiB = capacityUsedGiB;
+              if (capacityFreeGiB > (existing.capacityFreeGiB || 0)) existing.capacityFreeGiB = capacityFreeGiB;
               if (assignedMediaCount !== undefined && (existing.assignedMediaCount === undefined || assignedMediaCount > existing.assignedMediaCount)) existing.assignedMediaCount = assignedMediaCount;
               if (spareMediaCount !== undefined && (existing.spareMediaCount === undefined || spareMediaCount > existing.spareMediaCount)) existing.spareMediaCount = spareMediaCount;
               if (totalMediaCount !== undefined && (existing.totalMediaCount === undefined || totalMediaCount > existing.totalMediaCount)) existing.totalMediaCount = totalMediaCount;
