@@ -370,43 +370,27 @@ export class CommvaultAdapter {
   }
 
   async fetchInventory(): Promise<DiscoveredDevice[]> {
-    console.log(`[Commvault] Starting inventory sync from ${this.config.url}...`);
+    console.log(`[Commvault] Starting inventory sync check from ${this.config.url}...`);
     try {
-      // Clean up any previously synced disk libraries from inventory so they don't appear in frontend
+      // Clean up any previously synced Commvault libraries (both Tape and Disk) from active inventory
+      // so they never appear in frontend or device counts (these metrics are kept exclusively in ForecastMetricSnapshot for bulletins)
       try {
-        await prisma.inventoryItem.deleteMany({
+        const deleted = await prisma.inventoryItem.deleteMany({
           where: {
-            serial_number: { startsWith: 'commvault-lib-' },
-            model: { name: 'Disk Library' }
+            OR: [
+              { serial_number: { startsWith: 'commvault-' } },
+              { discovered_via: 'commvault' },
+              { model: { name: { in: ['Tape Library', 'Disk Library', 'Backup Library'] } } }
+            ]
           }
         });
+        console.log(`[Commvault] Cleaned up ${deleted.count} library items from active inventory.`);
       } catch (e: any) {
-        console.warn(`[Commvault] Could not clean up old disk libraries from inventory: ${e.message}`);
+        console.warn(`[Commvault] Could not clean up old libraries from inventory: ${e.message}`);
       }
 
-      const libraries = await this.getLibraries();
-      const tapeLibraries = libraries.filter(lib => lib.isTape);
-      const devices: DiscoveredDevice[] = tapeLibraries.map(lib => ({
-        serial_number: `commvault-lib-${lib.libraryId}`,
-        hostname: lib.libraryName,
-        vendor_name: 'Commvault',
-        model_name: 'Tape Library',
-        device_type: 'backup',
-        metadata: {
-          commvault_id: lib.libraryId,
-          is_tape: true,
-          assigned_media: lib.assignedMediaCount,
-          spare_media: lib.spareMediaCount,
-          total_media: lib.totalMediaCount,
-          capacity_total: lib.capacityTotalGiB,
-          capacity_used: lib.capacityUsedGiB,
-          capacity_free: lib.capacityFreeGiB,
-          sync_mode: 'full'
-        }
-      }));
-
-      console.log(`[Commvault] Discovered ${devices.length} backup Tape library items for inventory/frontend (Disk libraries kept for bulletin only).`);
-      return devices;
+      console.log(`[Commvault] Returning 0 devices for active inventory (`bu bilgileri sadece bültende kullanacağız`).`);
+      return [];
     } catch (error: any) {
       console.error(`[Commvault] Sync failed: ${error.message}`);
       throw error;
