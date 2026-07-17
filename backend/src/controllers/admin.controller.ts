@@ -4,6 +4,7 @@ import { integrationQueue } from '../workers/integration.worker';
 import { HPEOneViewAdapter } from '../integrations/hpe';
 import { DellOpenManageAdapter } from '../integrations/dell';
 import { XormonAdapter } from '../integrations/xormon';
+import { CommvaultAdapter } from '../integrations/commvault';
 import { encrypt, decrypt } from '../utils/crypto';
 
 // Vendors
@@ -231,6 +232,7 @@ export const testIntegrationConnection = async (req: Request, res: Response) => 
     if (integration_type === 'dell_openmanage') adapter = new DellOpenManageAdapter(config);
     else if (integration_type === 'hpe_oneview') adapter = new HPEOneViewAdapter(config);
     else if (integration_type === 'xormon') adapter = new XormonAdapter(config);
+    else if (integration_type === 'commvault') adapter = new CommvaultAdapter(config);
     else if (integration_type === 'vrops') {
       const axios = (await import('axios')).default;
       const https = (await import('https')).default;

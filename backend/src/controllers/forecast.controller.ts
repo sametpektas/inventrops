@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { XormonForecastProvider } from '../services/forecast/providers/xormonForecast.provider';
 import { VRopsForecastProvider } from '../services/forecast/providers/vropsForecast.provider';
+import { CommvaultForecastProvider } from '../services/forecast/providers/commvaultForecast.provider';
 import { calculateForecast } from '../services/forecast/engine';
 
 export const getForecastSummary = async (req: Request, res: Response) => {
@@ -87,13 +88,15 @@ export const syncForecastData = async (req: Request, res: Response) => {
     const sources = await prisma.integrationConfig.findMany({ 
       where: { 
         is_active: true,
-        integration_type: { in: ['xormon', 'vrops'] }
+        integration_type: { in: ['xormon', 'vrops', 'commvault'] }
       } 
     });
     let totalSynced = 0;
 
     for (const source of sources) {
-      const provider = source.integration_type === 'xormon' ? new XormonForecastProvider() : new VRopsForecastProvider();
+      const provider = source.integration_type === 'xormon' ? new XormonForecastProvider() 
+        : source.integration_type === 'commvault' ? new CommvaultForecastProvider() 
+        : new VRopsForecastProvider();
       const metrics = await provider.collectMetrics(source.id);
       
       for (const m of metrics) {

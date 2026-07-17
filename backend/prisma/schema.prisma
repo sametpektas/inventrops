@@ -42,6 +42,7 @@ enum IntegrationType {
   xormon
   vrops
   ai_assistant
+  commvault
 }
 
 enum SyncStatus {

@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma';
 import { DellOpenManageAdapter, DiscoveredDevice } from '../integrations/dell';
 import { HPEOneViewAdapter } from '../integrations/hpe';
 import { XormonAdapter } from '../integrations/xormon';
+import { CommvaultAdapter } from '../integrations/commvault';
 import { decrypt } from '../utils/crypto';
 
 const connection = new IORedis(process.env.REDIS_URL || 'redis://localhost:6379/0', {
@@ -264,8 +265,10 @@ export const startIntegrationWorker = () => {
             skipped++;
           }
         }
-      } else if (integration.integration_type === 'xormon') {
-        const adapter = new XormonAdapter(adapterConfig);
+      } else if (integration.integration_type === 'xormon' || integration.integration_type === 'commvault') {
+        const adapter = integration.integration_type === 'xormon' 
+          ? new XormonAdapter(adapterConfig)
+          : new CommvaultAdapter(adapterConfig);
         const allDevices = await adapter.fetchInventory();
         for (const device of allDevices) {
           const result = await syncDevice(device, integration);

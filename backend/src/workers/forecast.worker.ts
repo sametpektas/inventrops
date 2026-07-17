@@ -3,6 +3,7 @@ import IORedis from 'ioredis';
 import { prisma } from '../lib/prisma';
 import { XormonForecastProvider } from '../services/forecast/providers/xormonForecast.provider';
 import { VRopsForecastProvider } from '../services/forecast/providers/vropsForecast.provider';
+import { CommvaultForecastProvider } from '../services/forecast/providers/commvaultForecast.provider';
 import { calculateForecast } from '../services/forecast/engine';
 
 const connection = new IORedis(process.env.REDIS_URL || 'redis://localhost:6379/0', {
@@ -28,13 +29,15 @@ export function startForecastWorker() {
       const sources = await prisma.integrationConfig.findMany({ 
         where: { 
           is_active: true,
-          integration_type: { in: ['xormon', 'vrops'] }
+          integration_type: { in: ['xormon', 'vrops', 'commvault'] }
         } 
       });
       
       for (const source of sources) {
         try {
-          const provider = source.integration_type === 'xormon' ? new XormonForecastProvider() : new VRopsForecastProvider();
+          const provider = source.integration_type === 'xormon' ? new XormonForecastProvider() 
+            : source.integration_type === 'commvault' ? new CommvaultForecastProvider() 
+            : new VRopsForecastProvider();
           const metrics = await provider.collectMetrics(source.id);
           
           for (const m of metrics) {

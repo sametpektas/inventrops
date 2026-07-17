@@ -229,6 +229,97 @@ export const generateBulletin = async (req: Request, res: Response) => {
     const effectiveAnkara = ankaraDevices.length > 0 ? ankaraDevices : [...unknownDevices];
     const effectiveIstanbul = istanbulDevices;
 
+    // === FETCH BACKUP (COMMVAULT / TAPE) DATA ===
+    const thirtyDaysBefore = new Date(monthEnd);
+    thirtyDaysBefore.setDate(thirtyDaysBefore.getDate() - 30);
+
+    const backupDevices = await prisma.inventoryItem.findMany({
+      where: {
+        OR: [
+          { device_type: 'backup' },
+          { model: { name: { contains: 'Library', mode: 'insensitive' } } }
+        ]
+      }
+    });
+
+    const backupSnapshots = await prisma.forecastMetricSnapshot.findMany({
+      where: {
+        OR: [
+          { object_type: { in: ['tape_library', 'disk_library', 'backup_sla', 'backup_subclient', 'backup_library'] } },
+          { object_id: { startsWith: 'commvault-' } }
+        ],
+        captured_at: { gte: thirtyDaysBefore, lte: monthEnd }
+      },
+      orderBy: { captured_at: 'asc' }
+    });
+
+    const tapeLibraries: Array<{ name: string; assigned: number; spare: number }> = [];
+    const allLibraries: Array<{ name: string; totalGiB: number; usedGiB: number; usedPct: number }> = [];
+
+    backupDevices.forEach(d => {
+      const meta = (d.metadata as any) || {};
+      const name = d.hostname || d.serial_number;
+      const isTape = meta.is_tape || name.toLowerCase().includes('tape') || d.model?.name?.toLowerCase().includes('tape');
+      
+      const assigned = Number(meta.assigned_media || 0);
+      const spare = Number(meta.spare_media || 0);
+      if (isTape || assigned > 0 || spare > 0) {
+        tapeLibraries.push({ name, assigned, spare });
+      }
+
+      const total = Number(meta.capacity_total || 0);
+      const used = Number(meta.capacity_used || 0);
+      const pct = total > 0 ? (used / total) * 100 : 0;
+      allLibraries.push({ name, totalGiB: total, usedGiB: used, usedPct: pct });
+    });
+
+    const libSnapshotMap = new Map<string, any>();
+    backupSnapshots.filter(s => s.object_type === 'tape_library' || s.object_type === 'disk_library').forEach(s => {
+      if (!libSnapshotMap.has(s.object_id)) libSnapshotMap.set(s.object_id, { name: s.object_name, type: s.object_type, assigned: 0, spare: 0, totalGiB: 0, usedGiB: 0 });
+      const entry = libSnapshotMap.get(s.object_id);
+      if (s.metric_name === 'assigned_media') entry.assigned = s.metric_value;
+      if (s.metric_name === 'spare_media') entry.spare = s.metric_value;
+      if (s.metric_name === 'capacity_total') entry.totalGiB = s.metric_value;
+      if (s.metric_name === 'capacity_used') entry.usedGiB = s.metric_value;
+    });
+
+    libSnapshotMap.forEach((val, key) => {
+      if (!tapeLibraries.some(l => l.name === val.name) && (val.type === 'tape_library' || val.assigned > 0 || val.spare > 0)) {
+        tapeLibraries.push({ name: val.name, assigned: val.assigned, spare: val.spare });
+      }
+      if (!allLibraries.some(l => l.name === val.name)) {
+        const pct = val.totalGiB > 0 ? (val.usedGiB / val.totalGiB) * 100 : 0;
+        allLibraries.push({ name: val.name, totalGiB: val.totalGiB, usedGiB: val.usedGiB, usedPct: pct });
+      }
+    });
+
+    const libraryGrowthMap: Record<string, Array<{ date: string; value: number }>> = {};
+    backupSnapshots.filter(s => (s.object_type === 'tape_library' || s.object_type === 'disk_library') && s.metric_name === 'capacity_used').forEach(s => {
+      if (!libraryGrowthMap[s.object_name]) libraryGrowthMap[s.object_name] = [];
+      const dStr = s.captured_at.toISOString().split('T')[0];
+      libraryGrowthMap[s.object_name].push({ date: dStr, value: s.metric_value });
+    });
+
+    const slaHistory: Array<{ date: string; value: number }> = [];
+    backupSnapshots.filter(s => s.object_type === 'backup_sla' && s.metric_name === 'sla_percent').forEach(s => {
+      const dStr = s.captured_at.toISOString().split('T')[0];
+      slaHistory.push({ date: dStr, value: s.metric_value });
+    });
+
+    const scHistoryMap: Record<string, { name: string; first: number; latest: number }> = {};
+    backupSnapshots.filter(s => s.object_type === 'backup_subclient' && s.metric_name === 'subclient_backup_gib').forEach(s => {
+      if (!scHistoryMap[s.object_id]) scHistoryMap[s.object_id] = { name: s.object_name, first: s.metric_value, latest: s.metric_value };
+      else scHistoryMap[s.object_id].latest = s.metric_value;
+    });
+
+    const topSubclients = Object.values(scHistoryMap).map(sc => ({
+      name: sc.name,
+      firstGiB: sc.first,
+      latestGiB: sc.latest,
+      growthGiB: sc.latest - sc.first,
+      growthPct: sc.first > 0 ? ((sc.latest - sc.first) / sc.first) * 100 : 0
+    })).sort((a, b) => b.growthGiB - a.growthGiB).slice(0, 20);
+
     const pres = new pptxgen();
     pres.layout = 'LAYOUT_WIDE'; // 13.33 x 7.5 inches
 
@@ -251,7 +342,7 @@ export const generateBulletin = async (req: Request, res: Response) => {
       fill: { color: '1a5276' }
     });
 
-    coverSlide.addText('BT Storage Yönetimi', {
+    coverSlide.addText('BT Storage & Backup Yönetimi', {
       x: 0.5, y: 0.2, w: 10, h: 0.6,
       fontSize: 32, bold: true, color: 'FFFFFF', fontFace: 'Segoe UI'
     });
@@ -266,7 +357,7 @@ export const generateBulletin = async (req: Request, res: Response) => {
     }
 
     // Main title area
-    coverSlide.addText(`Storage ${targetMonthName} Ayı Bülteni`, {
+    coverSlide.addText(`Storage & Backup ${targetMonthName} Ayı Bülteni`, {
       x: '10%', y: '35%', w: '80%', h: 1.5,
       fontSize: 44, bold: true, color: '1a5276', align: 'center', fontFace: 'Segoe UI'
     });
@@ -276,7 +367,14 @@ export const generateBulletin = async (req: Request, res: Response) => {
       fontSize: 22, color: '666666', align: 'center', fontFace: 'Segoe UI'
     });
 
-    // === CHART SLIDES ===
+    // === BACKUP SLIDES (KAPAKTAN HEMEN SONRA) ===
+    addTapeLibraryPieSlide(pres, tapeLibraries, foundLogoPath);
+    addGeneralLibraryBarSlide(pres, allLibraries, foundLogoPath);
+    addLibraryGrowthSlide(pres, libraryGrowthMap, foundLogoPath);
+    addDailySlaSlide(pres, slaHistory, foundLogoPath);
+    addTop20SubclientTableSlide(pres, topSubclients, foundLogoPath);
+
+    // === STORAGE CHART SLIDES ===
     addBarChartSlide(pres, 'Genel Depolama Kapasite Kullanımı - Ankara (Prod)', generalCapacity.ankara, foundLogoPath);
     addBarChartSlide(pres, 'Genel Depolama Kapasite Kullanımı - İstanbul (DR)', generalCapacity.istanbul, foundLogoPath);
 
@@ -636,4 +734,264 @@ function addBarChartSlide(pres: pptxgen, title: string, chartData: any[], logoPa
     dataLabelFontSize: 9,
     chartColors: ['5b9bd5'] // Light blue matching screenshot
   });
+}
+
+// === BACKUP SLIDE HELPER FUNCTIONS ===
+function addTapeLibraryPieSlide(pres: pptxgen, tapeLibraries: Array<{ name: string; assigned: number; spare: number }>, logoPath?: string) {
+  const slide = pres.addSlide();
+  if (logoPath) slide.addImage({ path: logoPath, x: 11.5, y: 0.15, w: 1.5, h: 0.75 });
+  slide.addText('Tape Library Kullanım Oranları (Media Dağılımı)', {
+    x: 0.67, y: 0.3, w: 12.0, fontSize: 22, bold: true, color: '1a1a2e', fontFace: 'Segoe UI'
+  });
+
+  if (!tapeLibraries || tapeLibraries.length === 0) {
+    slide.addText('Tape Library envanteri / media verisi bulunamadı.', {
+      x: 0.67, y: 3, w: 12.0, fontSize: 16, color: '999999', fontFace: 'Segoe UI', align: 'center'
+    });
+    return;
+  }
+
+  const libs = tapeLibraries.slice(0, 2);
+  if (libs.length === 2) {
+    libs.forEach((lib, idx) => {
+      const xPos = idx === 0 ? 0.5 : 6.8;
+      slide.addText(lib.name, {
+        x: xPos, y: 1.2, w: 5.8, fontSize: 16, bold: true, color: '1a5276', align: 'center', fontFace: 'Segoe UI'
+      });
+      if (lib.assigned + lib.spare > 0) {
+        slide.addChart(pres.ChartType.pie, [
+          {
+            name: lib.name,
+            labels: ['Assigned Media', 'Spare Media'],
+            values: [lib.assigned, lib.spare]
+          }
+        ], {
+          x: xPos, y: 1.7, w: 5.8, h: 5.0,
+          showLegend: true,
+          legendPos: 'b',
+          legendFontSize: 11,
+          showValue: true,
+          dataLabelFormatCode: '#,##0',
+          dataLabelFontSize: 11,
+          chartColors: ['5b9bd5', '10b981']
+        });
+      } else {
+        slide.addText('Media sayısı sıfır veya eksik.', {
+          x: xPos, y: 3.5, w: 5.8, fontSize: 14, color: '999999', align: 'center', fontFace: 'Segoe UI'
+        });
+      }
+    });
+  } else {
+    const lib = libs[0];
+    slide.addText(lib.name, {
+      x: 3.6, y: 1.2, w: 6.0, fontSize: 18, bold: true, color: '1a5276', align: 'center', fontFace: 'Segoe UI'
+    });
+    if (lib.assigned + lib.spare > 0) {
+      slide.addChart(pres.ChartType.pie, [
+        {
+          name: lib.name,
+          labels: ['Assigned Media', 'Spare Media'],
+          values: [lib.assigned, lib.spare]
+        }
+      ], {
+        x: 3.6, y: 1.7, w: 6.0, h: 5.2,
+        showLegend: true,
+        legendPos: 'b',
+        legendFontSize: 12,
+        showValue: true,
+        dataLabelFormatCode: '#,##0',
+        dataLabelFontSize: 12,
+        chartColors: ['5b9bd5', '10b981']
+      });
+    } else {
+      slide.addText('Media sayısı sıfır veya eksik.', {
+        x: 3.6, y: 3.5, w: 6.0, fontSize: 14, color: '999999', align: 'center', fontFace: 'Segoe UI'
+      });
+    }
+  }
+}
+
+function addGeneralLibraryBarSlide(pres: pptxgen, libraries: Array<{ name: string; totalGiB: number; usedGiB: number; usedPct: number }>, logoPath?: string) {
+  const slide = pres.addSlide();
+  if (logoPath) slide.addImage({ path: logoPath, x: 11.5, y: 0.15, w: 1.5, h: 0.75 });
+  slide.addText('Genel Library Kapasite Kullanımı', {
+    x: 0.67, y: 0.3, w: 12.0, fontSize: 22, bold: true, color: '1a1a2e', fontFace: 'Segoe UI'
+  });
+
+  if (!libraries || libraries.length === 0) {
+    slide.addText('Genel Library kapasite verisi bulunamadı.', {
+      x: 0.67, y: 3, w: 12.0, fontSize: 16, color: '999999', fontFace: 'Segoe UI', align: 'center'
+    });
+    return;
+  }
+
+  const chartData = [
+    {
+      name: 'Kullanım Oranı (%)',
+      labels: libraries.map(l => l.name),
+      values: libraries.map(l => Number(l.usedPct.toFixed(1)))
+    }
+  ];
+
+  slide.addChart(pres.ChartType.bar, chartData, {
+    x: 0.67, y: 1.2, w: 12.0, h: 5.5,
+    showLegend: false,
+    barDir: 'col',
+    showValue: true,
+    dataLabelFormatCode: '0.0"%"',
+    valAxisLabelFormatCode: '0"%"',
+    valAxisMaxVal: 100,
+    valAxisLabelFontSize: 10,
+    catAxisLabelFontSize: 10,
+    dataLabelFontSize: 10,
+    chartColors: ['5b9bd5']
+  });
+}
+
+function addLibraryGrowthSlide(pres: pptxgen, libraryGrowthMap: Record<string, Array<{ date: string; value: number }>>, logoPath?: string) {
+  const slide = pres.addSlide();
+  if (logoPath) slide.addImage({ path: logoPath, x: 11.5, y: 0.15, w: 1.5, h: 0.75 });
+  slide.addText('Son 1 Aylık Library Büyüme Grafiği', {
+    x: 0.67, y: 0.3, w: 12.0, fontSize: 22, bold: true, color: '1a1a2e', fontFace: 'Segoe UI'
+  });
+
+  const libNames = Object.keys(libraryGrowthMap);
+  if (libNames.length === 0) {
+    slide.addText('Son 1 ay için Library zaman serisi verisi bulunamadı.', {
+      x: 0.67, y: 3, w: 12.0, fontSize: 16, color: '999999', fontFace: 'Segoe UI', align: 'center'
+    });
+    return;
+  }
+
+  const dateSet = new Set<string>();
+  libNames.forEach(name => {
+    libraryGrowthMap[name].forEach(pt => dateSet.add(pt.date));
+  });
+  const sortedDates = Array.from(dateSet).sort();
+
+  if (sortedDates.length === 0) {
+    slide.addText('Tarih aralığı verisi eksik.', {
+      x: 0.67, y: 3, w: 12.0, fontSize: 16, color: '999999', fontFace: 'Segoe UI', align: 'center'
+    });
+    return;
+  }
+
+  const chartData = libNames.map(name => {
+    const pts = libraryGrowthMap[name];
+    const valMap = new Map<string, number>();
+    pts.forEach(p => valMap.set(p.date, p.value));
+
+    let lastVal = pts[0]?.value || 0;
+    const values = sortedDates.map(d => {
+      if (valMap.has(d)) lastVal = valMap.get(d)!;
+      return Number(lastVal.toFixed(2));
+    });
+
+    return {
+      name,
+      labels: sortedDates,
+      values
+    };
+  });
+
+  slide.addChart(pres.ChartType.line, chartData, {
+    x: 0.67, y: 1.2, w: 12.0, h: 5.5,
+    showLegend: true,
+    legendPos: 'b',
+    legendFontSize: 9,
+    lineSmooth: false,
+    showValue: false,
+    catAxisLabelFontSize: 8,
+    valAxisLabelFontSize: 9,
+    chartColors: ['5b9bd5', 'ed7d31', 'a5a5a5', 'ffc000', '4472c4']
+  } as any);
+}
+
+function addDailySlaSlide(pres: pptxgen, slaHistory: Array<{ date: string; value: number }>, logoPath?: string) {
+  const slide = pres.addSlide();
+  if (logoPath) slide.addImage({ path: logoPath, x: 11.5, y: 0.15, w: 1.5, h: 0.75 });
+  slide.addText('Son 1 Aylık Günlük SLA Grafiği (%)', {
+    x: 0.67, y: 0.3, w: 12.0, fontSize: 22, bold: true, color: '1a1a2e', fontFace: 'Segoe UI'
+  });
+
+  if (!slaHistory || slaHistory.length === 0) {
+    slide.addText('Son 1 ay için günlük SLA verisi bulunamadı.', {
+      x: 0.67, y: 3, w: 12.0, fontSize: 16, color: '999999', fontFace: 'Segoe UI', align: 'center'
+    });
+    return;
+  }
+
+  const sorted = [...slaHistory].sort((a, b) => a.date.localeCompare(b.date));
+  const chartData = [
+    {
+      name: 'Günlük SLA (%)',
+      labels: sorted.map(s => s.date),
+      values: sorted.map(s => Number(s.value.toFixed(2)))
+    }
+  ];
+
+  slide.addChart(pres.ChartType.line, chartData, {
+    x: 0.67, y: 1.2, w: 12.0, h: 5.5,
+    showLegend: false,
+    lineSmooth: false,
+    showValue: true,
+    dataLabelFontSize: 8,
+    dataLabelFormatCode: '0.0"%"',
+    valAxisLabelFormatCode: '0"%"',
+    valAxisMinVal: 90,
+    valAxisMaxVal: 100,
+    catAxisLabelFontSize: 8,
+    valAxisLabelFontSize: 9,
+    chartColors: ['10b981']
+  } as any);
+}
+
+function addTop20SubclientTableSlide(pres: pptxgen, topSubclients: Array<{ name: string; firstGiB: number; latestGiB: number; growthGiB: number; growthPct: number }>, logoPath?: string) {
+  if (!topSubclients || topSubclients.length === 0) {
+    const slide = pres.addSlide();
+    if (logoPath) slide.addImage({ path: logoPath, x: 11.5, y: 0.15, w: 1.5, h: 0.75 });
+    slide.addText('Son 30 Gün İçinde Backup Datası En Fazla Büyüyen 20 Subclient', {
+      x: 0.67, y: 0.3, w: 12.0, fontSize: 22, bold: true, color: '1a1a2e', fontFace: 'Segoe UI'
+    });
+    slide.addText('Subclient büyüme verisi bulunamadı.', {
+      x: 0.67, y: 3, w: 12.0, fontSize: 16, color: '999999', fontFace: 'Segoe UI', align: 'center'
+    });
+    return;
+  }
+
+  const chunkSize = 10;
+  for (let i = 0; i < topSubclients.length; i += chunkSize) {
+    const chunk = topSubclients.slice(i, i + chunkSize);
+    const slide = pres.addSlide();
+    if (logoPath) slide.addImage({ path: logoPath, x: 11.5, y: 0.15, w: 1.5, h: 0.75 });
+    const slideTitle = topSubclients.length > chunkSize 
+      ? `Son 30 Gün İçinde En Fazla Büyüyen Subclient Listesi (${i + 1}-${i + chunk.length})`
+      : 'Son 30 Gün İçinde Backup Datası En Fazla Büyüyen 20 Subclient';
+    
+    slide.addText(slideTitle, {
+      x: 0.67, y: 0.3, w: 12.0, fontSize: 22, bold: true, color: '1a1a2e', fontFace: 'Segoe UI'
+    });
+
+    const headerRow = [
+      { text: 'Subclient Adı', options: { fill: '1a5276', color: 'FFFFFF', bold: true, fontSize: 11, align: 'left', margin: 6 } },
+      { text: '30 Gün Önceki (GiB)', options: { fill: '1a5276', color: 'FFFFFF', bold: true, fontSize: 11, align: 'center', margin: 6 } },
+      { text: 'Güncel Boyut (GiB)', options: { fill: '1a5276', color: 'FFFFFF', bold: true, fontSize: 11, align: 'center', margin: 6 } },
+      { text: 'Büyüme (GiB)', options: { fill: '1a5276', color: 'FFFFFF', bold: true, fontSize: 11, align: 'center', margin: 6 } },
+      { text: 'Büyüme (%)', options: { fill: '1a5276', color: 'FFFFFF', bold: true, fontSize: 11, align: 'center', margin: 6 } }
+    ];
+
+    const dataRows = chunk.map((sc, idx) => [
+      { text: sc.name, options: { fill: idx % 2 === 0 ? 'F8FAFC' : 'FFFFFF', color: '1E293B', fontSize: 10, align: 'left', margin: 5 } },
+      { text: sc.firstGiB.toFixed(1), options: { fill: idx % 2 === 0 ? 'F8FAFC' : 'FFFFFF', color: '1E293B', fontSize: 10, align: 'center', margin: 5 } },
+      { text: sc.latestGiB.toFixed(1), options: { fill: idx % 2 === 0 ? 'F8FAFC' : 'FFFFFF', color: '1E293B', fontSize: 10, align: 'center', margin: 5 } },
+      { text: `+${sc.growthGiB.toFixed(1)}`, options: { fill: idx % 2 === 0 ? 'F8FAFC' : 'FFFFFF', color: '059669', bold: true, fontSize: 10, align: 'center', margin: 5 } },
+      { text: `+${sc.growthPct.toFixed(1)}%`, options: { fill: idx % 2 === 0 ? 'F8FAFC' : 'FFFFFF', color: '059669', bold: true, fontSize: 10, align: 'center', margin: 5 } }
+    ]);
+
+    slide.addTable([headerRow, ...dataRows] as any, {
+      x: 0.67, y: 1.2, w: 12.0,
+      colW: [4.5, 2.0, 2.0, 1.8, 1.7],
+      border: { pt: 0.5, color: 'CBD5E1' }
+    });
+  }
 }
