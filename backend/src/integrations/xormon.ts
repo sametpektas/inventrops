@@ -241,7 +241,7 @@ export class XormonAdapter {
         const model = (d.model_name || '').toLowerCase();
         const name = (d.hostname || '').toLowerCase();
         if (vendor.includes('commvault') || model.includes('library') || name.includes('library')) {
-          console.log(`[Xormon] Skipping backup library item ${d.hostname} (${d.serial_number}) from active inventory (`bu bilgileri sadece bültende kullanacağız`).`);
+          console.log(`[Xormon] Skipping backup library item ${d.hostname} (${d.serial_number}) from active inventory (kept for bulletin only).`);
           return false;
         }
         return true;

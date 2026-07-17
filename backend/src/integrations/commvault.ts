@@ -389,7 +389,7 @@ export class CommvaultAdapter {
         console.warn(`[Commvault] Could not clean up old libraries from inventory: ${e.message}`);
       }
 
-      console.log(`[Commvault] Returning 0 devices for active inventory (`bu bilgileri sadece bültende kullanacağız`).`);
+      console.log('[Commvault] Returning 0 devices for active inventory (kept for bulletin only).');
       return [];
     } catch (error: any) {
       console.error(`[Commvault] Sync failed: ${error.message}`);
