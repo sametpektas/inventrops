@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { integrationQueue } from '../workers/integration.worker';
+import { forecastQueue } from '../workers/forecast.worker';
 import { HPEOneViewAdapter } from '../integrations/hpe';
 import { DellOpenManageAdapter } from '../integrations/dell';
 import { XormonAdapter } from '../integrations/xormon';
@@ -211,8 +212,10 @@ export const triggerSync = async (req: Request, res: Response) => {
     const config = await prisma.integrationConfig.findUnique({ where: { id: parseInt(id as string) } });
     if (!config) return res.status(404).json({ error: 'Integration not found' });
     
-    // Add to BullMQ queue
+    // Add to BullMQ queue for inventory discovery
     await integrationQueue.add('sync-one', { integrationId: config.id });
+    // Also immediately trigger forecast metrics collection so capacity/tape/SLA snapshots are populated right away
+    await forecastQueue.add('sync-all', {});
     
     res.json({ message: 'Sync triggered' });
   } catch (err) {

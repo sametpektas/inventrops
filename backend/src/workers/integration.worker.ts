@@ -5,6 +5,7 @@ import { DellOpenManageAdapter, DiscoveredDevice } from '../integrations/dell';
 import { HPEOneViewAdapter } from '../integrations/hpe';
 import { XormonAdapter } from '../integrations/xormon';
 import { CommvaultAdapter } from '../integrations/commvault';
+import { forecastQueue } from './forecast.worker';
 import { decrypt } from '../utils/crypto';
 
 const connection = new IORedis(process.env.REDIS_URL || 'redis://localhost:6379/0', {
@@ -239,6 +240,7 @@ export const startIntegrationWorker = () => {
         for (const d of deviceList) {
           try {
             const fullDevice = await adapter.getDeviceDetails(d, warrantyMap);
+            allDevices.push(fullDevice);
             const result = await syncDevice(fullDevice, integration);
             if (result === 'created') created++;
             else if (result === 'updated') updated++;
@@ -256,6 +258,7 @@ export const startIntegrationWorker = () => {
         for (const m of deviceList) {
           try {
             const fullDevice = await adapter.getDeviceDetails(m);
+            allDevices.push(fullDevice);
             const result = await syncDevice(fullDevice, integration);
             if (result === 'created') created++;
             else if (result === 'updated') updated++;
@@ -269,7 +272,7 @@ export const startIntegrationWorker = () => {
         const adapter = integration.integration_type === 'xormon' 
           ? new XormonAdapter(adapterConfig)
           : new CommvaultAdapter(adapterConfig);
-        const allDevices = await adapter.fetchInventory();
+        allDevices = await adapter.fetchInventory();
         for (const device of allDevices) {
           const result = await syncDevice(device, integration);
           if (result === 'created') created++;
@@ -293,6 +296,9 @@ export const startIntegrationWorker = () => {
         where: { id: integrationId },
         data: { last_sync_at: new Date() }
       });
+
+      // Also trigger forecast snapshot metrics collection right after inventory discovery completes
+      await forecastQueue.add('sync-all', {});
 
     } catch (err: any) {
       console.error(err);

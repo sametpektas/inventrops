@@ -127,16 +127,31 @@ export class CommvaultAdapter {
   async getLibraries(): Promise<CommvaultLibrary[]> {
     try {
       const headers = await this.getHeaders();
-      const response = await this.client.get('/Library', { headers });
-      const rawList = response.data?.libraryInfoList || response.data?.libraries || response.data?.data || [];
+      let response: any;
+      try {
+        response = await this.client.get('/Library', { headers });
+      } catch (err: any) {
+        if (err.response?.status === 404) {
+          response = await this.client.get('/V4/Library', { headers });
+        } else {
+          throw err;
+        }
+      }
+      const data = response.data || {};
+      const rawList = Array.isArray(data)
+        ? data
+        : data.libraryInfoList || data.libraries || data.libraryList || data.librariesList || data.data || data.response || [];
+
+      const itemsArray = Array.isArray(rawList) ? rawList : (rawList && typeof rawList === 'object' ? [rawList] : []);
+      console.log(`[Commvault] getLibraries parsed ${itemsArray.length} raw library entries from keys:`, Object.keys(data));
 
       const result: CommvaultLibrary[] = [];
-      for (const item of Array.isArray(rawList) ? rawList : [rawList]) {
-        const lib = item.library || item;
-        const libId = String(lib.libraryId || lib.id || '');
+      for (const item of itemsArray) {
+        const lib = item.library || item.libraryEntity || item.libraryInfo || item;
+        const libId = String(lib.libraryId || lib.id || lib.LibraryId || '');
         if (!libId) continue;
 
-        const libName = lib.libraryName || lib.name || `Library-${libId}`;
+        const libName = lib.libraryName || lib.name || lib.LibraryName || `Library-${libId}`;
         const isTape = Boolean(lib.isTapeLibrary || libName.toLowerCase().includes('tape') || lib.libraryType === 1);
 
         let assignedMediaCount = lib.assignedMediaCount !== undefined ? Number(lib.assignedMediaCount) : undefined;
@@ -187,16 +202,31 @@ export class CommvaultAdapter {
   async getSubclients(): Promise<CommvaultSubclient[]> {
     try {
       const headers = await this.getHeaders();
-      const response = await this.client.get('/Subclient', { headers });
-      const rawList = response.data?.subclientProperties || response.data?.subclientList || response.data?.subclients || [];
+      let response: any;
+      try {
+        response = await this.client.get('/Subclient', { headers });
+      } catch (err: any) {
+        if (err.response?.status === 404) {
+          response = await this.client.get('/V4/Subclient', { headers });
+        } else {
+          throw err;
+        }
+      }
+      const data = response.data || {};
+      const rawList = Array.isArray(data)
+        ? data
+        : data.subclientProperties || data.subclientList || data.subClientList || data.subclients || data.data || data.response || [];
+
+      const itemsArray = Array.isArray(rawList) ? rawList : (rawList && typeof rawList === 'object' ? [rawList] : []);
+      console.log(`[Commvault] getSubclients parsed ${itemsArray.length} raw subclient entries from keys:`, Object.keys(data));
 
       const result: CommvaultSubclient[] = [];
-      for (const item of Array.isArray(rawList) ? rawList : [rawList]) {
-        const sc = item.subclientEntity || item.subclient || item;
-        const subclientId = String(sc.subclientId || sc.id || '');
+      for (const item of itemsArray) {
+        const sc = item.subclientEntity || item.subClientEntity || item.subclient || item.subClient || item;
+        const subclientId = String(sc.subclientId || sc.id || sc.subClientId || '');
         if (!subclientId) continue;
 
-        const subclientName = sc.subclientName || sc.name || `Subclient-${subclientId}`;
+        const subclientName = sc.subclientName || sc.name || sc.subClientName || `Subclient-${subclientId}`;
         const clientName = sc.clientName || sc.client?.name || sc.displayName || 'Unknown-Client';
         const appName = sc.appName || sc.instanceName || sc.agentName;
 
