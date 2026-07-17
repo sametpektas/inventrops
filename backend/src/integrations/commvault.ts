@@ -29,6 +29,7 @@ export interface CommvaultSubclient {
 export class CommvaultAdapter {
   private client: AxiosInstance;
   private token: string | null = null;
+  private apiPrefix: string = '';
 
   constructor(private config: any) {
     this.client = axios.create({
@@ -44,6 +45,41 @@ export class CommvaultAdapter {
     });
   }
 
+  private async requestGet(path: string, headers: any): Promise<any> {
+    const prefixes = [
+      this.apiPrefix,
+      '/SearchSvc/CVWebService.svc',
+      '/webconsole/api',
+      '/commandcenter/api',
+      '/api',
+      ''
+    ];
+    const uniquePrefixes = Array.from(new Set(prefixes));
+
+    let lastErr: any = null;
+    for (const prefix of uniquePrefixes) {
+      const fullPath = prefix ? `${prefix}${path}`.replace('//', '/') : path;
+      try {
+        const res = await this.client.get(fullPath, { headers });
+        if (res && (res.status === 200 || res.status === 201) && res.data) {
+          if (prefix && !this.apiPrefix) {
+            this.apiPrefix = prefix;
+            console.log(`[Commvault] Discovered active API prefix: ${this.apiPrefix}`);
+          }
+          return res;
+        }
+      } catch (err: any) {
+        lastErr = err;
+        const status = err.response?.status;
+        if (status === 404 || status === 401 || status === 500) {
+          continue;
+        }
+      }
+    }
+    if (lastErr) throw lastErr;
+    throw new Error(`GET ${path} failed across all known Commvault API prefixes`);
+  }
+
   private async authenticate(): Promise<string> {
     if (this.config.api_key) return this.config.api_key;
     if (this.token) return this.token;
@@ -54,32 +90,38 @@ export class CommvaultAdapter {
       const rawPassword = this.config.password || '';
       const base64Password = Buffer.from(rawPassword).toString('base64');
       
-      // We try both Base64-encoded password (standard Commvault API requirement) and raw password, across common endpoints
+      const prefixes = ['', '/SearchSvc/CVWebService.svc', '/webconsole/api', '/commandcenter/api', '/api'];
       const endpoints = ['/Login', '/V4/Login', '/login'];
       const passwords = [base64Password, rawPassword];
 
       let response: any = null;
       let lastError: any = null;
+      let successfulPrefix = '';
 
-      for (const endpoint of endpoints) {
-        for (const pwd of passwords) {
-          try {
-            response = await this.client.post(endpoint, {
-              username: this.config.username,
-              password: pwd
-            });
-            if (response && (response.headers['authtoken'] || response.headers['Authtoken'] || response.data?.token || response.data?.authtoken || response.data?.tokenResponse?.token)) {
-              break;
+      for (const prefix of prefixes) {
+        for (const endpoint of endpoints) {
+          const fullEndpoint = prefix ? `${prefix}${endpoint}`.replace('//', '/') : endpoint;
+          for (const pwd of passwords) {
+            try {
+              response = await this.client.post(fullEndpoint, {
+                username: this.config.username,
+                password: pwd
+              });
+              if (response && (response.headers['authtoken'] || response.headers['Authtoken'] || response.data?.token || response.data?.authtoken || response.data?.tokenResponse?.token)) {
+                successfulPrefix = prefix;
+                break;
+              }
+            } catch (err: any) {
+              lastError = err;
+              const status = err.response?.status;
+              if (status === 404 || status === 401 || status === 500) {
+                continue;
+              }
+              throw err;
             }
-          } catch (err: any) {
-            lastError = err;
-            const status = err.response?.status;
-            // If 404 (endpoint not found) or 401/500 (auth error due to password format), continue trying next variation
-            if (status === 404 || status === 401 || status === 500) {
-              continue;
-            }
-            // If other unexpected error (e.g. timeout or network unreachable), break and throw
-            throw err;
+          }
+          if (response && (response.headers['authtoken'] || response.headers['Authtoken'] || response.data?.token || response.data?.authtoken || response.data?.tokenResponse?.token)) {
+            break;
           }
         }
         if (response && (response.headers['authtoken'] || response.headers['Authtoken'] || response.data?.token || response.data?.authtoken || response.data?.tokenResponse?.token)) {
@@ -88,7 +130,7 @@ export class CommvaultAdapter {
       }
 
       if (!response) {
-        throw lastError || new Error('Failed to reach Commvault login endpoint');
+        throw lastError || new Error('Failed to reach Commvault login endpoint across all prefixes and paths');
       }
 
       const token = response.headers['authtoken'] || response.headers['Authtoken'] || response.data?.token || response.data?.authtoken || response.data?.tokenResponse?.token;
@@ -99,6 +141,10 @@ export class CommvaultAdapter {
       }
 
       this.token = token;
+      if (successfulPrefix && !this.apiPrefix) {
+        this.apiPrefix = successfulPrefix;
+        console.log(`[Commvault] Discovered API prefix during login: ${this.apiPrefix}`);
+      }
       console.log(`[Commvault] Authentication successful.`);
       return token;
     } catch (error: any) {
@@ -112,6 +158,9 @@ export class CommvaultAdapter {
     const token = await this.authenticate();
     return {
       'Authtoken': token,
+      'authtoken': token,
+      'Authorization': `Bearer ${token}`,
+      'QSDK-Token': token,
       'Accept': 'application/json'
     };
   }
@@ -141,7 +190,7 @@ export class CommvaultAdapter {
 
       for (const ep of endpointsToTry) {
         try {
-          const response = await this.client.get(ep.path, { headers });
+          const response = await this.requestGet(ep.path, headers);
           const data = response.data || {};
           const rawList = Array.isArray(data)
             ? data
@@ -195,7 +244,7 @@ export class CommvaultAdapter {
 
               for (const dEp of detailEndpoints) {
                 try {
-                  const detailRes = await this.client.get(dEp, { headers });
+                  const detailRes = await this.requestGet(dEp, headers);
                   const detailObj = detailRes.data?.libraryInfo || detailRes.data?.library || detailRes.data?.tapeStorage || detailRes.data?.diskStorage || detailRes.data || {};
 
                   if (Object.keys(detailObj).length > 0) {
@@ -240,7 +289,7 @@ export class CommvaultAdapter {
 
                   for (const mEp of mediaEndpoints) {
                     try {
-                      const mediaRes = await this.client.get(mEp, { headers });
+                      const mediaRes = await this.requestGet(mEp, headers);
                       const mData = mediaRes.data || {};
                       const mList = Array.isArray(mData)
                         ? mData
@@ -311,30 +360,66 @@ export class CommvaultAdapter {
       const headers = await this.getHeaders();
       let response: any;
       try {
-        response = await this.client.get('/Subclient', { headers });
+        response = await this.requestGet('/Subclient', headers);
       } catch (err: any) {
-        if (err.response?.status === 404) {
-          response = await this.client.get('/V4/Subclient', { headers });
-        } else {
-          throw err;
+        try {
+          response = await this.requestGet('/V4/Subclient', headers);
+        } catch {
+          response = { data: {} };
         }
       }
       const data = response.data || {};
-      const rawList = Array.isArray(data)
+      let rawList = Array.isArray(data)
         ? data
         : data.subclientProperties || data.subclientList || data.subClientList || data.subclients || data.data || data.response || [];
 
-      const itemsArray = Array.isArray(rawList) ? rawList : (rawList && typeof rawList === 'object' ? [rawList] : []);
-      console.log(`[Commvault] getSubclients parsed ${itemsArray.length} raw subclient entries from keys:`, Object.keys(data));
+      let itemsArray = Array.isArray(rawList) ? rawList : (rawList && typeof rawList === 'object' ? [rawList] : []);
+      console.log(`[Commvault] getSubclients initially parsed ${itemsArray.length} entries from keys:`, Object.keys(data));
+
+      // If initial /Subclient query returns empty, Commvault environment often requires client-specific query via /Client
+      if (itemsArray.length === 0) {
+        console.log(`[Commvault] /Subclient returned 0 entries. Fetching clients via /Client to query subclients per client...`);
+        try {
+          const clientRes = await this.requestGet('/Client', headers);
+          const cData = clientRes.data || {};
+          const cList = Array.isArray(cData) ? cData : cData.clientProperties || cData.clientList || cData.clients || cData.response || [];
+          const clients = Array.isArray(cList) ? cList : (cList && typeof cList === 'object' ? [cList] : []);
+          console.log(`[Commvault] Found ${clients.length} clients to query subclients.`);
+
+          // Limit query to top 50 clients to stay fast
+          for (const cl of clients.slice(0, 50)) {
+            const cEntity = cl.clientEntity || cl.client || cl;
+            const clientId = cEntity.clientId || cEntity.id || cl.clientId || cl.id;
+            if (!clientId) continue;
+
+            try {
+              const scRes = await this.requestGet(`/Subclient?clientId=${clientId}`, headers);
+              const scData = scRes.data || {};
+              const scList = Array.isArray(scData) ? scData : scData.subclientProperties || scData.subclientList || scData.subClientList || scData.subclients || scData.data || [];
+              const scArr = Array.isArray(scList) ? scList : (scList && typeof scList === 'object' ? [scList] : []);
+              if (scArr.length > 0) {
+                itemsArray.push(...scArr);
+              }
+            } catch {
+              continue;
+            }
+          }
+          console.log(`[Commvault] Total subclients compiled via /Client loop: ${itemsArray.length}`);
+        } catch (err: any) {
+          console.warn(`[Commvault] Failed fetching per-client subclients: ${err.message}`);
+        }
+      }
 
       const result: CommvaultSubclient[] = [];
+      const seenIds = new Set<string>();
+
       for (const item of itemsArray) {
         const sc = item.subclientEntity || item.subClientEntity || item.subclient || item.subClient || item.entityInfo || item;
         const subclientId = String(sc.subclientId || sc.id || sc.subClientId || sc.entityId || item.subclientId || item.id || item.subClientId || item.entityInfo?.id || item.entityInfo?.subclientId || '');
-        if (!subclientId) {
-          console.warn(`[Commvault] Skipping subclient item with missing ID. Keys:`, Object.keys(item), `Sample:`, JSON.stringify(item).substring(0, 300));
+        if (!subclientId || seenIds.has(subclientId)) {
           continue;
         }
+        seenIds.add(subclientId);
 
         const subclientName = sc.subclientName || sc.name || sc.subClientName || sc.displayName || item.subclientName || item.name || item.displayName || item.entityInfo?.name || item.entityInfo?.displayName || `Subclient-${subclientId}`;
         const clientName = sc.clientName || sc.client?.name || sc.displayName || item.clientName || item.client?.name || 'Unknown-Client';
@@ -365,7 +450,7 @@ export class CommvaultAdapter {
       const endpoints = ['/Commserv/SLA', '/SLA', '/V4/SLA', '/v4/sla', '/commandcenter/api/v4/SLA', '/V4/SLA/Summary', '/v4/sla/summary'];
       for (const ep of endpoints) {
         try {
-          const response = await this.client.get(ep, { headers });
+          const response = await this.requestGet(ep, headers);
           const slaData = response.data?.slaInfo || response.data?.sla || response.data?.slaSummary || response.data || {};
           let slaVal = parseFloat(String(slaData.slaPercentage || slaData.percentage || slaData.value || slaData.SLA || slaData.overallSLA || slaData.totalSLA || '0'));
           if (isNaN(slaVal) || slaVal <= 0) {
