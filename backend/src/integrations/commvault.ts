@@ -127,91 +127,166 @@ export class CommvaultAdapter {
   async getLibraries(): Promise<CommvaultLibrary[]> {
     try {
       const headers = await this.getHeaders();
-      let response: any;
-      try {
-        response = await this.client.get('/Library', { headers });
-      } catch (err: any) {
-        if (err.response?.status === 404) {
-          response = await this.client.get('/V4/Library', { headers });
-        } else {
-          throw err;
-        }
-      }
-      const data = response.data || {};
-      const rawList = Array.isArray(data)
-        ? data
-        : data.libraryInfoList || data.libraries || data.libraryList || data.librariesList || data.data || data.response || [];
+      const endpointsToTry = [
+        { path: '/V4/Storage/Tape', isTapeHint: true },
+        { path: '/Storage/Tape', isTapeHint: true },
+        { path: '/V4/Storage/Disk', isTapeHint: false },
+        { path: '/Storage/Disk', isTapeHint: false },
+        { path: '/Library', isTapeHint: false },
+        { path: '/V4/Library', isTapeHint: false }
+      ];
 
-      const itemsArray = Array.isArray(rawList) ? rawList : (rawList && typeof rawList === 'object' ? [rawList] : []);
-      console.log(`[Commvault] getLibraries parsed ${itemsArray.length} raw library entries from keys:`, Object.keys(data));
+      const resultMap = new Map<string, CommvaultLibrary>();
 
-      const result: CommvaultLibrary[] = [];
-      for (const item of itemsArray) {
-        const lib = item.library || item.libraryEntity || item.libraryInfo || item.entityInfo || item;
-        const libId = String(lib.libraryId || lib.id || lib.LibraryId || lib.entityId || item.libraryId || item.id || item.LibraryId || item.entityInfo?.id || item.entityInfo?.libraryId || item.library?.id || item.library?.libraryId || '');
-        if (!libId) {
-          console.warn(`[Commvault] Skipping library item with missing ID. Keys:`, Object.keys(item), `Sample:`, JSON.stringify(item).substring(0, 300));
-          continue;
-        }
+      for (const ep of endpointsToTry) {
+        try {
+          const response = await this.client.get(ep.path, { headers });
+          const data = response.data || {};
+          const rawList = Array.isArray(data)
+            ? data
+            : data.tapeStorageList || data.diskStorageList || data.storageList || data.libraryInfoList || data.libraries || data.libraryList || data.librariesList || data.response || data.data || [];
 
-        const libName = lib.libraryName || lib.name || lib.LibraryName || lib.displayName || item.libraryName || item.name || item.LibraryName || item.displayName || item.entityInfo?.name || item.entityInfo?.displayName || item.library?.libraryName || item.library?.name || `Library-${libId}`;
-        const isTape = Boolean(lib.isTapeLibrary || libName.toLowerCase().includes('tape') || libName.toLowerCase().includes('msl') || libName.toLowerCase().includes('ts4') || libName.toLowerCase().includes('ts3') || libName.toLowerCase().includes('quantum') || libName.toLowerCase().includes('scalar') || lib.libraryType === 1 || String(lib.libraryType).toLowerCase().includes('tape'));
+          const itemsArray = Array.isArray(rawList) ? rawList : (rawList && typeof rawList === 'object' ? [rawList] : []);
+          console.log(`[Commvault] Endpoint ${ep.path} returned ${itemsArray.length} items. Keys:`, Object.keys(data));
 
-        let assignedMediaCount = lib.assignedMediaCount !== undefined ? Number(lib.assignedMediaCount) : (lib.assignedMedia !== undefined ? Number(lib.assignedMedia) : undefined);
-        let spareMediaCount = lib.spareMediaCount !== undefined ? Number(lib.spareMediaCount) : (lib.spareMedia !== undefined ? Number(lib.spareMedia) : undefined);
-        let totalMediaCount = lib.totalMediaCount !== undefined ? Number(lib.totalMediaCount) : (lib.totalMedia !== undefined ? Number(lib.totalMedia) : undefined);
+          for (const item of itemsArray) {
+            const lib = item.library || item.libraryEntity || item.libraryInfo || item.entityInfo || item.tapeStorage || item.diskStorage || item;
+            const libId = String(lib.libraryId || lib.id || lib.LibraryId || lib.entityId || lib.tapeStorageId || lib.diskStorageId || lib.storageId || item.libraryId || item.id || item.LibraryId || item.entityInfo?.id || item.entityInfo?.libraryId || item.library?.id || item.library?.libraryId || '');
+            if (!libId) {
+              console.warn(`[Commvault] Skipping item with missing ID from ${ep.path}. Keys:`, Object.keys(item), `Sample:`, JSON.stringify(item).substring(0, 300));
+              continue;
+            }
 
-        // If tape library and counts not in main summary, try fetching media or details
-        if (isTape || assignedMediaCount !== undefined || spareMediaCount !== undefined || libName.toLowerCase().includes('tape') || libName.toLowerCase().includes('lib')) {
-          if (assignedMediaCount === undefined || spareMediaCount === undefined || (assignedMediaCount === 0 && spareMediaCount === 0 && isTape)) {
+            if (resultMap.has(libId)) continue; // Already processed
+
+            const libName = lib.libraryName || lib.name || lib.LibraryName || lib.displayName || lib.tapeStorageName || lib.diskStorageName || lib.storageName || item.libraryName || item.name || item.LibraryName || item.displayName || item.entityInfo?.name || item.entityInfo?.displayName || item.library?.libraryName || item.library?.name || `Library-${libId}`;
+            const isTape = Boolean(ep.isTapeHint || lib.isTapeLibrary || libName.toLowerCase().includes('tape') || libName.toLowerCase().includes('msl') || libName.toLowerCase().includes('ts4') || libName.toLowerCase().includes('ts3') || libName.toLowerCase().includes('quantum') || libName.toLowerCase().includes('scalar') || lib.libraryType === 1 || String(lib.libraryType).toLowerCase().includes('tape'));
+
+            let assignedMediaCount = lib.assignedMediaCount !== undefined ? Number(lib.assignedMediaCount) : (lib.assignedMedia !== undefined ? Number(lib.assignedMedia) : (lib.numOfAssignedMedia !== undefined ? Number(lib.numOfAssignedMedia) : undefined));
+            let spareMediaCount = lib.spareMediaCount !== undefined ? Number(lib.spareMediaCount) : (lib.spareMedia !== undefined ? Number(lib.spareMedia) : (lib.numOfSpareMediaInLib !== undefined ? Number(lib.numOfSpareMediaInLib) : undefined));
+            let totalMediaCount = lib.totalMediaCount !== undefined ? Number(lib.totalMediaCount) : (lib.totalMedia !== undefined ? Number(lib.totalMedia) : undefined);
+
+            let capTotalBytes = Number(lib.capacityBytes || lib.totalCapacity || lib.capacity || lib.totalCapacityBytes || lib.diskCapacity || lib.totalSpace || 0);
+            let capFreeBytes = Number(lib.freeSpaceBytes || lib.freeCapacity || lib.freeSpace || lib.availableSpace || 0);
+            let capUsedBytes = Number(lib.usedSpaceBytes || lib.usedCapacity || lib.consumedSpace || (capTotalBytes > capFreeBytes ? capTotalBytes - capFreeBytes : 0));
+
+            // ALWAYS try fetching library details from /Library/{id} or /V4/Storage/Tape/{id}
             try {
-              const detailRes = await this.client.get(`/Library/${libId}`, { headers }).catch(() =>
-                this.client.get(`/V4/Library/${libId}`, { headers })
-              );
-              const detailObj = detailRes.data?.libraryInfo || detailRes.data?.library || detailRes.data || {};
-              assignedMediaCount = detailObj.assignedMediaCount !== undefined ? Number(detailObj.assignedMediaCount) : (detailObj.assignedMedia !== undefined ? Number(detailObj.assignedMedia) : (assignedMediaCount || 0));
-              spareMediaCount = detailObj.spareMediaCount !== undefined ? Number(detailObj.spareMediaCount) : (detailObj.spareMedia !== undefined ? Number(detailObj.spareMedia) : (spareMediaCount || 0));
-              if (assignedMediaCount === 0 && spareMediaCount === 0) {
-                // Try media list endpoint
-                const mediaRes = await this.client.get(`/Library/${libId}/Media`, { headers }).catch(() =>
-                  this.client.get(`/V4/Library/${libId}/Media`, { headers })
-                ).catch(() => null);
-                if (mediaRes && mediaRes.data) {
-                  const mList = mediaRes.data.mediaList || mediaRes.data.media || [];
-                  if (Array.isArray(mList) && mList.length > 0) {
-                    assignedMediaCount = mList.filter((m: any) => m.assigned || m.isAssigned || m.status === 'ASSIGNED').length;
-                    spareMediaCount = mList.filter((m: any) => !m.assigned && !m.isAssigned && m.status !== 'ASSIGNED').length;
+              const detailEndpoints = [
+                `/Library/${libId}`,
+                `/V4/Library/${libId}`,
+                `/V4/Storage/Tape/${libId}`,
+                `/Storage/Tape/${libId}`,
+                `/V4/Storage/Disk/${libId}`,
+                `/Storage/Disk/${libId}`
+              ];
+
+              for (const dEp of detailEndpoints) {
+                try {
+                  const detailRes = await this.client.get(dEp, { headers });
+                  const detailObj = detailRes.data?.libraryInfo || detailRes.data?.library || detailRes.data?.tapeStorage || detailRes.data?.diskStorage || detailRes.data || {};
+
+                  if (Object.keys(detailObj).length > 0) {
+                    if (detailObj.numOfAssignedMedia !== undefined || detailObj.assignedMediaCount !== undefined || detailObj.assignedMedia !== undefined) {
+                      assignedMediaCount = detailObj.numOfAssignedMedia !== undefined ? Number(detailObj.numOfAssignedMedia) : (detailObj.assignedMediaCount !== undefined ? Number(detailObj.assignedMediaCount) : Number(detailObj.assignedMedia));
+                    }
+                    if (detailObj.numOfSpareMediaInLib !== undefined || detailObj.spareMediaCount !== undefined || detailObj.spareMedia !== undefined) {
+                      spareMediaCount = detailObj.numOfSpareMediaInLib !== undefined ? Number(detailObj.numOfSpareMediaInLib) : (detailObj.spareMediaCount !== undefined ? Number(detailObj.spareMediaCount) : Number(detailObj.spareMedia));
+                    }
+                    if (assignedMediaCount !== undefined && spareMediaCount !== undefined) {
+                      totalMediaCount = assignedMediaCount + spareMediaCount;
+                    }
+
+                    const dTotal = Number(detailObj.capacityBytes || detailObj.totalCapacity || detailObj.capacity || detailObj.totalCapacityBytes || detailObj.diskCapacity || detailObj.totalSpace || 0);
+                    const dFree = Number(detailObj.freeSpaceBytes || detailObj.freeCapacity || detailObj.freeSpace || detailObj.availableSpace || 0);
+                    const dUsed = Number(detailObj.usedSpaceBytes || detailObj.usedCapacity || detailObj.consumedSpace || (dTotal > dFree ? dTotal - dFree : 0));
+
+                    if (dTotal > capTotalBytes) capTotalBytes = dTotal;
+                    if (dFree > capFreeBytes) capFreeBytes = dFree;
+                    if (dUsed > capUsedBytes) capUsedBytes = dUsed;
+
+                    break;
                   }
+                } catch {
+                  continue;
                 }
               }
-              totalMediaCount = (assignedMediaCount || 0) + (spareMediaCount || 0);
             } catch (err: any) {
-              console.warn(`[Commvault] Could not fetch details for library ${libName}: ${err.message}`);
+              console.warn(`[Commvault] Could not fetch detail endpoints for library ${libName}: ${err.message}`);
             }
+
+            // If tape library, try fetching media from /V4/Storage/Tape/{id}/Media or /Library/{id}/Media if counts still undefined/0
+            if (isTape || assignedMediaCount !== undefined || spareMediaCount !== undefined || libName.toLowerCase().includes('tape') || libName.toLowerCase().includes('lib')) {
+              if (assignedMediaCount === undefined || spareMediaCount === undefined || (assignedMediaCount === 0 && spareMediaCount === 0 && isTape)) {
+                try {
+                  const mediaEndpoints = [
+                    `/V4/Storage/Tape/${libId}/Media`,
+                    `/Storage/Tape/${libId}/Media`,
+                    `/Library/${libId}/Media`,
+                    `/V4/Library/${libId}/Media`
+                  ];
+
+                  for (const mEp of mediaEndpoints) {
+                    try {
+                      const mediaRes = await this.client.get(mEp, { headers });
+                      const mData = mediaRes.data || {};
+                      const mList = Array.isArray(mData)
+                        ? mData
+                        : mData.mediaList || mData.media || mData.response || mData.data || [];
+
+                      if (Array.isArray(mList) && mList.length > 0) {
+                        console.log(`[Commvault] Media endpoint ${mEp} returned ${mList.length} media items for ${libName}. Sample:`, JSON.stringify(mList[0]).substring(0, 300));
+                        let assigned = 0;
+                        let spare = 0;
+                        for (const m of mList) {
+                          const mStr = JSON.stringify(m).toLowerCase();
+                          const isAssigned = m.assigned || m.isAssigned || m.status === 'ASSIGNED' || m.state === 'ASSIGNED' || m.statusInfo?.mediaStatus === 'Assigned' || (mStr.includes('"assigned"') && !mStr.includes('"isassigned":false'));
+                          if (isAssigned) {
+                            assigned++;
+                          } else {
+                            spare++;
+                          }
+                        }
+                        assignedMediaCount = assigned;
+                        spareMediaCount = spare;
+                        totalMediaCount = assigned + spare;
+                        break;
+                      }
+                    } catch {
+                      continue;
+                    }
+                  }
+                } catch (err: any) {
+                  console.warn(`[Commvault] Could not fetch media for library ${libName}: ${err.message}`);
+                }
+              }
+            }
+
+            const capacityTotalGiB = capTotalBytes ? capTotalBytes / (1024 * 1024 * 1024) : (lib.capacityTotalGiB || 0);
+            const capacityFreeGiB = capFreeBytes ? capFreeBytes / (1024 * 1024 * 1024) : (lib.capacityFreeGiB || 0);
+            const capacityUsedGiB = capUsedBytes ? capUsedBytes / (1024 * 1024 * 1024) : (lib.capacityUsedGiB || 0);
+
+            resultMap.set(libId, {
+              libraryId: libId,
+              libraryName: libName,
+              isTape,
+              assignedMediaCount,
+              spareMediaCount,
+              totalMediaCount,
+              capacityTotalGiB,
+              capacityUsedGiB,
+              capacityFreeGiB,
+              raw: lib
+            });
           }
+        } catch (err: any) {
+          // Endpoint might not exist or return 404, continue to next
+          continue;
         }
-
-        const capTotalBytes = Number(lib.capacityBytes || lib.totalCapacity || lib.capacity || 0);
-        const capFreeBytes = Number(lib.freeSpaceBytes || lib.freeCapacity || lib.freeSpace || 0);
-        const capUsedBytes = Number(lib.usedSpaceBytes || lib.usedCapacity || (capTotalBytes > capFreeBytes ? capTotalBytes - capFreeBytes : 0));
-
-        const capacityTotalGiB = capTotalBytes ? capTotalBytes / (1024 * 1024 * 1024) : (lib.capacityTotalGiB || 0);
-        const capacityFreeGiB = capFreeBytes ? capFreeBytes / (1024 * 1024 * 1024) : (lib.capacityFreeGiB || 0);
-        const capacityUsedGiB = capUsedBytes ? capUsedBytes / (1024 * 1024 * 1024) : (lib.capacityUsedGiB || 0);
-
-        result.push({
-          libraryId: libId,
-          libraryName: libName,
-          isTape,
-          assignedMediaCount,
-          spareMediaCount,
-          totalMediaCount,
-          capacityTotalGiB,
-          capacityUsedGiB,
-          capacityFreeGiB,
-          raw: lib
-        });
       }
+
+      const result = Array.from(resultMap.values());
+      console.log(`[Commvault] getLibraries compiled total ${result.length} distinct library items across all storage endpoints.`);
       return result;
     } catch (error: any) {
       console.warn(`[Commvault] getLibraries failed: ${error.message}`);
