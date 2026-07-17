@@ -25,6 +25,7 @@ export class CommvaultForecastProvider implements ForecastProvider {
       const libraries = await adapter.getLibraries();
       for (const lib of libraries) {
         const objId = `commvault-lib-${lib.libraryId}`;
+        const objName = lib.libraryName;
         const isGdp = (lib.libraryName || '').toUpperCase().includes('GDP');
         const objType = lib.isTape ? 'tape_library' : (isGdp ? 'gdp_pool' : 'disk_library');
 
