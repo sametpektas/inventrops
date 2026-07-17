@@ -37,6 +37,9 @@ export function calculateForecast(
     if (direction === 'up') {
       if (currentVal >= criticalThreshold) { risk_level = 'red'; days_to_critical = 0; days_to_warning = 0; }
       else if (currentVal >= warningThreshold) { risk_level = 'orange'; days_to_warning = 0; }
+    } else if (direction === 'down') {
+      if (currentVal <= criticalThreshold) { risk_level = 'red'; days_to_critical = 0; days_to_warning = 0; }
+      else if (currentVal <= warningThreshold) { risk_level = 'orange'; days_to_warning = 0; }
     }
 
     return {
@@ -128,10 +131,34 @@ export function calculateForecast(
     }
   }
 
+  const currentVal = history[history.length - 1].value;
   let risk_level: 'green' | 'yellow' | 'orange' | 'red' = 'green';
-  if (days_to_critical !== null && days_to_critical <= 30) risk_level = 'red';
-  else if (days_to_warning !== null && days_to_warning <= 30) risk_level = 'orange';
-  else if (days_to_critical !== null && days_to_critical <= 90) risk_level = 'yellow';
+
+  if (direction === 'up') {
+    if (currentVal >= criticalThreshold) {
+      risk_level = 'red';
+    } else if (currentVal >= warningThreshold) {
+      risk_level = (days_to_critical !== null && days_to_critical <= 30) ? 'red' : 'orange';
+    } else if (days_to_critical !== null && days_to_critical <= 30) {
+      risk_level = 'red';
+    } else if (days_to_warning !== null && days_to_warning <= 30) {
+      risk_level = 'orange';
+    } else if (days_to_critical !== null && days_to_critical <= 90) {
+      risk_level = 'yellow';
+    }
+  } else if (direction === 'down') {
+    if (currentVal <= criticalThreshold) {
+      risk_level = 'red';
+    } else if (currentVal <= warningThreshold) {
+      risk_level = (days_to_critical !== null && days_to_critical <= 30) ? 'red' : 'orange';
+    } else if (days_to_critical !== null && days_to_critical <= 30) {
+      risk_level = 'red';
+    } else if (days_to_warning !== null && days_to_warning <= 30) {
+      risk_level = 'orange';
+    } else if (days_to_critical !== null && days_to_critical <= 90) {
+      risk_level = 'yellow';
+    }
+  }
 
   return {
     pred_1y,

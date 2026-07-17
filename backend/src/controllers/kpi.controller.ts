@@ -68,13 +68,23 @@ export const generateKpiExcel = async (req: Request, res: Response) => {
       deviceMap[d.serial_number] = { name: displayName, type: deviceType, serial: d.serial_number };
     });
 
-    const allObjectIds = devices.map(d => serialToXormonMap[d.serial_number] || d.serial_number);
+    const idSet = new Set<string>();
+    devices.forEach(d => {
+      const meta = (d.metadata || {}) as any;
+      const xId = String(meta.xormon_id || '').trim();
+      const sNum = String(d.serial_number || '').trim();
+      const hName = String(d.hostname || '').trim();
+      if (xId) { idSet.add(xId); idSet.add(xId.toLowerCase()); idSet.add(xId.toUpperCase()); }
+      if (sNum) { idSet.add(sNum); idSet.add(sNum.toLowerCase()); idSet.add(sNum.toUpperCase()); }
+      if (hName) { idSet.add(hName); idSet.add(hName.toLowerCase()); idSet.add(hName.toUpperCase()); }
+    });
+    const allObjectIds = Array.from(idSet);
 
     // 2. Get snapshot data for the 6-month window ending at target month
     const snapshots = await prisma.forecastMetricSnapshot.findMany({
       where: {
         object_id: { in: allObjectIds },
-        metric_name: { in: ['capacity_total', 'capacity_used', 'capacity_used_percent', 'capacity_free', 'available_ports', 'free_ports', 'port_utilization_percent'] },
+        metric_name: { in: ['capacity_total', 'capacity_used', 'capacity_used_percent', 'capacity_free', 'available_ports', 'free_ports', 'used_ports', 'total_ports', 'port_utilization_percent'] },
         captured_at: { gte: sixMonthsAgo, lte: monthEnd }
       },
       orderBy: { captured_at: 'asc' }
@@ -114,8 +124,9 @@ export const generateKpiExcel = async (req: Request, res: Response) => {
           sanMonthlyMap[objId][monthKey] = { available_ports: null, free_ports: null, used_ports: null };
         }
         const entry = sanMonthlyMap[objId][monthKey];
-        if (snap.metric_name === 'available_ports') entry.available_ports = val;
+        if (snap.metric_name === 'available_ports' || snap.metric_name === 'total_ports') entry.available_ports = val;
         if (snap.metric_name === 'free_ports') entry.free_ports = val;
+        if (snap.metric_name === 'used_ports') entry.used_ports = val;
       }
     }
 
@@ -375,55 +386,70 @@ export const generateKpiExcel = async (req: Request, res: Response) => {
     currentRow++;
 
     // --- SAN DATA ROWS ---
-    for (const device of sanDevices) {
-      const metadata = (device.metadata as any) || {};
+    for (const objId of sanIds) {
+      const dev = deviceMap[objId] || { name: objId, type: 'san_switch', serial: objId };
+      const inventoryDevice = sanDevices.find(d => d.serial_number === objId || d.serial_number === dev.serial || ((d.metadata as any)?.xormon_id && (d.metadata as any).xormon_id === objId));
+      const metadata = (inventoryDevice?.metadata as any) || {};
       const xormonId = (metadata.xormon_id || '').trim().toLowerCase();
-      const serial = (device.serial_number || '').trim().toLowerCase();
+      const serial = (inventoryDevice?.serial_number || dev.serial || objId).trim().toLowerCase();
+      const hostname = (inventoryDevice?.hostname || dev.name || '').trim().toLowerCase();
       
       const row = ws.getRow(currentRow);
-      row.getCell(1).value = device.hostname || device.serial_number;
+      row.getCell(1).value = inventoryDevice?.hostname || dev.name || objId;
       row.getCell(1).alignment = LEFT;
       row.getCell(1).border = BORDER_THIN;
 
       col = 2;
       for (const mKey of sortedMonths) {
         // Try to match snapshots using both xormon_id and serial (normalized)
-        let data = sanMonthlyMap[xormonId]?.[mKey] || sanMonthlyMap[serial]?.[mKey];
+        let data = sanMonthlyMap[xormonId]?.[mKey] || sanMonthlyMap[serial]?.[mKey] || (hostname ? sanMonthlyMap[hostname]?.[mKey] : undefined) || sanMonthlyMap[objId.toLowerCase()]?.[mKey];
         
         // If still no data, try to find in sanMonthlyMap with case-insensitive search
         if (!data) {
-          const matchingId = Object.keys(sanMonthlyMap).find(id => id.toLowerCase() === xormonId || id.toLowerCase() === serial);
+          const matchingId = Object.keys(sanMonthlyMap).find(id => id.toLowerCase() === xormonId || id.toLowerCase() === serial || id.toLowerCase() === objId.toLowerCase() || (hostname && id.toLowerCase() === hostname));
           if (matchingId) data = sanMonthlyMap[matchingId][mKey];
         }
 
         // Fallback to current metadata if snapshot is missing for this month
         let total = data?.available_ports;
-        if (total === null || total === undefined) {
-          total = parseFloat(String(metadata.available_ports || metadata.total_ports || '0')) || null;
+        if (total === null || total === undefined || isNaN(total)) {
+          const mTotal = parseFloat(String(metadata.available_ports || metadata.total_ports || '0'));
+          total = !isNaN(mTotal) && mTotal > 0 ? mTotal : null;
         }
 
         let free = data?.free_ports;
-        if (free === null || free === undefined) {
-          free = parseFloat(String(metadata.free_ports || '0')) || null;
+        if (free === null || free === undefined || isNaN(free)) {
+          const mFree = parseFloat(String(metadata.free_ports || '0'));
+          free = !isNaN(mFree) && (mFree > 0 || mFree === 0 && total !== null) ? mFree : null;
         }
 
         let used = data?.used_ports;
-        if ((used === null || used === undefined) && total !== null && free !== null) {
+        if (used === null || used === undefined || isNaN(used)) {
+          const mUsed = parseFloat(String(metadata.used_ports || '0'));
+          if (!isNaN(mUsed) && mUsed > 0) {
+            used = mUsed;
+          } else if (total !== null && free !== null) {
+            used = total - free;
+          } else {
+            used = null;
+          }
+        }
+        if ((used === null || used === undefined || isNaN(used)) && total !== null && free !== null) {
           used = total - free;
         }
 
         // Boş Port
-        row.getCell(col).value = free !== null && free !== undefined && free > 0 ? free : (free === 0 ? 0 : '-');
+        row.getCell(col).value = free !== null && free !== undefined && !isNaN(free) && free >= 0 ? free : '-';
         row.getCell(col).alignment = CENTER;
         row.getCell(col).border = BORDER_THIN;
 
         // Dolu Port
-        row.getCell(col + 1).value = used !== null && used !== undefined && used > 0 ? used : (used === 0 ? 0 : '-');
+        row.getCell(col + 1).value = used !== null && used !== undefined && !isNaN(used) && used >= 0 ? used : '-';
         row.getCell(col + 1).alignment = CENTER;
         row.getCell(col + 1).border = BORDER_THIN;
 
         // Toplam Port
-        row.getCell(col + 2).value = total !== null && total !== undefined && total > 0 ? total : (total === 0 ? 0 : '-');
+        row.getCell(col + 2).value = total !== null && total !== undefined && !isNaN(total) && total >= 0 ? total : '-';
         row.getCell(col + 2).alignment = CENTER;
         row.getCell(col + 2).border = BORDER_THIN;
 

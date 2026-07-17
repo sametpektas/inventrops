@@ -192,7 +192,17 @@ export class XormonAdapter {
         else if (modelLower.includes('ibm') || modelLower.includes('flashsystem')) vendor = 'IBM';
         else if (modelLower.includes('hitachi') || modelLower.includes('vsp')) vendor = 'Hitachi';
 
-        // Device type from class field
+        // Extract port metrics if present in configuration or item attributes
+        const availablePortsRaw = conf.available_ports || conf.total_ports || d.available_ports || d.total_ports;
+        const availablePorts = availablePortsRaw !== undefined && availablePortsRaw !== null ? parseFloat(String(availablePortsRaw)) : undefined;
+        const freePortsRaw = conf.free_ports || d.free_ports;
+        const freePorts = freePortsRaw !== undefined && freePortsRaw !== null ? parseFloat(String(freePortsRaw)) : undefined;
+        let usedPortsRaw = conf.used_ports || d.used_ports;
+        let usedPorts = usedPortsRaw !== undefined && usedPortsRaw !== null ? parseFloat(String(usedPortsRaw)) : undefined;
+        if (usedPorts === undefined && availablePorts !== undefined && !isNaN(availablePorts) && freePorts !== undefined && !isNaN(freePorts)) {
+          usedPorts = availablePorts - freePorts;
+        }
+
         const deviceType = d.class || 'storage';
 
         const result: DiscoveredDevice = {
@@ -209,8 +219,13 @@ export class XormonAdapter {
             xormon_id: itemId,
             wwn: conf.wwn,
             capacity_total: conf.capacity_total,
+            available_ports: availablePorts !== undefined && !isNaN(availablePorts) ? availablePorts : undefined,
+            free_ports: freePorts !== undefined && !isNaN(freePorts) ? freePorts : undefined,
+            used_ports: usedPorts !== undefined && !isNaN(usedPorts) ? usedPorts : undefined,
+            total_ports: availablePorts !== undefined && !isNaN(availablePorts) ? availablePorts : undefined,
             health_status: conf.health_status || conf.running_status,
-            sync_mode: hasConfig ? 'full' : 'basic'
+            sync_mode: hasConfig ? 'full' : 'basic',
+            ...conf
           }
         };
 

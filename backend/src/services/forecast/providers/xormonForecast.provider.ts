@@ -177,11 +177,11 @@ export class XormonForecastProvider implements ForecastProvider {
               format: "json"
             }, { headers });
 
-            const confData = Array.isArray(confRes.data) ? confRes.data[0] : (confRes.data?.data?.[0] || {});
-            const conf = confData.configuration || {};
+            const confData = Array.isArray(confRes.data) ? confRes.data[0] : (confRes.data?.data?.[0] || confRes.data || {});
+            const conf = confData.configuration || confData.config || confData || {};
             
-            const availablePorts = parseFloat(String(conf.available_ports || '0'));
-            const freePorts = parseFloat(String(conf.free_ports || '0'));
+            const availablePorts = parseFloat(String(conf.available_ports || conf.total_ports || device.available_ports || device.total_ports || '0'));
+            const freePorts = parseFloat(String(conf.free_ports || device.free_ports || '0'));
 
             if (availablePorts > 0) {
               const usedPorts = availablePorts - freePorts;
@@ -206,6 +206,18 @@ export class XormonForecastProvider implements ForecastProvider {
                 objectId: itemId, objectName: label, objectType: 'san',
                 metricName: 'free_ports',
                 metricValue: freePorts,
+                timestamp: now
+              });
+              metrics.push({
+                objectId: itemId, objectName: label, objectType: 'san',
+                metricName: 'used_ports',
+                metricValue: usedPorts,
+                timestamp: now
+              });
+              metrics.push({
+                objectId: itemId, objectName: label, objectType: 'san',
+                metricName: 'total_ports',
+                metricValue: availablePorts,
                 timestamp: now
               });
             }

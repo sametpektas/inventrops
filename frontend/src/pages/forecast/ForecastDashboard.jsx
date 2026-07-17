@@ -16,6 +16,18 @@ function getRiskLevel(level) {
   return c[level] || c.green;
 }
 
+function computeEffectiveRisk(item) {
+  if (!item) return 'green';
+  let level = item.risk_level || 'green';
+  const val = Number(item.current_value);
+  const metric = item.metric_name || '';
+  if (!isNaN(val) && (metric.includes('percent') || metric.includes('utilization') || metric.includes('usage') || metric === 'capacity_used_percent' || metric === 'port_utilization_percent')) {
+    if (val > 90) return 'red';
+    if (val >= 80) return (level === 'red' ? 'red' : 'orange');
+  }
+  return level;
+}
+
 function formatCapacity(v) {
   if (v == null || isNaN(v)) return '-';
   v = Number(v);
@@ -129,7 +141,7 @@ export default function ForecastDashboard() {
   };
 
   const renderRow = (item, icon) => {
-    const risk = getRiskLevel(item.risk_level);
+    const risk = getRiskLevel(computeEffectiveRisk(item));
     const tbText = item.metric_name === 'capacity_used_percent' ? pctToTB(item.current_value, item.object_id) : null;
     return (
       <div key={item.id} onClick={()=>openGraph(item)} style={{ background:'rgba(15,23,42,0.4)', borderRadius:16, padding:'14px 20px', display:'flex', flexWrap:'wrap', alignItems:'center', justifyContent:'space-between', gap:16, border:'1px solid rgba(255,255,255,0.03)', cursor:'pointer', transition:'all 0.2s', position:'relative' }}
@@ -161,7 +173,7 @@ export default function ForecastDashboard() {
   const renderClusterMetricBtn = (cluster, metricKey, label, icon, color) => {
     const m = cluster.metrics[metricKey];
     if (!m) return null;
-    const risk = getRiskLevel(m.risk_level);
+    const risk = getRiskLevel(computeEffectiveRisk(m));
     return (
       <button onClick={()=>openGraph(m)} style={{ flex:'1 1 200px', background:'rgba(15,23,42,0.5)', borderRadius:14, padding:'14px 18px', border:`1px solid rgba(255,255,255,0.05)`, cursor:'pointer', textAlign:'left', transition:'all 0.2s', position:'relative', overflow:'hidden', display:'flex', alignItems:'center', gap:14 }}
         onMouseEnter={e=>{e.currentTarget.style.borderColor='rgba(99,102,241,0.3)';e.currentTarget.style.background='rgba(30,41,59,0.5)';}}
@@ -303,7 +315,7 @@ export default function ForecastDashboard() {
                   return (
                     <div key={i} style={{padding:18,borderRadius:16,background:c.h?'rgba(30,41,59,0.4)':'rgba(255,255,255,0.03)',border:'1px solid rgba(255,255,255,0.05)'}}>
                       <div style={{fontSize:'0.75rem',color:'#94a3b8',textTransform:'uppercase',marginBottom:8,fontWeight:600}}>{c.l}</div>
-                      <div style={{fontSize:'1.3rem',fontWeight:800,color:c.h?getRiskLevel(modal.risk_level).color:'#f8fafc'}}>{fmtVal(c.v,modal.metric_name)}</div>
+                      <div style={{fontSize:'1.3rem',fontWeight:800,color:c.h?getRiskLevel(computeEffectiveRisk(modal)).color:'#f8fafc'}}>{fmtVal(c.v,modal.metric_name)}</div>
                       {tb && <div style={{fontSize:'0.8rem',color:'#94a3b8',marginTop:4}}>{tb}</div>}
                     </div>
                   );
