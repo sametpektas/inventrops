@@ -346,7 +346,9 @@ export const generateBulletin = async (req: Request, res: Response) => {
 
     backupDevices.forEach((d: any) => {
       const meta = (d.metadata as any) || {};
-      const name = d.hostname || d.serial_number;
+      const name = d.hostname || d.serial_number || '';
+      if (name.toUpperCase().includes('GDP')) return;
+
       const isTape = meta.is_tape || name.toLowerCase().includes('tape') || d.model?.name?.toLowerCase().includes('tape');
       
       const assigned = Number(meta.assigned_media || 0);
@@ -363,7 +365,10 @@ export const generateBulletin = async (req: Request, res: Response) => {
 
     const libSnapshotMap = new Map<string, any>();
     backupSnapshots.filter(s => s.object_type === 'tape_library' || s.object_type === 'disk_library').forEach(s => {
-      if (!libSnapshotMap.has(s.object_id)) libSnapshotMap.set(s.object_id, { name: s.object_name, type: s.object_type, assigned: 0, spare: 0, totalGiB: 0, usedGiB: 0 });
+      const objName = s.object_name || '';
+      if (objName.toUpperCase().includes('GDP')) return;
+
+      if (!libSnapshotMap.has(s.object_id)) libSnapshotMap.set(s.object_id, { name: objName, type: s.object_type, assigned: 0, spare: 0, totalGiB: 0, usedGiB: 0 });
       const entry = libSnapshotMap.get(s.object_id);
       if (s.metric_name === 'assigned_media') entry.assigned = s.metric_value;
       if (s.metric_name === 'spare_media') entry.spare = s.metric_value;
@@ -372,6 +377,8 @@ export const generateBulletin = async (req: Request, res: Response) => {
     });
 
     libSnapshotMap.forEach((val, key) => {
+      if ((val.name || '').toUpperCase().includes('GDP')) return;
+
       const existingTape = tapeLibraries.find(l => l.name === val.name);
       if (existingTape) {
         if (val.assigned > 0 || val.spare > 0) {
@@ -397,9 +404,12 @@ export const generateBulletin = async (req: Request, res: Response) => {
 
     const libraryGrowthMap: Record<string, Array<{ date: string; value: number }>> = {};
     backupSnapshots.filter(s => (s.object_type === 'tape_library' || s.object_type === 'disk_library') && s.metric_name === 'capacity_used').forEach(s => {
-      if (!libraryGrowthMap[s.object_name]) libraryGrowthMap[s.object_name] = [];
+      const objName = s.object_name || '';
+      if (objName.toUpperCase().includes('GDP')) return;
+
+      if (!libraryGrowthMap[objName]) libraryGrowthMap[objName] = [];
       const dStr = s.captured_at.toISOString().split('T')[0];
-      libraryGrowthMap[s.object_name].push({ date: dStr, value: s.metric_value });
+      libraryGrowthMap[objName].push({ date: dStr, value: s.metric_value });
     });
 
     const slaHistory: Array<{ date: string; value: number }> = [];
@@ -929,16 +939,25 @@ function addGeneralLibraryBarSlide(pres: pptxgen, libraries: Array<{ name: strin
     return;
   }
 
+  const totalAllGiB = libraries.reduce((sum, l) => sum + l.totalGiB, 0);
+  const usedAllGiB = libraries.reduce((sum, l) => sum + l.usedGiB, 0);
+  const totalAllTB = (totalAllGiB / 1024).toFixed(1);
+  const usedAllTB = (usedAllGiB / 1024).toFixed(1);
+
+  slide.addText(`Toplam Library Kapasitesi: ${totalAllTB} TB | Kullanılan: ${usedAllTB} TB`, {
+    x: 0.67, y: 0.8, w: 12.0, h: 0.35, fontSize: 13, color: '444444', fontFace: 'Segoe UI'
+  });
+
   const chartData = [
     {
       name: 'Kullanım Oranı (%)',
-      labels: libraries.map(l => l.name),
+      labels: libraries.map(l => `${l.name}\n(Top: ${(l.totalGiB / 1024).toFixed(1)} TB)`),
       values: libraries.map(l => Number(l.usedPct.toFixed(1)))
     }
   ];
 
   slide.addChart(pres.ChartType.bar, chartData, {
-    x: 0.67, y: 1.2, w: 12.0, h: 5.5,
+    x: 0.67, y: 1.3, w: 12.0, h: 5.4,
     showLegend: false,
     barDir: 'col',
     showValue: true,
@@ -946,7 +965,7 @@ function addGeneralLibraryBarSlide(pres: pptxgen, libraries: Array<{ name: strin
     valAxisLabelFormatCode: '0"%"',
     valAxisMaxVal: 100,
     valAxisLabelFontSize: 10,
-    catAxisLabelFontSize: 10,
+    catAxisLabelFontSize: 9,
     dataLabelFontSize: 10,
     chartColors: ['5b9bd5']
   });
@@ -955,7 +974,7 @@ function addGeneralLibraryBarSlide(pres: pptxgen, libraries: Array<{ name: strin
 function addLibraryGrowthSlide(pres: pptxgen, libraryGrowthMap: Record<string, Array<{ date: string; value: number }>>, logoPath?: string) {
   const slide = pres.addSlide();
   if (logoPath) slide.addImage({ path: logoPath, x: 11.5, y: 0.15, w: 1.5, h: 0.75 });
-  slide.addText('Son 1 Aylık Library Büyüme Grafiği', {
+  slide.addText('Son 1 Aylık Net Library Kapasite Büyümesi (TB)', {
     x: 0.67, y: 0.3, w: 12.0, fontSize: 22, bold: true, color: '1a1a2e', fontFace: 'Segoe UI'
   });
 
@@ -967,49 +986,36 @@ function addLibraryGrowthSlide(pres: pptxgen, libraryGrowthMap: Record<string, A
     return;
   }
 
-  const dateSet = new Set<string>();
-  libNames.forEach(name => {
-    libraryGrowthMap[name].forEach(pt => dateSet.add(pt.date));
-  });
-  const sortedDates = Array.from(dateSet).sort();
-
-  if (sortedDates.length === 0) {
-    slide.addText('Tarih aralığı verisi eksik.', {
-      x: 0.67, y: 3, w: 12.0, fontSize: 16, color: '999999', fontFace: 'Segoe UI', align: 'center'
-    });
-    return;
-  }
-
-  const chartData = libNames.map(name => {
-    const pts = libraryGrowthMap[name];
-    const valMap = new Map<string, number>();
-    pts.forEach(p => valMap.set(p.date, p.value));
-
-    let lastVal = pts[0]?.value || 0;
-    const values = sortedDates.map(d => {
-      if (valMap.has(d)) lastVal = valMap.get(d)!;
-      return Number(lastVal.toFixed(2));
-    });
-
-    return {
-      name,
-      labels: sortedDates,
-      values
-    };
+  slide.addText('Not: Grafikte her bir kütüphanenin o ay içindeki net büyüme miktarı TB cinsinden gösterilmektedir.', {
+    x: 0.67, y: 0.8, w: 12.0, h: 0.35, fontSize: 13, color: '444444', fontFace: 'Segoe UI'
   });
 
-  const chartType = sortedDates.length === 1 ? pres.ChartType.bar : pres.ChartType.line;
-  slide.addChart(chartType, chartData, {
-    x: 0.67, y: 1.2, w: 12.0, h: 5.5,
-    showLegend: true,
-    legendPos: 'b',
-    legendFontSize: 9,
-    lineSmooth: false,
-    showValue: sortedDates.length === 1,
-    catAxisLabelFontSize: 8,
-    valAxisLabelFontSize: 9,
-    chartColors: ['5b9bd5', 'ed7d31', 'a5a5a5', 'ffc000', '4472c4']
-  } as any);
+  const chartData = [
+    {
+      name: 'Aylık Büyüme (TB)',
+      labels: libNames,
+      values: libNames.map(name => {
+        const pts = [...(libraryGrowthMap[name] || [])].sort((a, b) => a.date.localeCompare(b.date));
+        if (pts.length === 0) return 0;
+        const firstVal = pts[0].value || 0;
+        const lastVal = pts[pts.length - 1].value || 0;
+        const growthGiB = lastVal - firstVal;
+        return Number((growthGiB / 1024).toFixed(2));
+      })
+    }
+  ];
+
+  slide.addChart(pres.ChartType.bar, chartData, {
+    x: 0.67, y: 1.3, w: 12.0, h: 5.4,
+    showLegend: false,
+    barDir: 'col',
+    showValue: true,
+    dataLabelFormatCode: '0.00" TB"',
+    catAxisLabelFontSize: 10,
+    valAxisLabelFontSize: 10,
+    dataLabelFontSize: 10,
+    chartColors: ['5b9bd5']
+  });
 }
 
 function addDailySlaSlide(pres: pptxgen, slaHistory: Array<{ date: string; value: number }>, logoPath?: string) {

@@ -181,36 +181,71 @@ export const generateKpiExcel = async (req: Request, res: Response) => {
       }
     }
 
-    // Separate device IDs by type
-    const storageIds = allObjectIds.filter(id => {
-      const dev = deviceMap[id];
-      return dev?.type === 'storage';
-    });
-    const sanIds = allObjectIds.filter(id => {
-      const dev = deviceMap[id];
-      return dev?.type === 'san_switch';
-    });
+    // Build unique physical storage devices and san devices (no duplicate rows)
+    const uniqueStorageRows: Array<{ name: string; xormonId: string; serial: string; hostname: string; fallbackId: string; inventoryDevice?: any }> = [];
+    const uniqueSanRows: Array<{ name: string; xormonId: string; serial: string; hostname: string; fallbackId: string; inventoryDevice?: any }> = [];
+    const processedKeys = new Set<string>();
 
-    // Also include any devices found in snapshot data but not in inventory
+    const addDeviceRow = (d: any, list: Array<any>) => {
+      const meta = (d.metadata || {}) as any;
+      const xId = String(meta.xormon_id || '').trim().toLowerCase();
+      const sNum = String(d.serial_number || '').trim().toLowerCase();
+      const hName = String(d.hostname || '').trim().toLowerCase();
+      
+      if ((xId && processedKeys.has(xId)) || (sNum && processedKeys.has(sNum)) || (hName && processedKeys.has(hName))) {
+        return;
+      }
+      if (xId) processedKeys.add(xId);
+      if (sNum) processedKeys.add(sNum);
+      if (hName) processedKeys.add(hName);
+
+      const devName = d.hostname || d.serial_number || xId;
+      if (devName && !processedKeys.has(devName.toLowerCase())) processedKeys.add(devName.toLowerCase());
+
+      list.push({
+        name: devName,
+        xormonId: xId,
+        serial: sNum,
+        hostname: hName,
+        fallbackId: sNum || xId || hName,
+        inventoryDevice: d
+      });
+    };
+
+    storageDevices.forEach(d => addDeviceRow(d, uniqueStorageRows));
+    sanDevices.forEach(d => addDeviceRow(d, uniqueSanRows));
+
+    // Also include any devices found in snapshot data but not in inventory (unique only)
     for (const objId of Object.keys(storageMonthlyMap)) {
-      if (!storageIds.includes(objId)) {
-        storageIds.push(objId);
-        if (!deviceMap[objId]) {
-          // Try to get the name from snapshot
-          const snap = snapshots.find(s => s.object_id === objId);
-          deviceMap[objId] = { name: snap?.object_name || objId, type: 'storage', serial: objId };
-        }
+      const cleanId = objId.toLowerCase();
+      if (!processedKeys.has(cleanId)) {
+        processedKeys.add(cleanId);
+        const snap = snapshots.find(s => (s.object_id || '').toLowerCase() === cleanId);
+        uniqueStorageRows.push({
+          name: snap?.object_name || objId,
+          xormonId: cleanId,
+          serial: cleanId,
+          hostname: cleanId,
+          fallbackId: cleanId
+        });
       }
     }
+
     for (const objId of Object.keys(sanMonthlyMap)) {
-      if (!sanIds.includes(objId)) {
-        sanIds.push(objId);
-        if (!deviceMap[objId]) {
-          const snap = snapshots.find(s => s.object_id === objId);
-          deviceMap[objId] = { name: snap?.object_name || objId, type: 'san_switch', serial: objId };
-        }
+      const cleanId = objId.toLowerCase();
+      if (!processedKeys.has(cleanId)) {
+        processedKeys.add(cleanId);
+        const snap = snapshots.find(s => (s.object_id || '').toLowerCase() === cleanId);
+        uniqueSanRows.push({
+          name: snap?.object_name || objId,
+          xormonId: cleanId,
+          serial: cleanId,
+          hostname: cleanId,
+          fallbackId: cleanId
+        });
       }
     }
+
 
     // 4. Build Excel
     const workbook = new ExcelJS.Workbook();
@@ -299,16 +334,23 @@ export const generateKpiExcel = async (req: Request, res: Response) => {
 
     // --- STORAGE DATA ROWS ---
     let currentRow = 3;
-    for (const objId of storageIds) {
-      const dev = deviceMap[objId];
+    for (const item of uniqueStorageRows) {
+      const dev = deviceMap[item.fallbackId] || { name: item.name, type: 'storage', serial: item.serial };
       const row = ws.getRow(currentRow);
-      row.getCell(1).value = dev?.name || objId;
+      row.getCell(1).value = item.name;
       row.getCell(1).alignment = LEFT;
       row.getCell(1).border = BORDER_THIN;
 
       col = 2;
       for (const month of sortedMonths) {
-        const data = storageMonthlyMap[objId]?.[month];
+        let data = (item.xormonId ? storageMonthlyMap[item.xormonId]?.[month] : undefined) ||
+                   (item.serial ? storageMonthlyMap[item.serial]?.[month] : undefined) ||
+                   (item.hostname ? storageMonthlyMap[item.hostname]?.[month] : undefined) ||
+                   storageMonthlyMap[item.fallbackId]?.[month];
+        if (!data) {
+          const matchingId = Object.keys(storageMonthlyMap).find(id => id.toLowerCase() === item.xormonId || id.toLowerCase() === item.serial || id.toLowerCase() === item.fallbackId || (item.hostname && id.toLowerCase() === item.hostname));
+          if (matchingId) data = storageMonthlyMap[matchingId][month];
+        }
         
         // Boş Kapasite (GiB)
         const freeGib = data?.capacity_free_gib;
@@ -399,34 +441,33 @@ export const generateKpiExcel = async (req: Request, res: Response) => {
     currentRow++;
 
     // --- SAN DATA ROWS ---
-    for (const objId of sanIds) {
-      const dev = deviceMap[objId] || { name: objId, type: 'san_switch', serial: objId };
-      const inventoryDevice = devices.find(d => {
+    for (const item of uniqueSanRows) {
+      const dev = deviceMap[item.fallbackId] || { name: item.name, type: 'san_switch', serial: item.serial };
+      const inventoryDevice = item.inventoryDevice || devices.find(d => {
         const meta = (d.metadata || {}) as any;
-        return (d.serial_number && d.serial_number.toLowerCase() === objId.toLowerCase()) ||
-               (d.serial_number && dev.serial && d.serial_number.toLowerCase() === dev.serial.toLowerCase()) ||
-               (meta.xormon_id && String(meta.xormon_id).toLowerCase() === objId.toLowerCase()) ||
-               (d.hostname && d.hostname.toLowerCase() === objId.toLowerCase()) ||
-               (d.hostname && dev.name && d.hostname.toLowerCase() === dev.name.toLowerCase());
+        return (d.serial_number && d.serial_number.toLowerCase() === item.serial) ||
+               (meta.xormon_id && String(meta.xormon_id).toLowerCase() === item.xormonId) ||
+               (d.hostname && d.hostname.toLowerCase() === item.hostname);
       });
       const metadata = (inventoryDevice?.metadata as any) || {};
-      const xormonId = (metadata.xormon_id || '').trim().toLowerCase();
-      const serial = (inventoryDevice?.serial_number || dev.serial || objId).trim().toLowerCase();
-      const hostname = (inventoryDevice?.hostname || dev.name || '').trim().toLowerCase();
+      const xormonId = item.xormonId;
+      const serial = item.serial;
+      const hostname = item.hostname;
       
       const row = ws.getRow(currentRow);
-      row.getCell(1).value = inventoryDevice?.hostname || dev.name || objId;
+      row.getCell(1).value = item.name;
       row.getCell(1).alignment = LEFT;
       row.getCell(1).border = BORDER_THIN;
 
       col = 2;
       for (const mKey of sortedMonths) {
-        // Try to match snapshots using both xormon_id and serial (normalized)
-        let data = sanMonthlyMap[xormonId]?.[mKey] || sanMonthlyMap[serial]?.[mKey] || (hostname ? sanMonthlyMap[hostname]?.[mKey] : undefined) || sanMonthlyMap[objId.toLowerCase()]?.[mKey];
+        let data = (xormonId ? sanMonthlyMap[xormonId]?.[mKey] : undefined) ||
+                   (serial ? sanMonthlyMap[serial]?.[mKey] : undefined) ||
+                   (hostname ? sanMonthlyMap[hostname]?.[mKey] : undefined) ||
+                   sanMonthlyMap[item.fallbackId]?.[mKey];
         
-        // If still no data, try to find in sanMonthlyMap with case-insensitive search
         if (!data) {
-          const matchingId = Object.keys(sanMonthlyMap).find(id => id.toLowerCase() === xormonId || id.toLowerCase() === serial || id.toLowerCase() === objId.toLowerCase() || (hostname && id.toLowerCase() === hostname));
+          const matchingId = Object.keys(sanMonthlyMap).find(id => id.toLowerCase() === xormonId || id.toLowerCase() === serial || id.toLowerCase() === item.fallbackId || (hostname && id.toLowerCase() === hostname));
           if (matchingId) data = sanMonthlyMap[matchingId][mKey];
         }
 
