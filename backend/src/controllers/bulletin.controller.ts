@@ -235,10 +235,15 @@ export const generateBulletin = async (req: Request, res: Response) => {
 
     const backupDevices = await prisma.inventoryItem.findMany({
       where: {
-        OR: [
-          { device_type: 'backup' },
-          { model: { name: { contains: 'Library', mode: 'insensitive' } } }
-        ]
+        model: {
+          OR: [
+            { device_type: 'backup' },
+            { name: { contains: 'Library', mode: 'insensitive' } }
+          ]
+        }
+      },
+      include: {
+        model: true
       }
     });
 
@@ -256,7 +261,7 @@ export const generateBulletin = async (req: Request, res: Response) => {
     const tapeLibraries: Array<{ name: string; assigned: number; spare: number }> = [];
     const allLibraries: Array<{ name: string; totalGiB: number; usedGiB: number; usedPct: number }> = [];
 
-    backupDevices.forEach(d => {
+    backupDevices.forEach((d: any) => {
       const meta = (d.metadata as any) || {};
       const name = d.hostname || d.serial_number;
       const isTape = meta.is_tape || name.toLowerCase().includes('tape') || d.model?.name?.toLowerCase().includes('tape');
