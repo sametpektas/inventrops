@@ -1,6 +1,7 @@
 import axios, { AxiosInstance } from 'axios';
 import https from 'https';
 import { DiscoveredDevice } from './dell';
+import { prisma } from '../lib/prisma';
 
 export interface CommvaultLibrary {
   libraryId: string;
@@ -371,16 +372,29 @@ export class CommvaultAdapter {
   async fetchInventory(): Promise<DiscoveredDevice[]> {
     console.log(`[Commvault] Starting inventory sync from ${this.config.url}...`);
     try {
+      // Clean up any previously synced disk libraries from inventory so they don't appear in frontend
+      try {
+        await prisma.inventoryItem.deleteMany({
+          where: {
+            serial_number: { startsWith: 'commvault-lib-' },
+            model: { name: 'Disk Library' }
+          }
+        });
+      } catch (e: any) {
+        console.warn(`[Commvault] Could not clean up old disk libraries from inventory: ${e.message}`);
+      }
+
       const libraries = await this.getLibraries();
-      const devices: DiscoveredDevice[] = libraries.map(lib => ({
+      const tapeLibraries = libraries.filter(lib => lib.isTape);
+      const devices: DiscoveredDevice[] = tapeLibraries.map(lib => ({
         serial_number: `commvault-lib-${lib.libraryId}`,
         hostname: lib.libraryName,
         vendor_name: 'Commvault',
-        model_name: lib.isTape ? 'Tape Library' : 'Disk Library',
+        model_name: 'Tape Library',
         device_type: 'backup',
         metadata: {
           commvault_id: lib.libraryId,
-          is_tape: lib.isTape,
+          is_tape: true,
           assigned_media: lib.assignedMediaCount,
           spare_media: lib.spareMediaCount,
           total_media: lib.totalMediaCount,
@@ -391,7 +405,7 @@ export class CommvaultAdapter {
         }
       }));
 
-      console.log(`[Commvault] Discovered ${devices.length} backup library items.`);
+      console.log(`[Commvault] Discovered ${devices.length} backup Tape library items for inventory/frontend (Disk libraries kept for bulletin only).`);
       return devices;
     } catch (error: any) {
       console.error(`[Commvault] Sync failed: ${error.message}`);

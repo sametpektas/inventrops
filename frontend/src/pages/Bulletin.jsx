@@ -37,9 +37,9 @@ export default function Bulletin() {
   const fetchStorageDevices = async () => {
     try {
       setLoading(true);
-      const data = await api.get('/inventory/items?limit=500');
-      const storageDevices = data.results.filter(
-        d => d.model?.device_type === 'storage'
+      const data = await api.get('/inventory/items?device_type=storage&limit=5000');
+      const storageDevices = (data.results || []).filter(
+        (d) => d.model?.device_type === 'storage' || !d.model?.device_type
       );
       setDevices(storageDevices);
     } catch (err) {

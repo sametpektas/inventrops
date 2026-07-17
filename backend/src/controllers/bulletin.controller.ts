@@ -134,10 +134,14 @@ export const generateBulletin = async (req: Request, res: Response) => {
 
     // selectedObjectIds: prefer xormon_id from metadata, fallback to serial
     const selectedObjectIds = serialNumbers.map(sn => serialToXormonMap[sn] || sn);
+    const deviceNames = serialNumbers.map(sn => {
+      const dev = allStorageDevices.find((d: any) => d.serial_number === sn);
+      return dev?.hostname || dev?.serial_number || sn;
+    }).filter(Boolean);
 
     console.log(`[Bulletin] Selected serials: ${serialNumbers.join(', ')}`);
     console.log(`[Bulletin] Mapped object IDs: ${selectedObjectIds.join(', ')}`);
-
+    console.log(`[Bulletin] Mapped device names: ${deviceNames.join(', ')}`);
 
     // Fetch capacity metrics (6 months ending at target month)
     const allStorageMetrics = await prisma.forecastMetricSnapshot.findMany({
@@ -145,46 +149,41 @@ export const generateBulletin = async (req: Request, res: Response) => {
       orderBy: { captured_at: 'asc' }
     });
 
-    // Primary query by object_id (xormon item_id or serial)
-    let selectedCapacityMetrics = await prisma.forecastMetricSnapshot.findMany({
-      where: { object_id: { in: selectedObjectIds }, metric_name: 'capacity_used_percent', captured_at: { gte: sixMonthsBefore, lte: monthEnd } },
+    // Query capacity metrics matching either object_id OR object_name
+    const selectedCapacityMetrics = await prisma.forecastMetricSnapshot.findMany({
+      where: {
+        OR: [
+          { object_id: { in: selectedObjectIds } },
+          { object_name: { in: deviceNames } }
+        ],
+        metric_name: 'capacity_used_percent',
+        captured_at: { gte: sixMonthsBefore, lte: monthEnd }
+      },
       orderBy: { captured_at: 'asc' }
     });
 
-    // FALLBACK: if no results by object_id, try matching by device hostname/serial (object_name)
-    if (selectedCapacityMetrics.length === 0) {
-      console.log(`[Bulletin] No capacity metrics found by object_id. Trying object_name fallback...`);
-      const deviceNames = serialNumbers.map(sn => {
-        const dev = allStorageDevices.find((d: any) => d.serial_number === sn);
-        return dev?.hostname || dev?.serial_number || sn;
-      }).filter(Boolean);
-
-      selectedCapacityMetrics = await prisma.forecastMetricSnapshot.findMany({
-        where: {
-          object_name: { in: deviceNames },
-          metric_name: 'capacity_used_percent',
-          captured_at: { gte: sixMonthsBefore, lte: monthEnd }
-        },
-        orderBy: { captured_at: 'asc' }
-      });
-      console.log(`[Bulletin] Fallback capacity query (by name) returned ${selectedCapacityMetrics.length} records.`);
-
-      // Rebuild selectedObjectIds from found data so location maps still work
-      const foundIds = [...new Set(selectedCapacityMetrics.map((m: any) => m.object_id))];
-      if (foundIds.length > 0) {
-        foundIds.forEach(id => {
-          if (!xormonLocationMap[id]) xormonLocationMap[id] = 'Ankara'; // Default to Ankara
-        });
-        selectedObjectIds.splice(0, selectedObjectIds.length, ...foundIds);
+    // Ensure all matched snapshot object_ids are in selectedObjectIds and have valid location mapping
+    selectedCapacityMetrics.forEach((m: any) => {
+      if (!selectedObjectIds.includes(m.object_id)) {
+        selectedObjectIds.push(m.object_id);
       }
-    }
+      if (!xormonLocationMap[m.object_id]) {
+        xormonLocationMap[m.object_id] = xormonLocationMap[m.object_name] || 'Ankara';
+      }
+      if (!xormonToNameMap[m.object_id]) {
+        xormonToNameMap[m.object_id] = m.object_name || m.object_id;
+      }
+    });
 
-    // Fetch IOPS & Response Time metrics (target month only)
+    // Fetch IOPS & Response Time metrics matching either object_id OR object_name
     let selectedPerfMetrics = await prisma.forecastMetricSnapshot.findMany({
-      where: { 
-        object_id: { in: selectedObjectIds }, 
-        metric_name: { in: ['iops', 'io_total', 'response_time', 'latency', 'response_time'] },
-        captured_at: { gte: monthStart, lte: monthEnd } 
+      where: {
+        OR: [
+          { object_id: { in: selectedObjectIds } },
+          { object_name: { in: deviceNames } }
+        ],
+        metric_name: { in: ['iops', 'io_total', 'response_time', 'latency'] },
+        captured_at: { gte: monthStart, lte: monthEnd }
       },
       orderBy: { captured_at: 'asc' }
     });
@@ -193,14 +192,29 @@ export const generateBulletin = async (req: Request, res: Response) => {
     if (selectedPerfMetrics.length === 0) {
       console.log(`[Bulletin] No perf metrics in target month. Widening window to 6 months...`);
       selectedPerfMetrics = await prisma.forecastMetricSnapshot.findMany({
-        where: { 
-          object_id: { in: selectedObjectIds }, 
+        where: {
+          OR: [
+            { object_id: { in: selectedObjectIds } },
+            { object_name: { in: deviceNames } }
+          ],
           metric_name: { in: ['iops', 'io_total', 'response_time', 'latency'] },
-          captured_at: { gte: sixMonthsBefore, lte: monthEnd } 
+          captured_at: { gte: sixMonthsBefore, lte: monthEnd }
         },
         orderBy: { captured_at: 'asc' }
       });
     }
+
+    selectedPerfMetrics.forEach((m: any) => {
+      if (!selectedObjectIds.includes(m.object_id)) {
+        selectedObjectIds.push(m.object_id);
+      }
+      if (!xormonLocationMap[m.object_id]) {
+        xormonLocationMap[m.object_id] = xormonLocationMap[m.object_name] || 'Ankara';
+      }
+      if (!xormonToNameMap[m.object_id]) {
+        xormonToNameMap[m.object_id] = m.object_name || m.object_id;
+      }
+    });
 
     console.log(`[Bulletin] Capacity metrics: ${selectedCapacityMetrics.length} | Perf metrics: ${selectedPerfMetrics.length}`);
 
