@@ -58,7 +58,7 @@ export const generateKpiExcel = async (req: Request, res: Response) => {
     devices.forEach((d: any) => {
       const metadata = (d.metadata || {}) as any;
       const xormonId = metadata?.xormon_id || '';
-      const vendorName = (d.vendor?.name || '').toLowerCase();
+      const vendorName = (d.vendor?.name || d.model?.vendor?.name || '').toLowerCase();
       const modelName = (d.model?.name || '').toLowerCase();
       const hostName = (d.hostname || d.serial_number || '').toLowerCase();
       const isSan = d.model?.device_type === 'san_switch' ||
@@ -147,9 +147,9 @@ export const generateKpiExcel = async (req: Request, res: Response) => {
     });
 
     // Separate devices by type using original list
-    const sanDevices = devices.filter(d => {
+    const sanDevices = devices.filter((d: any) => {
       const meta = (d.metadata || {}) as any;
-      const vendorName = (d.vendor?.name || '').toLowerCase();
+      const vendorName = (d.vendor?.name || d.model?.vendor?.name || '').toLowerCase();
       const modelName = (d.model?.name || '').toLowerCase();
       const hostName = (d.hostname || d.serial_number || '').toLowerCase();
       return d.model?.device_type === 'san_switch' || meta.available_ports !== undefined || meta.total_ports !== undefined || meta.free_ports !== undefined || meta.used_ports !== undefined || vendorName.includes('brocade') || (vendorName.includes('cisco') && (modelName.includes('mds') || hostName.includes('mds'))) || modelName.includes('brocade') || modelName.includes('mds') || (meta.hw_type || '').toLowerCase().includes('brcd');
