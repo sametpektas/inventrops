@@ -147,11 +147,14 @@ export class CommvaultAdapter {
 
       const result: CommvaultLibrary[] = [];
       for (const item of itemsArray) {
-        const lib = item.library || item.libraryEntity || item.libraryInfo || item;
-        const libId = String(lib.libraryId || lib.id || lib.LibraryId || '');
-        if (!libId) continue;
+        const lib = item.library || item.libraryEntity || item.libraryInfo || item.entityInfo || item;
+        const libId = String(lib.libraryId || lib.id || lib.LibraryId || lib.entityId || item.libraryId || item.id || item.LibraryId || item.entityInfo?.id || item.entityInfo?.libraryId || item.library?.id || item.library?.libraryId || '');
+        if (!libId) {
+          console.warn(`[Commvault] Skipping library item with missing ID. Keys:`, Object.keys(item), `Sample:`, JSON.stringify(item).substring(0, 300));
+          continue;
+        }
 
-        const libName = lib.libraryName || lib.name || lib.LibraryName || `Library-${libId}`;
+        const libName = lib.libraryName || lib.name || lib.LibraryName || lib.displayName || item.libraryName || item.name || item.LibraryName || item.displayName || item.entityInfo?.name || item.entityInfo?.displayName || item.library?.libraryName || item.library?.name || `Library-${libId}`;
         const isTape = Boolean(lib.isTapeLibrary || libName.toLowerCase().includes('tape') || libName.toLowerCase().includes('msl') || libName.toLowerCase().includes('ts4') || libName.toLowerCase().includes('ts3') || libName.toLowerCase().includes('quantum') || libName.toLowerCase().includes('scalar') || lib.libraryType === 1 || String(lib.libraryType).toLowerCase().includes('tape'));
 
         let assignedMediaCount = lib.assignedMediaCount !== undefined ? Number(lib.assignedMediaCount) : (lib.assignedMedia !== undefined ? Number(lib.assignedMedia) : undefined);
@@ -239,12 +242,15 @@ export class CommvaultAdapter {
 
       const result: CommvaultSubclient[] = [];
       for (const item of itemsArray) {
-        const sc = item.subclientEntity || item.subClientEntity || item.subclient || item.subClient || item;
-        const subclientId = String(sc.subclientId || sc.id || sc.subClientId || '');
-        if (!subclientId) continue;
+        const sc = item.subclientEntity || item.subClientEntity || item.subclient || item.subClient || item.entityInfo || item;
+        const subclientId = String(sc.subclientId || sc.id || sc.subClientId || sc.entityId || item.subclientId || item.id || item.subClientId || item.entityInfo?.id || item.entityInfo?.subclientId || '');
+        if (!subclientId) {
+          console.warn(`[Commvault] Skipping subclient item with missing ID. Keys:`, Object.keys(item), `Sample:`, JSON.stringify(item).substring(0, 300));
+          continue;
+        }
 
-        const subclientName = sc.subclientName || sc.name || sc.subClientName || `Subclient-${subclientId}`;
-        const clientName = sc.clientName || sc.client?.name || sc.displayName || 'Unknown-Client';
+        const subclientName = sc.subclientName || sc.name || sc.subClientName || sc.displayName || item.subclientName || item.name || item.displayName || item.entityInfo?.name || item.entityInfo?.displayName || `Subclient-${subclientId}`;
+        const clientName = sc.clientName || sc.client?.name || sc.displayName || item.clientName || item.client?.name || 'Unknown-Client';
         const appName = sc.appName || sc.instanceName || sc.agentName;
 
         const bytes = Number(item.applicationSize || item.backupSize || sc.applicationSize || sc.backupSize || 0);

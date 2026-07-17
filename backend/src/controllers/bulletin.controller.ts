@@ -353,6 +353,8 @@ export const generateBulletin = async (req: Request, res: Response) => {
       growthPct: sc.first > 0 ? ((sc.latest - sc.first) / sc.first) * 100 : 0
     })).sort((a, b) => b.growthGiB - a.growthGiB).slice(0, 20);
 
+    console.log(`[Bulletin] Backup Stats — Devices: ${backupDevices.length}, Snapshots: ${backupSnapshots.length}, TapeLibs: ${tapeLibraries.length}, AllLibs: ${allLibraries.length}, GrowthMap Keys: ${Object.keys(libraryGrowthMap).length}, SLA Pts: ${slaHistory.length}, TopSubclients: ${topSubclients.length}`);
+
     const pres = new pptxgen();
     pres.layout = 'LAYOUT_WIDE'; // 13.33 x 7.5 inches
 
