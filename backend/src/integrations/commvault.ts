@@ -49,11 +49,33 @@ export class CommvaultAdapter {
 
     try {
       console.log(`[Commvault] Authenticating with ${this.config.url}...`);
-      // Try standard V4/V1 Login endpoint
-      const response = await this.client.post('/Login', {
-        username: this.config.username,
-        password: this.config.password
-      });
+      let response: any;
+      try {
+        response = await this.client.post('/Login', {
+          username: this.config.username,
+          password: this.config.password
+        });
+      } catch (firstErr: any) {
+        if (firstErr.response?.status === 404) {
+          try {
+            response = await this.client.post('/V4/Login', {
+              username: this.config.username,
+              password: this.config.password
+            });
+          } catch (secondErr: any) {
+            if (secondErr.response?.status === 404) {
+              response = await this.client.post('/login', {
+                username: this.config.username,
+                password: this.config.password
+              });
+            } else {
+              throw secondErr;
+            }
+          }
+        } else {
+          throw firstErr;
+        }
+      }
 
       const token = response.headers['authtoken'] || response.headers['Authtoken'] || response.data?.token || response.data?.authtoken || response.data?.tokenResponse?.token;
 
