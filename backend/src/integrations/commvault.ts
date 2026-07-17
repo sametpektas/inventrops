@@ -194,7 +194,7 @@ export class CommvaultAdapter {
           const data = response.data || {};
           const rawList = Array.isArray(data)
             ? data
-            : data.tapeStorageList || data.diskStorageList || data.storageList || data.libraryInfoList || data.libraries || data.libraryList || data.librariesList || data.response || data.data || [];
+            : data.tapeStorage || data.diskStorage || data.tapeStorageList || data.diskStorageList || data.storageList || data.libraryInfoList || data.libraries || data.libraryList || data.librariesList || data.response || data.data || [];
 
           const itemsArray = Array.isArray(rawList) ? rawList : (rawList && typeof rawList === 'object' ? [rawList] : []);
           console.log(`[Commvault] Endpoint ${ep.path} returned ${itemsArray.length} items. Keys:`, Object.keys(data));
@@ -206,8 +206,6 @@ export class CommvaultAdapter {
               console.warn(`[Commvault] Skipping item with missing ID from ${ep.path}. Keys:`, Object.keys(item), `Sample:`, JSON.stringify(item).substring(0, 300));
               continue;
             }
-
-            if (resultMap.has(libId)) continue; // Already processed
 
             const libName = lib.libraryName || lib.name || lib.LibraryName || lib.displayName || lib.tapeStorageName || lib.diskStorageName || lib.storageName || item.libraryName || item.name || item.LibraryName || item.displayName || item.entityInfo?.name || item.entityInfo?.displayName || item.library?.libraryName || item.library?.name || `Library-${libId}`;
             const isTape = Boolean(ep.isTapeHint || lib.isTapeLibrary || libName.toLowerCase().includes('tape') || libName.toLowerCase().includes('msl') || libName.toLowerCase().includes('ts4') || libName.toLowerCase().includes('ts3') || libName.toLowerCase().includes('quantum') || libName.toLowerCase().includes('scalar') || lib.libraryType === 1 || String(lib.libraryType).toLowerCase().includes('tape'));
@@ -327,18 +325,28 @@ export class CommvaultAdapter {
             const capacityFreeGiB = capFreeBytes ? capFreeBytes / (1024 * 1024 * 1024) : (Number(lib.capacityFreeGiB || lib.freeSpaceGiB || lib.freeCapacityGiB || 0));
             const capacityUsedGiB = capUsedBytes ? capUsedBytes / (1024 * 1024 * 1024) : (Number(lib.capacityUsedGiB || lib.usedSpaceGiB || lib.usedCapacityGiB || (capacityTotalGiB > capacityFreeGiB ? capacityTotalGiB - capacityFreeGiB : 0)));
 
-            resultMap.set(libId, {
-              libraryId: libId,
-              libraryName: libName,
-              isTape,
-              assignedMediaCount,
-              spareMediaCount,
-              totalMediaCount,
-              capacityTotalGiB,
-              capacityUsedGiB,
-              capacityFreeGiB,
-              raw: lib
-            });
+            const existing = resultMap.get(libId);
+            if (existing) {
+              if (capacityTotalGiB > existing.capacityTotalGiB) existing.capacityTotalGiB = capacityTotalGiB;
+              if (capacityUsedGiB > existing.capacityUsedGiB) existing.capacityUsedGiB = capacityUsedGiB;
+              if (capacityFreeGiB > existing.capacityFreeGiB) existing.capacityFreeGiB = capacityFreeGiB;
+              if (assignedMediaCount !== undefined && (existing.assignedMediaCount === undefined || assignedMediaCount > existing.assignedMediaCount)) existing.assignedMediaCount = assignedMediaCount;
+              if (spareMediaCount !== undefined && (existing.spareMediaCount === undefined || spareMediaCount > existing.spareMediaCount)) existing.spareMediaCount = spareMediaCount;
+              if (totalMediaCount !== undefined && (existing.totalMediaCount === undefined || totalMediaCount > existing.totalMediaCount)) existing.totalMediaCount = totalMediaCount;
+            } else {
+              resultMap.set(libId, {
+                libraryId: libId,
+                libraryName: libName,
+                isTape,
+                assignedMediaCount,
+                spareMediaCount,
+                totalMediaCount,
+                capacityTotalGiB,
+                capacityUsedGiB,
+                capacityFreeGiB,
+                raw: lib
+              });
+            }
           }
         } catch (err: any) {
           // Endpoint might not exist or return 404, continue to next
@@ -395,7 +403,7 @@ export class CommvaultAdapter {
             try {
               const scRes = await this.requestGet(`/Subclient?clientId=${clientId}`, headers);
               const scData = scRes.data || {};
-              const scList = Array.isArray(scData) ? scData : scData.subclientProperties || scData.subclientList || scData.subClientList || scData.subclients || scData.data || [];
+              const scList = Array.isArray(scData) ? scData : scData.subclientProperties || scData.subclientList || scData.subClientList || scData.subclients || scData.data || scData.response || [];
               const scArr = Array.isArray(scList) ? scList : (scList && typeof scList === 'object' ? [scList] : []);
               if (scArr.length > 0) {
                 itemsArray.push(...scArr);
